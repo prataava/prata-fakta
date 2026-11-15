@@ -120,19 +120,19 @@ Python, satu query live GDELT, riset web untuk NewsAPI (tanpa mendaftar).
 
 ## 6. AI Editorial — status jujur (Fase 1)
 
-- **BELUM ADA agen AI yang berjalan.** Kesepuluh agen di brief bagian G
-  (Research, Source Analysis, Fact Verification, Summarization, Article
-  Writing, Translation, Trend Analysis, Daily Brief, Data Analysis,
-  Editorial Quality) **BELUM TERSEDIA** di Fase 1 — tidak dibuat tombol atau
-  label yang pura-pura menjalankannya.
-- **Pola yang akan dipakai (Fase 4):** orkestrasi lewat Muse — cron/scheduled
-  job Muse (seperti Mesin Soal PRATA: validator + generator + deploy +
-  verifikasi) yang membaca RSS/GDELT, menulis draft ke database, dan
-  menunggu persetujuan editor. Tanpa GPT/Gemini/DeepSeek, tanpa kunci API
-  eksternal.
-- **Sampai Fase 4:** seluruh artikel ditulis manual oleh editor/writer lewat
-  dashboard (Fase 5) dari sumber terverifikasi; status verifikasi diisi
-  manusia, bukan AI.
+- **Fase 1: BELUM ADA agen AI yang berjalan.** Kesepuluh agen di brief
+  bagian G (Research, Source Analysis, Fact Verification, Summarization,
+  Article Writing, Translation, Trend Analysis, Daily Brief, Data
+  Analysis, Editorial Quality) **BELUM TERSEDIA** di Fase 1 — tidak dibuat
+  tombol atau label yang pura-pura menjalankannya.
+- **Pola yang dipakai (Fase 4, lihat §11):** orkestrasi lewat Muse —
+  cron/scheduled job Muse (seperti Mesin Soal PRATA: validator +
+  generator + deploy + verifikasi) yang membaca RSS/GDELT, menulis draft
+  ke database, dan menunggu persetujuan editor. Tanpa GPT/Gemini/
+  DeepSeek, tanpa kunci API eksternal.
+- **Sampai Fase 4:** seluruh artikel ditulis manual oleh editor/writer
+  lewat dashboard (Fase 5) dari sumber terverifikasi; status verifikasi
+  diisi manusia, bukan AI.
 
 ## 7. Halaman Fase 1 — status
 
@@ -143,7 +143,7 @@ Python, satu query live GDELT, riset web untuk NewsAPI (tanpa mendaftar).
 | Arsip `/arsip` | **Fase 2** — filter kategori/status/kata kunci + tanggal (dari–sampai) + sumber; hasil memakai `KartuArtikel` |
 | Pencarian `/cari` | **Fase 2** — seksi hasil "Artikel" dari `cariArtikel` + catatan jujur bila tabel belum ada; kategori + sumber dipertahankan |
 | Artikel `/artikel/[slug]` | **Fase 2** — halaman lengkap: 3 mode baca, bookmark, riwayat baca, progress, laporan kesalahan, kronologi, data pendukung, riwayat versi |
-| Daily Brief `/brief` | Selesai — penjelasan + empty state jujur (edisi pertama terbit Fase 4) |
+| Daily Brief `/brief` | **Fase 4** — tersambung ke `pf_daily_briefs` nyata (hanya status `terbit`); seksi + isu berkembang + lencana status verifikasi; empty state jujur bila belum ada edisi terbit |
 | Masuk `/masuk`, Daftar `/daftar`, Profil `/profil` | Selesai — Supabase Auth nyata; profil: ubah kata sandi via email, keluar |
 | Kebijakan `/kebijakan/redaksi`, `/koreksi`, `/privasi`, `/syarat` | Selesai — isi nyata sesuai brief bagian P |
 | Admin dashboard | **Fase 5** — belum dibangun |
@@ -179,7 +179,8 @@ Python, satu query live GDELT, riset web untuk NewsAPI (tanpa mendaftar).
 2. **Auth belum diuji terhadap akun nyata** sampai migrasi + build lolos
    (rencana uji: daftar akun tes, masuk, keluar, reset kata sandi).
 3. **Belum di-deploy ke Vercel** (menunggu build lolos + keputusan pemilik).
-4. **Agen AI belum ada** (lihat §6).
+4. **Agen AI (Fase 4) selesai di kode, belum jalan di produksi** (lihat
+   §11) — migrasi v4 + deploy masih blokir (butir 1 dan 3).
 5. **Tempo/VOA/Kompas/Detik tidak bisa di-ingest** dari VM ini (lihat §5.2).
 
 ## 9. Rencana Fase 2 (News Platform)
@@ -311,3 +312,218 @@ Editorial Quality) lewat cron/scheduled job + `pf_articles.raw_item_id`
 sebagai jejak provenance. Yang masih dibutuhkan sebelum Fase 4: migrasi
 dijalankan di produksi + deploy + secret terisi (lihat §10.5 butir 1–2).
 Daily Brief tetap Fase 4 — tidak dibangun di Fase 3.
+
+## 11. Fase 4 — AI Editorial Intelligence (16 Nov 2026, selesai di kode, terverifikasi lokal)
+
+### 11.1 Mekanisme AI yang jujur
+
+AI di PRATA FAKTA = **Muse sebagai pusat orkestrasi**, PERSIS pola
+Mesin Soal Otonom PRATA yang sudah berjalan (cron harian menambah soal
+tervalidasi). Tidak ada GPT/Gemini/DeepSeek, tidak ada kunci API
+eksternal, tidak ada endpoint AI fiktif yang pura-pura memanggil model.
+
+Yang **otomatis** (kode + jadwal, tanpa penilaian bahasa oleh model):
+GitHub Actions cron → endpoint `/api/ai/*` → pipeline deterministik
+(aturan tetap + ekstraksi pola) yang membaca antrean, mengekstrak klaim,
+membandingkan antar sumber independen, menulis draf + verification
+record + log `pf_ai_runs`. Yang **lewat Muse (cron/chat)**: penilaian
+isi, penyempurnaan draf, penerjemahan kontekstual, dan keputusan
+editorial — draf yang dihasilkan pipeline adalah draf awal yang WAJIB
+disempurnakan Muse dan disetujui editor sebelum terbit (Fase 5).
+Artikel TIDAK PERNAH auto-terbit; tidak ada status yang dinaikkan
+otomatis.
+
+Yang **belum jalan**: seluruhnya — migrasi v4 belum dijalankan di
+produksi dan deploy Vercel masih blokir 403 (lihat §11.5). Workflow
+GitHub Actions hanya konfigurasi sampai deploy + secret ada.
+
+### 11.2 Yang dibangun
+
+- **Migrasi v4** (`supabase/migrations/20261116_pf_v4_ai.sql`):
+  `pf_ai_runs` (agen, input_ref/jenis, status berjalan/berhasil/gagal/
+  dilewati, durasi_ms, error, detail, dipicu_oleh manual/jadwal/
+  github_actions/cron_muse), `pf_claims` (teks, jenis fakta/angka/
+  kutipan/tanggal/lain, status, artikel_id ATAU raw_item_id wajib
+  terisi), `pf_evidence` (klaim_id, sumber_url/nama, kutipan, arah
+  mendukung/menentang/netral), `pf_verification_records` (artikel_id
+  atau raw_item_id, agen, keputusan VERIFIED/CROSS-CHECKED/DEVELOPING/
+  UNCONFIRMED/DISPUTED/CORRECTED, catatan, bukti jsonb, dibuat_oleh),
+  `pf_daily_briefs` (tanggal UNIQUE, isi jsonb, status draft/terbit).
+  RLS aktif di 5 tabel; 6 policy baru (baca staf per tabel + baca
+  publik hanya brief `terbit`); tulis hanya service role. Tanpa seed
+  operasional.
+- **Pustaka editorial** (`src/lib/ai/`): `types.ts` (kontrak AiAdapter
+  — JANGAN ganti nama method), `research.ts` (fetch halaman artikel
+  + ekstrak klaim: judul, angka, kutipan, tanggal), `source-analysis.ts`
+  (tier dari `pf_sources.prioritas`: ≥90 tier 1, 70–89 tier 2, <70
+  tier 3; skor kredibilitas 90/75/60 — TIDAK PERNAH dari popularitas),
+  `verification.ts` (lihat §11.3), `summarization.ts` (ekstraktif
+  300–450 karakter, tanpa parafrase), `writing.ts` (draf orisinal
+  format brief-H dari klaim terverifikasi + seksi "Yang belum
+  diketahui", tanpa angka/nama/tanggal/kutipan karangan),
+  `translation.ts` (heuristik saja: Indonesia → dilewati "tidak
+  diperlukan"; Inggris/tak dikenal → dilewati "menunggu terjemahan
+  Muse (cron/chat)" — TIDAK ADA machine translation), `quality.ts`
+  (8 cek deterministik), `trends.ts` (kata kunci judul, stopwords
+  id+en, ambang "berkembang": ≥5 item/24 jam ATAU ≥3 sumber independen/
+  24 jam), `brief.ts` (5 seksi + isu berkembang), `pipeline.ts`
+  (orkestrator dua fase + `jalankanBriefHarian`), `supabase-adapter.ts`
+  (service role), `route-auth.ts` (rate limit + auth ganda route AI).
+- **Pipeline dua fase** (`jalankanPipelineEditorial`): Fase 1 riset
+  SEMUA item batch dulu (klaim tersimpan) agar Fase 2 bisa
+  membandingkan klaim antar item; Fase 2 verifikasi + draf per item.
+  Setiap langkah agen dibungkus try/catch dan menulis `pf_ai_runs`
+  (berhasil/gagal/dilewati + durasi + alasan). Satu langkah gagal
+  tidak menggagalkan item lain. Klaim tidak diduplikasi pada run ulang
+  (`cariKlaimSama` — item yang tetap UNCONFIRMED sengaja tinggal di
+  antrean karena koroborasi bisa datang dari batch berikutnya).
+- **Verifikasi — dua sinyal** (`verification.ts`):
+  (a) Sinyal judul: kelompok `hash_judul` identik; independen =
+  akar rantai `disalin_dari` yang berbeda (salinan = SATU sumber).
+  ≥2 independen tier-1 → VERIFIED; ≥2 independen → CROSS-CHECKED;
+  ≥3 item/24 jam + 1 sumber → DEVELOPING; selain itu UNCONFIRMED.
+  (b) Sinyal koroborasi klaim: inti klaim angka/kutipan (angka
+  pertama + satuan; kutipan ≥10 karakter ternormalisasi) yang muncul
+  di item lain dari sumber independen, dengan penjaga token judul
+  (judul kedua item harus berbagi token penting — angka generik
+  seperti "10 persen" di cerita tak terkait tidak dihitung).
+  Hitungan TOTAL termasuk sumber utama (aturan dua-sumber: utama +
+  1 koroborator independen sudah terkoroborasi; total ≥2 dengan
+  ≥2 tier-1 → VERIFIED, total ≥2 → CROSS-CHECKED). Sinyal
+  terkuat menang (UNCONFIRMED < DEVELOPING < CROSS-CHECKED <
+  VERIFIED). TIDAK PERNAH auto-DISPUTED/CORRECTED — keduanya hanya
+  dari evidence/review manusia/Muse lewat chat.
+- **Daily Brief** (`jalankanBriefHarian` + `/brief`): entri dari draf
+  artikel terbaru (maks 10) lalu dilengkapi dari antrean UNCONFIRMED
+  (berlabel jujur) sampai 10 entri; upsert per tanggal, selalu
+  status 'draft'. Halaman `/brief` membaca brief `terbit` terbaru
+  lewat `getBriefTerbit()` — hanya status `terbit` (RLS); seksi
+  Indonesia/Dunia/Ekonomi/Teknologi/Sains + Isu Berkembang dengan
+  judul, ringkasan, waktu, lokasi (null bila tak ada — tidak ditebak),
+  kategori, sumber, lencana status verifikasi, tautan; empty state
+  jujur bila belum ada edisi terbit. Halaman memakai
+  `export const instant = false` (pola /arsip, /cari) karena membaca
+  data dinamis per request.
+- **API** (`src/app/api/ai/`): `GET /api/ai/status` (status 10 agen +
+  10 run terakhir dari `pf_ai_runs` nyata; agen yang belum pernah
+  jalan dilaporkan `belum_pernah_berjalan: true`), `GET
+  /api/ai/antrean` (total UNCONFIRMED persis + 20 item + 20 klaim
+  tanpa verifikasi), `POST /api/ai/jalankan` (pemicu pipeline,
+  limit 1–50 bawaan 10), `POST /api/ai/brief` (pemicu Daily Brief,
+  tanggal opsional YYYY-MM-DD). Semua: rate limit in-memory,
+  auth ganda (header `x-pf-ai-secret` == `PF_AI_SECRET` ATAU sesi
+  super_admin/editor), 503 jujur bila secret/service key/tabel belum
+  ada, pesan Bahasa Indonesia.
+- **Scheduler**: `.github/workflows/editorial.yml` (pipeline tiap
+  6 jam `0 0,6,12,18 * * *`; Daily Brief harian 22:00 UTC = 05:00
+  WIB; `workflow_dispatch` dengan input tugas/limit; curl
+  `--fail-with-body` ke endpoint AI). TIDAK AKTIF sampai deploy +
+  secret `PF_AI_SECRET` + `PF_SITE_URL` terisi.
+- **Uji**: `scripts/uji-editorial.mjs` (PGlite + 3 feed tier-1 nyata +
+  pipeline limit 200 + brief + tren), `/tmp/uji-draf-sintetis.mjs`
+  (5 skenario: VERIFIED→draf, DEVELOPING→dilewati, salinan=1 sumber,
+  terjemahan, quality gagal), `/tmp/pf-sqlcheck/cek-v4.mjs`.
+
+### 11.3 Status 10 agen (16 Nov 2026)
+
+| Agen | Status | Keterangan |
+|---|---|---|
+| Research | **Jalan (deterministik)** | Fetch halaman + ekstrak klaim (judul/angka/kutipan/tanggal); log `pf_ai_runs` per item |
+| Source Analysis | **Jalan (deterministik)** | Skor kredibilitas dari tier `pf_sources.prioritas`, bukan popularitas |
+| Fact Verification | **Jalan (deterministik)** | Dua sinyal (§11.2); bukti tidak cukup → TETAP UNCONFIRMED |
+| Summarization | **Jalan (deterministik)** | Ringkasan ekstraktif 300–450 karakter dari klaim |
+| Article Writing | **Jalan (draf awal)** | Draf orisinal dari klaim terverifikasi; WAJIB disempurnakan Muse + disetujui editor sebelum terbit |
+| Translation | **Parsial** | Heuristik saja (Indonesia dilewati; Inggris menunggu Muse) — TIDAK ADA machine translation |
+| Trend Analysis | **Jalan (deterministik)** | Hitung nyata volume per kata kunci + ambang terdokumentasi; label kata generik bisa berisik (mis. "indonesia", "asean") |
+| Daily Brief | **Jalan (deterministik)** | Susun brief dari draf + antrean; tersimpan sebagai `draft`, belum terbit |
+| Data Analysis | **BELUM TERSEDIA** | Visualisasi data masuk **Fase 6** — tidak dibuat tombol/label yang pura-pura jalan |
+| Editorial Quality | **Jalan (deterministik)** | 8 cek (konsistensi, bahasa, kelengkapan sumber); draf gagal cek = tidak siap-review |
+
+### 11.4 Hasil verifikasi (16 Nov 2026, dry-run lokal ke PGlite, feed nyata)
+
+- **Migrasi** (`node /tmp/pf-sqlcheck/cek-v4.mjs`, exit 0): v1→v2→
+  v3→v4→v4 lagi idempoten; **23 tabel pf_\***, **RLS 23/23**,
+  **59 policy** (53 + 6 baru); insert 5/5 berhasil (termasuk relasi
+  klaim→evidence dan raw_item→verification); uji negatif 7/7 ditolak.
+- **Pipeline** (`node scripts/uji-editorial.mjs`, exit 0, "SEMUA
+  LOLOS"): ingestion 200 ditemukan / 200 baru (Antara 50, CNN 100,
+  Liputan6 50); pipeline limit 200 — **200 diproses, 7 draf,
+  7 terverifikasi, 0 cross_checked, 0 developing, 193 unconfirmed,
+  0 gagal**; klaim=715, evidence=723, verification_records=200,
+  artikel_draf=7, ai_runs=821 (research 200 berhasil, source_analysis
+  200, fact_verification 200, article_writing 7 berhasil/193
+  dilewati, summarization 7, translation 7 dilewati, editorial_quality
+  7). Contoh draf: "Kemarin, Prabowo di KTT ASEAN hingga dukungan
+  Dasco jadi cawapres" (slug `kemarin-prabowo-di-ktt-asean-hingga-
+  dukungan-dasco-jadi-cawa-1c3428`, isi 1.719 karakter).
+- **Koroborasi klaim yang memverifikasi 7 draf**: inti "700 juta"
+  (angka latar populasi ASEAN — muncul di artikel-artikel KTT ASEAN
+  dari 2 sumber tier-1) dan "2 triliun" pada 1 item. Catatan jujur:
+  verifikasi deterministik adalah sinyal triase — koroborasi bisa
+  bertumpu pada angka latar yang diulang banyak artikel, bukan pada
+  peristiwa utama; karena itu draf WAJIB lewat review Muse/editor
+  sebelum terbit, dan `verification_records.bukti` selalu mencatat
+  inti yang cocok (`koroborasi_klaim`) agar dasar keputusan bisa
+  diperiksa.
+- **Daily Brief** (dry-run yang sama): 1 baris `pf_daily_briefs`
+  tanggal 2026-11-16, status `draft`, **10 entri** (7 dari draf
+  VERIFIED + 3 UNCONFIRMED berlabel jujur), 10 isu berkembang.
+- **Tren**: "indonesia" 24j=16/7h=17, "asean" 12/12, "2026" 9/10,
+  "championship" 8/8, "cnn" 8/8 — semua dengan angka nyata.
+- **Uji sintetis** (`node /tmp/uji-draf-sintetis.mjs`, exit 0):
+  5 skenario lolos (VERIFIED→draf tersimpan + quality lolos +
+  siap_review; DEVELOPING→dilewati; disalin_dari→UNCONFIRMED;
+  Inggris→menunggu Muse; quality gagal + 7 alasan tercatat).
+- **Build/lint/tsc**: `npm run build` EXIT 0 (38 halaman; 4 route
+  `/api/ai/*` + `/brief` terdaftar sebagai Dynamic ƒ),
+  `npm run lint` EXIT 0, `npx tsc --noEmit` EXIT 0. Workflow
+  `.github/workflows/editorial.yml` valid (YAML + cron 5-field).
+- **Smoke test route** (`next start` lokal, exit 0): GET
+  `/api/ai/status` dan `/api/ai/antrean` tanpa auth → **401**;
+  POST `/api/ai/jalankan` dan `/api/ai/brief` tanpa auth/secret →
+  **503** jujur ("secret belum diatur"); GET `/brief` → **200**,
+  36.770 byte, memuat empty state "Daily Brief pertama belum
+  terbit" (tabel produksi belum ada).
+
+### 11.5 Blokir & catatan Fase 4 (jujur)
+
+1. **Migrasi v1–v4 BELUM dijalankan di Supabase produksi** — butuh
+   pemilik lewat SQL Editor. Sampai dijalankan, API AI mengembalikan
+   401/503 yang jujur dan tidak ada job yang bisa jalan di produksi.
+2. **Belum di-deploy ke Vercel** (blokir 403 tim `prataava`, lihat
+   §3) → endpoint AI + kedua workflow GitHub Actions belum bisa aktif.
+   Secret `PF_AI_SECRET` + `PF_SITE_URL` juga belum dibuat.
+3. **Koroborasi klaim bisa bertumpu pada angka latar** (lihat §11.4)
+   — sinyal deterministik bukan penilaian isi; review Muse/editor
+   tetap wajib sebelum terbit.
+4. **Daily Brief tersimpan sebagai `draft`** — penerbitan (status
+   `terbit`) dan pengiriman newsletter tetap Fase 5; halaman `/brief`
+   hanya menampilkan edisi `terbit`.
+5. **Translation parsial** — tidak ada machine translation; item
+   Inggris menunggu terjemahan Muse lewat cron/chat.
+6. **Data Analysis BELUM TERSEDIA** — masuk Fase 6.
+7. **Topik GDELT masih hardcoded "Indonesia"** (warisan §10.5 butir 4)
+   — tidak berubah di Fase 4.
+8. **Bug yang ditemukan & diperbaiki selama Fase 4** (agar tidak
+   terulang): (a) verifikasi judul saja hampir tidak pernah
+   memverifikasi data RSS nyata (judul sama antar-penerbit selalu
+   `disalin_dari` → 1 sumber) — diperbaiki dengan koroborasi klaim +
+   pipeline dua fase; (b) penghitung koroborator tidak memasukkan
+   sumber utama sehingga klaim 2-sumber tak pernah lolos — diperbaiki
+   ke hitungan total (aturan dua-sumber); (c) regex angka melewatkan
+   mata uang di depan angka ("Rp 16.500", "USD 100") — diperbaiki;
+   (d) run ulang menduplikasi klaim item UNCONFIRMED — diperbaiki
+   dengan `cariKlaimSama`; (e) ambang top-up brief `< 5` membuat
+   brief 5 entri terverifikasi tidak dilengkapi — diperbaiki ke
+   `< 10`; (f) halaman `/brief` gagal prerender (baca data dinamis)
+   — diperbaiki dengan `export const instant = false` (pola /arsip).
+
+### 11.6 Kesiapan Fase 5 (Dashboard Editorial)
+
+Fondasi tersedia: draf artikel + verification record + klaim/evidence
++ `pf_ai_runs` + antrean AI + brief draf — semuanya bisa dibaca
+dashboard staf lewat API yang sudah ada. Yang masih dibutuhkan
+sebelum Fase 5: migrasi v1–v4 dijalankan di produksi + deploy Vercel
++ secret terisi + workflow aktif + uji login staf nyata. Penerbitan
+artikel (terbit/koreksi), moderasi klaim, dan pengiriman newsletter
+tetap Fase 5 — tidak dibangun di Fase 4.

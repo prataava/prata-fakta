@@ -164,6 +164,71 @@ perbarui `pf_sources` + 1 artikel dengan `raw_item_id` — dan 6 uji
 negatif ditolak: status run, `dipicu_oleh`, `status_verifikasi`,
 status raw item, `hash_url` duplikat, FK `sumber_id` tidak ada).
 
+## Menjalankan migrasi (Fase 4)
+
+**WAJIB jalankan migrasi v1 dulu, lalu v2, lalu v3**
+(`migrations/20261116_pf_v1_foundation.sql`,
+`migrations/20261116_pf_v2_articles.sql`,
+`migrations/20261116_pf_v3_ingestion.sql`). Migrasi v4 bergantung
+pada v1+v2+v3: tabel `pf_articles` dan `pf_raw_items`, tabel
+`auth.users`, fungsi `pf_has_role(text)`. Menjalankan v4 tanpa
+v1+v2+v3 akan gagal (FK / fungsi tidak ditemukan). Urutan di dalam
+v4 juga penting: `pf_ai_runs` → `pf_claims` → `pf_evidence` →
+`pf_verification_records` → `pf_daily_briefs` (tiap tabel merujuk
+tabel sebelumnya).
+
+1. Buka Supabase Dashboard → proyek **prata** → **SQL Editor** → **New query**.
+2. Tempel seluruh isi `migrations/20261116_pf_v4_ai.sql` → **Run**.
+3. Jalankan kueri verifikasi di bawah. Migrasi ini idempoten — aman
+   dijalankan ulang. Tidak ada seed data operasional (tanpa run AI
+   palsu, klaim palsu, atau brief palsu). Tabel AI Editorial bersifat
+   internal: hanya ditulis service role dan dibaca peran staf
+   (super_admin / editor / fact_checker / writer) — TIDAK ADA policy
+   tulis untuk peran staf. Pengecualian: `pf_daily_briefs`
+   berstatus `terbit` boleh dibaca publik; draf tetap staf saja.
+
+## Verifikasi (jalankan sesudah migrasi v4)
+
+```sql
+select 'pf_ai_runs' as tabel, count(*) from public.pf_ai_runs
+union all select 'pf_claims', count(*) from public.pf_claims
+union all select 'pf_evidence', count(*) from public.pf_evidence
+union all select 'pf_verification_records', count(*) from public.pf_verification_records
+union all select 'pf_daily_briefs', count(*) from public.pf_daily_briefs;
+```
+
+Ekspektasi: semua **0** (tanpa seed data operasional).
+
+Cek RLS aktif di semua tabel + jumlah policy:
+
+```sql
+select tablename, rowsecurity
+from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+order by tablename;
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+```
+
+Ekspektasi: **23 tabel** `pf_*` ber-RLS (8 dari v1 + 8 dari v2 + 2
+dari v3 + 5 dari v4), total **59 policy** (53 dari v1–v3 + 6 dari
+v4: `pf_ai_runs` 1, `pf_claims` 1, `pf_evidence` 1,
+`pf_verification_records` 1, `pf_daily_briefs` 2 — 1 baca publik +
+1 baca staf).
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`/tmp/pf-sqlcheck/cek-v4.mjs` menjalankan v1 lalu v2 lalu v3 lalu
+v4 (v4 2x, idempotensi), menghitung tabel/RLS/policy, lalu menguji
+INSERT + constraint negatif — hasil 16 Nov 2026: **SEMUA LOLOS**
+(23 tabel, RLS 23/23, 59 policy, 5 insert uji berhasil — 1 ai_run
++ 1 klaim + 1 evidence termasuk relasi klaim→evidence + 1
+verification record termasuk relasi raw_item→verification + 1
+daily brief — dan 7 uji negatif ditolak: agen ai_run, status
+ai_run, status klaim, arah evidence, keputusan verification
+record, klaim tanpa artikel_id DAN raw_item_id, tanggal brief
+duplikat).
+
 ## Menetapkan super_admin pertama
 
 Setelah ada akun terdaftar (daftar lewat aplikasi), tetapkan lewat SQL Editor:

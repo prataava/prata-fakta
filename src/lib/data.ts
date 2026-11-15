@@ -5,6 +5,7 @@
 // jujur — bukan angka atau artikel karangan.
 import { createClient } from "@/lib/supabase/server";
 import { KATEGORI_UTAMA, type Kategori } from "@/lib/categories";
+import type { IsiBrief } from "@/lib/ai/brief";
 
 export type PfCategoryRow = {
   id: string;
@@ -595,5 +596,45 @@ export async function getVersiArtikel(
     return data as PfVersiArtikel[];
   } catch {
     return [];
+  }
+}
+
+export type BriefTerbit = {
+  id: string;
+  tanggal: string;
+  isi: IsiBrief;
+};
+
+/**
+ * Daily Brief terbaru berstatus 'terbit' dari pf_daily_briefs (Fase 4).
+ * RLS mengizinkan publik membaca brief berstatus 'terbit' saja — brief
+ * 'draft' tidak pernah bocor ke halaman ini. null bila belum ada brief
+ * terbit / tabel belum ada — pemanggil menampilkan empty state jujur.
+ * Bentuk isi divalidasi longgar (seksi harus objek); isi yang rusak
+ * dianggap tidak ada, bukan ditampilkan setengah-setengah.
+ */
+export async function getBriefTerbit(): Promise<BriefTerbit | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("pf_daily_briefs")
+      .select("id, tanggal, isi")
+      .eq("status", "terbit")
+      .order("tanggal", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const isi = data.isi as IsiBrief | null;
+    if (
+      !isi ||
+      typeof isi !== "object" ||
+      !isi.seksi ||
+      typeof isi.seksi !== "object"
+    ) {
+      return null;
+    }
+    return { id: data.id as string, tanggal: data.tanggal as string, isi };
+  } catch {
+    return null;
   }
 }
