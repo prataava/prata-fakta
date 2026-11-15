@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 // POST /api/langganan — pendaftaran newsletter (email saja).
 // Validasi format email + dedupe lewat constraint unique di database.
 // Rate limiting: dibatasi 5 request/menit/IP lewat header sederhana di sini
 // (Fase 7: pindahkan ke Upstash/edge bila volume naik).
+// T5 (Fase 8 Gelombang 1): INSERT via service role — policy INSERT
+// anonim "pf_newsletter daftar publik" DICABUT di migrasi v8, jadi
+// session client tidak bisa lagi insert. 503 jujur bila service key
+// belum diatur.
 const BATAS = 5;
 const JENDELA_MS = 60_000;
 const hitungan = new Map<string, { n: number; mulai: number }>();
@@ -48,8 +52,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Layanan newsletter belum aktif (kunci layanan belum diatur). Coba lagi nanti.",
+      },
+      { status: 503 },
+    );
+  }
+  const { error } = await service
     .from("pf_newsletter_subscribers")
     .insert({ email });
 

@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 // POST /api/laporan — laporan kesalahan artikel (boleh anonim).
 // Body: { artikel_id, jenis, pesan, nama?, email? }
 // Rate limiting: 5 request/menit/IP (pola yang sama dengan /api/langganan).
 // 503 jujur bila tabel pf_correction_reports belum ada.
+// T5 (Fase 8 Gelombang 1): INSERT via service role — policy INSERT
+// anonim "pf_correction_reports kirim publik" DICABUT di migrasi v8.
+// Cek artikel + identitas pelapor tetap via session client; hanya
+// INSERT yang memakai service role. 503 jujur bila service key
+// belum diatur.
 const BATAS = 5;
 const JENDELA_MS = 60_000;
 const hitungan = new Map<string, { n: number; mulai: number }>();
@@ -129,7 +135,20 @@ export async function POST(req: Request) {
     pelaporId = null;
   }
 
-  const { error } = await supabase.from("pf_correction_reports").insert({
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Layanan laporan belum aktif (kunci layanan belum diatur). Coba lagi nanti.",
+      },
+      { status: 503 },
+    );
+  }
+  const { error } = await service.from("pf_correction_reports").insert({
     artikel_id: artikelId,
     pelapor_id: pelaporId,
     nama: nama || null,

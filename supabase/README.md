@@ -479,3 +479,116 @@ menghitung tabel/RLS/policy, menguji skenario `pf_quiz_scores`
 (insert, upsert, unique, 6 check/FK negatif, trigger), lalu
 memeriksa perbaikan keamanan T1/T3/T4/T6/T7/T9 — hasil
 16 Nov 2026: **87/87 LOLOS**.
+
+## Migrasi v8 — Expansion Gelombang 1 (Fase 8, 16 Nov 2026)
+
+Berkas: `20261116_pf_v8_expansion.sql`. Jalankan SETELAH v1–v7,
+di SQL Editor yang sama (idempoten — aman diulang; Gelombang 2/3
+boleh meng-append ke berkas yang SAMA, lalu validasi ulang
+v1–v8 di PGlite).
+
+### URUTAN PENTING — T5: patch route dulu, baru drop policy
+
+Migrasi v8 mencabut tiga policy INSERT anonim (`pf_newsletter
+daftar publik`, `pf_correction_reports kirim publik`,
+`pf_questions tambah publik`) TANPA pengganti. Bila migrasi
+dijalankan SEBELUM route dipatch, ketiga route publik mati
+(INSERT ditolak RLS). Urutan yang benar:
+
+1. Deploy kode yang memindahkan INSERT ketiga route ke service
+   role (`src/app/api/langganan/route.ts`,
+   `src/app/api/laporan/route.ts`, `src/app/api/tanya/route.ts` —
+   semuanya memakai `createServiceClient()`; service_role
+   melewati RLS). Juga dipindah ke service role pada kesempatan
+   yang sama: baca kunci di `POST /api/kuis/jawab` dan
+   `getKuisHarian` (T1-sisa).
+2. Pastikan `SUPABASE_SERVICE_ROLE_KEY` sudah diatur di Vercel
+   (tanpa key, ketiga route menjawab 503 jujur).
+3. BARU jalankan migrasi v8 di SQL Editor.
+
+### Isi
+
+- **T5:** DROP POLICY IF EXISTS ketiga policy insert anonim di
+  atas (tanpa policy insert pengganti).
+- **T8:** `pf_roles` → baca login saja (`auth.uid() is not null`,
+  Opsi A — staf-only mentah akan memutus `getUserRoles()` di
+  `src/lib/auth/roles.ts:32-48`); `pf_permissions` +
+  `pf_role_permissions` → staf-only (4 peran);
+  `pf_article_sources` + `pf_article_tags` → hanya bila artikel
+  terbit ATAU staf (pola `pf_article_versions` v2). Policy tulis
+  tidak diubah. `pf_tags` tidak diubah (taksonomi mandiri).
+- **Area 1:** `pf_claims` / `pf_evidence` /
+  `pf_verification_records` → baca publik terbatas bila artikel
+  terbit, ATAU staf.
+- **T1-sisa:** cabut SELECT tingkat tabel di
+  `pf_quiz_questions` dari anon/authenticated, lalu GRANT SELECT
+  per kolom untuk semua kolom KECUALI `kunci` (baca kunci hanya
+  lewat service role). Catatan: `REVOKE SELECT (kunci)` saja
+  TIDAK cukup — grant SELECT tingkat tabel (default Supabase)
+  tetap memberi akses ke semua kolom; dibuktikan di PGlite saat
+  validasi v8.
+- **Perluasan CHECK enum (D4):**
+  - `pf_audit_logs.aksi`: 18 nilai v5 + 28 aksi Fase 8 yang
+    direncanakan: `cerita.buat/ubah/hapus`,
+    `pengetahuan.buat/ubah/hapus`, `event.buat/ubah/hapus`,
+    `data.indikator`, `data.titik`, `riset.buat/ubah/hapus`,
+    `negara.buat/ubah`, `tanya.jawab`,
+    `akademi.kursus/modul/progres`, `podcast.episode/terbit`,
+    `sistem.flag/pengumuman`, `kuis.buat/ubah`,
+    `preferensi.ubah`, `ekspor.data`.
+  - `pf_scheduled_jobs.nama`: 3 nilai v5 +
+    `data-analysis`, `terbitkan-terjadwal`, `digest`, `podcast`,
+    `riset`. TIDAK ada seed baris job baru di v8.
+  - `pf_ai_runs.agen`: 10 agen v4 + `story_clustering`,
+    `podcast_script`, `research_synthesis` (disiapkan untuk
+    Gelombang 2/3; agen-agen ini belum berjalan).
+- **D1–D2:** CHECK panjang array `pf_quiz_questions.opsi`
+  (1..10); CHECK lintang (-90..90) dan bujur (-180..180) di
+  `pf_events` dan `pf_articles`. **D3:** validasi target
+  `pf_followed_topics` di API (`POST/DELETE /api/topik` —
+  kategori wajib slug taksonomi; negara/isu wajib huruf/spasi/
+  tanda hubung); FK penuh ditunda ke Gelombang 2 (butuh tabel
+  `pf_countries`).
+- **Area 7:** tabel baru `pf_user_preferences` (satu baris per
+  akun: `digest_harian`, `notifikasi_topik`,
+  `notifikasi_koreksi`, `tampilkan_profil_publik`; RLS 3 policy
+  pemilik).
+- **Area 3:** kolom baru `peran` (`utama`/`koroborasi`/`konteks`/
+  `bantahan`) + `kutipan` di `pf_article_sources`.
+- **Area 13:** CHECK `pf_correction_reports.jenis` diperluas
+  (4 nilai lama dipertahankan + `kesalahan_informasi`,
+  `sumber_tidak_valid`, `gambar_tidak_sesuai`, `duplikat`,
+  `perlu_pembaruan`); `artikel_id` boleh NULL (laporan tanpa
+  artikel); kolom baru `pelapor_email` (opsional),
+  `nomor_lacak` (unique, untuk lacak status), `tautan_artikel`.
+
+Ekspektasi sesudah v8: **37 tabel** `pf_*` ber-RLS (36 dari
+v1–v7 + 1 dari v8), total **79 policy** (79 dari v1–v7 − 3
+policy insert anonim T5 + 3 policy `pf_user_preferences` = 79;
+penggantian policy T8 dan Area 1 tidak mengubah jumlah).
+
+Verifikasi cepat:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 37
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 79
+
+-- Negatif T5 (sebagai anon): INSERT ke pf_newsletter_subscribers /
+-- pf_correction_reports / pf_questions harus DITOLAK (42501).
+-- Negatif T1-sisa (sebagai anon/authenticated): SELECT kunci FROM
+-- pf_quiz_questions harus DITOLAK (42501); kolom lain tetap bisa.
+```
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`scripts/uji-fase8-gel1.mjs` di repo menjalankan v1–v7 lalu v8
+(v8 2x, idempotensi), membuktikan dulu celah T5/T1/T8 memang
+ada SEBELUM v8 (insert anon berhasil, kunci terbaca, pf_roles
+terlihat), lalu menguji sesudah v8 (uji negatif T5/T8/T1,
+Area 1, CHECK enum, D1/D2, tabel/kolom baru) dan pemeriksaan
+statis (patch service role, desain G1/G2/G3, berkas Area
+1/3/13/7, fungsi murni streak/validasi/nomor lacak).

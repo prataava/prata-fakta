@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
 // Body: { soal_id: UUID, jawaban: 0..4 }
@@ -15,6 +15,10 @@ import { createClient } from "@/lib/supabase/server";
 // mungkin. Rate limit 20/menit/IP (5 soal + main ulang).
 // Boleh anonim (kuis bersifat publik). 503 jujur bila tabel belum
 // ada; 404 bila soal tidak ada atau bukan kuis hari ini/kemarin.
+// T1-sisa (Fase 8 Gelombang 1): kunci dibaca via service role —
+// migrasi v8 me-REVOKE SELECT (kunci) dari anon/authenticated,
+// jadi session client tidak bisa lagi membaca kolom kunci.
+// 503 jujur bila service key belum diatur.
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -101,8 +105,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Layanan kuis belum aktif (kunci layanan belum diatur). Coba lagi nanti.",
+      },
+      { status: 503 },
+    );
+  }
+  const { data, error } = await service
     .from("pf_quiz_questions")
     .select("id, tanggal, kunci, penjelasan, sumber_url, sumber_nama")
     .eq("id", valid.soalId)

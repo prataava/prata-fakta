@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 // POST /api/tanya — tanya jawab berbasis data yang sudah ada.
 // Body: { pertanyaan }
@@ -13,6 +14,10 @@ import { createClient } from "@/lib/supabase/server";
 // Rate limit 5 request/menit/IP (pola /api/laporan).
 // GET /api/tanya → daftar pertanyaan saya (wajib login, 401 bila tidak).
 // 503 jujur bila tabel pf_questions belum ada (migrasi v6 belum dijalankan).
+// T5 (Fase 8 Gelombang 1): INSERT pertanyaan via service role —
+// policy INSERT anonim "pf_questions tambah publik" DICABUT di
+// migrasi v8. Pencarian kandidat + identitas pengguna tetap via
+// session client. 503 jujur bila service key belum diatur.
 const BATAS = 5;
 const JENDELA_MS = 60_000;
 const hitungan = new Map<string, { n: number; mulai: number }>();
@@ -189,7 +194,20 @@ export async function POST(req: Request) {
     status = "menunggu";
   }
 
-  const { data: tersimpan, error } = await supabase
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Layanan tanya belum aktif (kunci layanan belum diatur). Coba lagi nanti.",
+      },
+      { status: 503 },
+    );
+  }
+  const { data: tersimpan, error } = await service
     .from("pf_questions")
     .insert({
       user_id: penggunaId,

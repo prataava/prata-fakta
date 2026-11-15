@@ -60,9 +60,11 @@ export default function PetaDunia({ marker }: { marker: MarkerPeta[] }) {
 
       // divIcon HTML sendiri — JANGAN pakai ikon gambar bawaan Leaflet
       // (rusak di bundler karena path asetnya tidak tersalin).
+      // Gaya pin ada di kelas global .pf-pin (globals.css) memakai
+      // token var(--danger)/var(--surface) — adaptif mode gelap.
       const ikon = L.divIcon({
         className: "pf-pin-pembungkus",
-        html: `<span style="display:block;width:18px;height:18px;border-radius:50%;background:#b91c1c;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45);"></span>`,
+        html: `<span class="pf-pin"></span>`,
         iconSize: [18, 18],
         iconAnchor: [9, 9],
         popupAnchor: [0, -10],

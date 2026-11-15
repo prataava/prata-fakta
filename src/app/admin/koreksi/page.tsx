@@ -14,6 +14,20 @@ export const instant = false;
 
 const STATUS_KOREKSI = ["baru", "ditinjau", "diperbaiki", "ditolak"] as const;
 
+// Semua jenis laporan: 4 koreksi artikel lama + 5 laporan
+// masyarakat (Area 13, migrasi v8).
+const JENIS_KOREKSI = [
+  "fakta_salah",
+  "sumber",
+  "typo",
+  "lainnya",
+  "kesalahan_informasi",
+  "sumber_tidak_valid",
+  "gambar_tidak_sesuai",
+  "duplikat",
+  "perlu_pembaruan",
+] as const;
+
 export default async function AdminKoreksi({
   searchParams,
 }: {
@@ -22,18 +36,39 @@ export default async function AdminKoreksi({
   const sp = await searchParams;
   const statusParam =
     typeof sp.status === "string" ? sp.status : undefined;
-  const { laporan, tersedia } = await getKoreksiAdmin(statusParam);
+  const jenisParam =
+    typeof sp.jenis === "string" &&
+    (JENIS_KOREKSI as readonly string[]).includes(sp.jenis)
+      ? sp.jenis
+      : undefined;
+  const { laporan, tersedia } = await getKoreksiAdmin(
+    statusParam,
+    jenisParam,
+  );
+
+  const tautanFilter = (nilai: Record<string, string | undefined>) => {
+    const p = new URLSearchParams();
+    if (nilai.status) p.set("status", nilai.status);
+    if (nilai.jenis) p.set("jenis", nilai.jenis);
+    const q = p.toString();
+    return q ? `/admin/koreksi?${q}` : "/admin/koreksi";
+  };
 
   return (
     <section className="seksi" aria-labelledby="judul-koreksi">
       <div className="seksi-kepala">
         <h2 id="judul-koreksi">Laporan Koreksi</h2>
+        <p>
+          Laporan koreksi artikel dan laporan masyarakat. Semua laporan
+          wajib dimoderasi sebelum diproses — status hanya berubah lewat
+          aksi di bawah.
+        </p>
       </div>
 
       <div className="chip-baris" role="group" aria-label="Filter status laporan">
         <Link
           className={`chip${!statusParam ? " aktif" : ""}`}
-          href="/admin/koreksi"
+          href={tautanFilter({ jenis: jenisParam })}
         >
           Semua status
         </Link>
@@ -41,9 +76,32 @@ export default async function AdminKoreksi({
           <Link
             key={s}
             className={`chip${statusParam === s ? " aktif" : ""}`}
-            href={`/admin/koreksi?status=${s}`}
+            href={tautanFilter({ status: s, jenis: jenisParam })}
           >
             {s}
+          </Link>
+        ))}
+      </div>
+
+      <div
+        className="chip-baris"
+        role="group"
+        aria-label="Filter jenis laporan"
+        style={{ marginTop: 8 }}
+      >
+        <Link
+          className={`chip${!jenisParam ? " aktif" : ""}`}
+          href={tautanFilter({ status: statusParam })}
+        >
+          Semua jenis
+        </Link>
+        {JENIS_KOREKSI.map((j) => (
+          <Link
+            key={j}
+            className={`chip${jenisParam === j ? " aktif" : ""}`}
+            href={tautanFilter({ status: statusParam, jenis: j })}
+          >
+            {LABEL_JENIS_KOREKSI[j] ?? j}
           </Link>
         ))}
       </div>
@@ -57,8 +115,8 @@ export default async function AdminKoreksi({
         <EmptyState
           judul="Belum ada laporan koreksi"
           pesan={
-            statusParam
-              ? "Tidak ada laporan dengan status ini."
+            statusParam || jenisParam
+              ? "Tidak ada laporan dengan filter ini."
               : "Belum ada pembaca yang melaporkan kesalahan."
           }
         />
@@ -67,12 +125,17 @@ export default async function AdminKoreksi({
           <article className="kartu" key={l.id} style={{ marginBottom: 16 }}>
             <span className="kartu-kategori">
               {LABEL_JENIS_KOREKSI[l.jenis] ?? l.jenis} · {l.status}
+              {l.nomor_lacak ? ` · Lacak: ${l.nomor_lacak}` : ""}
             </span>
             <span className="kartu-judul">
-              {l.artikel_judul ? (
+              {l.artikel_judul && l.artikel_id ? (
                 <Link href={`/admin/artikel/${l.artikel_id}`}>{l.artikel_judul}</Link>
+              ) : l.tautan_artikel ? (
+                <Link href={l.tautan_artikel} target="_blank" rel="noopener noreferrer">
+                  {l.tautan_artikel}
+                </Link>
               ) : (
-                "Artikel tidak ditemukan"
+                "Tanpa artikel terkait"
               )}
             </span>
             <span className="kartu-teks">{l.pesan}</span>

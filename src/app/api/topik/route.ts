@@ -48,7 +48,13 @@ function respon503() {
   );
 }
 
-function validasiTarget(
+/** Validasi target topik (D3, Fase 8 Gelombang 1 — diekspos untuk uji).
+ *  kategori wajib slug taksonomi yang dikenal; negara/isu wajib
+ *  huruf, spasi, tanda hubung, dan apostrof saja (tanpa angka,
+ *  URL, atau simbol — typo seperti "Ind0nesia" atau tautan
+ *  tertolak di API). Validasi penuh terhadap tabel pf_countries
+ *  ditunda ke Gelombang 2 (tabel belum ada). */
+export function validasiTarget(
   tipe: string,
   target: string,
 ): string | null {
@@ -61,6 +67,8 @@ function validasiTarget(
   if (tipe === "kategori") {
     const dikenal = KATEGORI_UTAMA.some((k) => k.slug === target);
     if (!dikenal) return "Kategori tidak dikenal.";
+  } else if (!/^[\p{L}\p{M}][\p{L}\p{M} '\-’]*$/u.test(target)) {
+    return "Target topik hanya boleh berisi huruf, spasi, dan tanda hubung.";
   }
   return null;
 }

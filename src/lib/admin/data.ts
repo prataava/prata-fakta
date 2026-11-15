@@ -582,7 +582,8 @@ export async function getArtikelAdmin(
 
 export type KoreksiAdmin = {
   id: string;
-  artikel_id: string;
+  /** null bila laporan masyarakat tanpa artikel (migrasi v8). */
+  artikel_id: string | null;
   artikel_judul: string | null;
   nama: string | null;
   email: string | null;
@@ -590,6 +591,9 @@ export type KoreksiAdmin = {
   pesan: string;
   status: string;
   dibuat_pada: string | null;
+  /** Kode lacak laporan masyarakat; null untuk laporan lama. */
+  nomor_lacak: string | null;
+  tautan_artikel: string | null;
 };
 
 export const LABEL_JENIS_KOREKSI: Record<string, string> = {
@@ -597,9 +601,18 @@ export const LABEL_JENIS_KOREKSI: Record<string, string> = {
   sumber: "Sumber bermasalah",
   typo: "Salah ketik",
   lainnya: "Lainnya",
+  // Jenis laporan masyarakat (Area 13, migrasi v8).
+  kesalahan_informasi: "Kesalahan informasi",
+  sumber_tidak_valid: "Sumber tidak valid",
+  gambar_tidak_sesuai: "Gambar tidak sesuai",
+  duplikat: "Berita duplikat",
+  perlu_pembaruan: "Artikel perlu diperbarui",
 };
 
-export async function getKoreksiAdmin(status?: string): Promise<{
+export async function getKoreksiAdmin(
+  status?: string,
+  jenis?: string,
+): Promise<{
   laporan: KoreksiAdmin[];
   tersedia: boolean;
 }> {
@@ -607,33 +620,43 @@ export async function getKoreksiAdmin(status?: string): Promise<{
     const supabase = await createClient();
     let query = supabase
       .from("pf_correction_reports")
-      .select("id, artikel_id, nama, email, jenis, pesan, status, dibuat_pada, pf_articles(judul)")
+      .select(
+        "id, artikel_id, nama, email, pelapor_email, jenis, pesan, status, dibuat_pada, nomor_lacak, tautan_artikel, pf_articles(judul)",
+      )
       .order("dibuat_pada", { ascending: false })
       .limit(100);
     if (status) query = query.eq("status", status);
+    if (jenis) query = query.eq("jenis", jenis);
     const { data, error } = await query;
     if (error || !data) return { laporan: [], tersedia: false };
     return {
       laporan: (data as unknown as {
         id: string;
-        artikel_id: string;
+        artikel_id: string | null;
         nama: string | null;
         email: string | null;
+        pelapor_email: string | null;
         jenis: string;
         pesan: string;
         status: string;
         dibuat_pada: string | null;
+        nomor_lacak: string | null;
+        tautan_artikel: string | null;
         pf_articles: { judul: string } | null;
       }[]).map((r) => ({
         id: r.id,
         artikel_id: r.artikel_id,
         artikel_judul: r.pf_articles?.judul ?? null,
         nama: r.nama,
-        email: r.email,
+        // Laporan masyarakat memakai pelapor_email (v8); laporan
+        // koreksi artikel lama memakai email — tampilkan yang ada.
+        email: r.pelapor_email ?? r.email,
         jenis: r.jenis,
         pesan: r.pesan,
         status: r.status,
         dibuat_pada: r.dibuat_pada,
+        nomor_lacak: r.nomor_lacak,
+        tautan_artikel: r.tautan_artikel,
       })),
       tersedia: true,
     };

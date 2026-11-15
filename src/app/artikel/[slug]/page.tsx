@@ -4,6 +4,8 @@ import Link from "next/link";
 import {
   getArtikelLengkap,
   getArtikelTerkait,
+  getJejakFakta,
+  getPerbandinganSumber,
   getVersiArtikel,
   isBookmarked,
 } from "@/lib/data";
@@ -11,6 +13,8 @@ import { createClient } from "@/lib/supabase/server";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import { urlSitus } from "@/lib/situs";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
+import JejakFakta from "@/components/artikel/JejakFakta";
+import PerbandinganSumber from "@/components/artikel/PerbandinganSumber";
 
 // Halaman artikel: data dibaca per request (slug dinamis) — rute diblokir
 // di server per request (pola resmi cacheComponents), bukan di-prerender.
@@ -77,7 +81,7 @@ export default async function HalamanArtikel({
   const artikel = await getArtikelLengkap(slug);
   if (!artikel) notFound();
 
-  const [terkait, versi, pengguna] = await Promise.all([
+  const [terkait, versi, pengguna, jejak, perbandingan] = await Promise.all([
     getArtikelTerkait(artikel, 4),
     getVersiArtikel(artikel.id, 5),
     (async () => {
@@ -89,6 +93,9 @@ export default async function HalamanArtikel({
         return null;
       }
     })(),
+    // Jejak Fakta (Area 1) + Multi-Source View (Area 3), Fase 8 Gel. 1.
+    getJejakFakta(artikel.id),
+    getPerbandinganSumber(artikel.id),
   ]);
 
   const loggedIn = Boolean(pengguna);
@@ -235,6 +242,9 @@ export default async function HalamanArtikel({
           loggedIn={loggedIn}
           bookmarkAwal={bookmarkAwal}
         />
+
+        <JejakFakta jejak={jejak} />
+        <PerbandinganSumber perbandingan={perbandingan} />
       </article>
     </div>
   );

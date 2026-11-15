@@ -6,6 +6,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { KATEGORI_UTAMA, type Kategori } from "@/lib/categories";
 import type { IsiBrief } from "@/lib/ai/brief";
+import {
+  skorKredibilitas,
+  tierDariPrioritas,
+} from "@/lib/ai/source-analysis";
 
 export type PfCategoryRow = {
   id: string;
@@ -653,5 +657,386 @@ export async function getBriefTerbit(): Promise<BriefTerbit | null> {
     return { id: data.id as string, tanggal: data.tanggal as string, isi };
   } catch {
     return null;
+  }
+}
+
+/* ============================================================
+   Jejak Fakta (Area 1) & Multi-Source View (Area 3) — Fase 8 Gel. 1
+   ============================================================ */
+
+export type JejakBukti = {
+  id: string;
+  sumber_url: string;
+  sumber_nama: string | null;
+  kutipan: string | null;
+  arah: string;
+  dibuat_pada: string | null;
+};
+
+export type JejakKlaim = {
+  id: string;
+  teks: string;
+  jenis: string;
+  status: string;
+  dibuat_pada: string | null;
+  bukti: JejakBukti[];
+};
+
+export type JejakVerifikasi = {
+  id: string;
+  keputusan: string;
+  catatan: string | null;
+  dibuat_pada: string | null;
+};
+
+export type JejakFakta = {
+  artikelId: string;
+  klaim: JejakKlaim[];
+  verifikasi: JejakVerifikasi[];
+  /** false = tabel Fase 4 belum ada / query gagal (pemanggil
+   *  menampilkan empty state jujur, bukan jejak karangan). */
+  tersedia: boolean;
+};
+
+/**
+ * Jejak Fakta: rantai klaim → bukti → catatan verifikasi untuk
+ * satu artikel TERBIT. Dibaca via session client; migrasi v8
+ * membuka baca publik terbatas (hanya bila artikel terbit) untuk
+ * pf_claims / pf_evidence / pf_verification_records. [] bila
+ * artikel belum punya klaim — itu fakta, bukan kegagalan.
+ */
+export async function getJejakFakta(
+  artikelId: string,
+): Promise<JejakFakta> {
+  const kosong: JejakFakta = { artikelId, klaim: [], verifikasi: [], tersedia: false };
+  try {
+    const supabase = await createClient();
+    const { data: klaim, error: errKlaim } = await supabase
+      .from("pf_claims")
+      .select("id, teks, jenis, status, dibuat_pada")
+      .eq("artikel_id", artikelId)
+      .order("dibuat_pada", { ascending: true });
+    if (errKlaim || !klaim) return kosong;
+
+    const klaimId = (klaim as { id: string }[]).map((k) => k.id);
+    const [buktiRes, verRes] = await Promise.all([
+      klaimId.length > 0
+        ? supabase
+            .from("pf_evidence")
+            .select("id, klaim_id, sumber_url, sumber_nama, kutipan, arah, dibuat_pada")
+            .in("klaim_id", klaimId)
+            .order("dibuat_pada", { ascending: true })
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("pf_verification_records")
+        .select("id, keputusan, catatan, dibuat_pada")
+        .eq("artikel_id", artikelId)
+        .order("dibuat_pada", { ascending: false }),
+    ]);
+    if (buktiRes.error || verRes.error) return kosong;
+
+    const buktiPerKlaim = new Map<string, JejakBukti[]>();
+    for (const b of (buktiRes.data ?? []) as unknown as Record<string, unknown>[]) {
+      const kid = String(b.klaim_id ?? "");
+      const baris: JejakBukti = {
+        id: String(b.id),
+        sumber_url: String(b.sumber_url ?? ""),
+        sumber_nama: (b.sumber_nama as string | null) ?? null,
+        kutipan: (b.kutipan as string | null) ?? null,
+        arah: String(b.arah ?? "netral"),
+        dibuat_pada: (b.dibuat_pada as string | null) ?? null,
+      };
+      const daftar = buktiPerKlaim.get(kid) ?? [];
+      daftar.push(baris);
+      buktiPerKlaim.set(kid, daftar);
+    }
+
+    return {
+      artikelId,
+      klaim: (klaim as unknown as Record<string, unknown>[]).map((k) => ({
+        id: String(k.id),
+        teks: String(k.teks ?? ""),
+        jenis: String(k.jenis ?? "lain"),
+        status: String(k.status ?? "belum_terverifikasi"),
+        dibuat_pada: (k.dibuat_pada as string | null) ?? null,
+        bukti: buktiPerKlaim.get(String(k.id)) ?? [],
+      })),
+      verifikasi: ((verRes.data ?? []) as unknown as Record<string, unknown>[]).map((v) => ({
+        id: String(v.id),
+        keputusan: String(v.keputusan ?? "UNCONFIRMED"),
+        catatan: (v.catatan as string | null) ?? null,
+        dibuat_pada: (v.dibuat_pada as string | null) ?? null,
+      })),
+      tersedia: true,
+    };
+  } catch {
+    return kosong;
+  }
+}
+
+export type StatusSelPerbandingan =
+  | "sama"
+  | "berbeda"
+  | "beda_waktu"
+  | "tanpa_bukti"
+  | "belum_diketahui";
+
+export type SumberPerbandingan = {
+  id: string;
+  nama: string;
+  url: string | null;
+  peran: string | null;
+  kutipan: string | null;
+  /** Tier deterministik dari prioritas pf_sources (90/75/60);
+   *  null bila sumber bukan dari pf_sources (mis. sumber_url
+   *  utama artikel tanpa baris pf_sources). */
+  tier: number | null;
+  skor: number | null;
+  /** Sumber utama artikel (sumber_url artikel) — sumber awal. */
+  utama: boolean;
+};
+
+export type SelPerbandingan = {
+  status: StatusSelPerbandingan;
+  /** Sel dari sumber utama artikel (sumber awal). */
+  sumberAwal: boolean;
+};
+
+export type BobotKlaim = {
+  klaimId: string;
+  mendukung: number;
+  menentang: number;
+  netral: number;
+  /** Jumlah sumber INDEPENDEN berbeda yang mendukung klaim. */
+  independen: number;
+  /** Skor kredibilitas tertinggi di antara sumber pendukung
+   *  (tier 90/75/60); null bila tidak ada pendukung. */
+  skorTertinggi: number | null;
+};
+
+export type PerbandinganSumber = {
+  artikelId: string;
+  klaim: { id: string; teks: string; jenis: string; status: string }[];
+  sumber: SumberPerbandingan[];
+  /** sel[klaimId][sumberId] — selalu terisi bila klaim dan
+   *  sumber ada (tanpa_bukti / belum_diketahui bila tidak ada
+   *  bukti yang menghubungkan keduanya). */
+  sel: Record<string, Record<string, SelPerbandingan>>;
+  bobot: BobotKlaim[];
+  tersedia: boolean;
+};
+
+function tanggalKalender(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Multi-Source View: matriks klaim × sumber untuk satu artikel
+ * TERBIT. Status sel dihitung dari pf_evidence (arah
+ * mendukung/menentang/netral) yang dicocokkan ke sumber lewat
+ * URL persis atau nama sumber — TANPA kesetaraan palsu: klaim
+ * tanpa satu pun bukti ditandai "tanpa_bukti", dan sumber yang
+ * tidak punya bukti untuk klaim itu ditandai "belum_diketahui"
+ * (bukan "sama"). "beda_waktu" dipakai bila bukti untuk klaim
+ * yang sama dicatat pada tanggal berbeda (cerita berkembang).
+ * Bobot bukti eksplisit per klaim: jumlah sumber independen
+ * yang mendukung + skor kredibilitas tertinggi (tier 90/75/60).
+ */
+export async function getPerbandinganSumber(
+  artikelId: string,
+): Promise<PerbandinganSumber> {
+  const kosong: PerbandinganSumber = {
+    artikelId,
+    klaim: [],
+    sumber: [],
+    sel: {},
+    bobot: [],
+    tersedia: false,
+  };
+  try {
+    const supabase = await createClient();
+    const { data: artikel, error: errArtikel } = await supabase
+      .from("pf_articles")
+      .select("id, sumber_url")
+      .eq("id", artikelId)
+      .eq("status", "terbit")
+      .maybeSingle();
+    if (errArtikel || !artikel) return kosong;
+
+    const { data: klaim, error: errKlaim } = await supabase
+      .from("pf_claims")
+      .select("id, teks, jenis, status, dibuat_pada")
+      .eq("artikel_id", artikelId)
+      .order("dibuat_pada", { ascending: true });
+    if (errKlaim || !klaim) return kosong;
+
+    const { data: tautan, error: errTautan } = await supabase
+      .from("pf_article_sources")
+      .select("id, url, peran, kutipan, pf_sources(nama, url, prioritas)")
+      .eq("artikel_id", artikelId);
+    if (errTautan || !tautan) return kosong;
+
+    const klaimId = (klaim as { id: string }[]).map((k) => k.id);
+    const { data: bukti, error: errBukti } =
+      klaimId.length > 0
+        ? await supabase
+            .from("pf_evidence")
+            .select("klaim_id, sumber_url, sumber_nama, arah, dibuat_pada")
+            .in("klaim_id", klaimId)
+        : { data: [], error: null };
+    if (errBukti || !bukti) return kosong;
+
+    // ---- Daftar sumber (kolom matriks) ----
+    const sumber: SumberPerbandingan[] = [];
+    const sumberUrlUtama =
+      typeof (artikel as { sumber_url?: unknown }).sumber_url === "string"
+        ? ((artikel as { sumber_url: string }).sumber_url as string)
+        : null;
+    if (sumberUrlUtama) {
+      sumber.push({
+        id: `utama:${sumberUrlUtama}`,
+        nama: namaDariUrl(sumberUrlUtama),
+        url: sumberUrlUtama,
+        peran: "utama",
+        kutipan: null,
+        tier: null,
+        skor: null,
+        utama: true,
+      });
+    }
+    for (const t of tautan as unknown as Record<string, unknown>[]) {
+      const pf = t.pf_sources as {
+        nama?: string;
+        url?: string;
+        prioritas?: number;
+      } | null;
+      const url =
+        typeof t.url === "string" && t.url
+          ? (t.url as string)
+          : (pf?.url ?? null);
+      const prioritas =
+        typeof pf?.prioritas === "number" ? pf.prioritas : null;
+      const tier = prioritas === null ? null : tierDariPrioritas(prioritas);
+      sumber.push({
+        id: String(t.id),
+        nama: pf?.nama ?? (url ? namaDariUrl(url) : "Sumber"),
+        url,
+        peran: (t.peran as string | null) ?? null,
+        kutipan: (t.kutipan as string | null) ?? null,
+        tier,
+        skor: tier === null ? null : skorKredibilitas(tier),
+        utama: false,
+      });
+    }
+
+    // ---- Bukti per klaim, dicocokkan ke sumber ----
+    const cocokKeSumber = (
+      b: Record<string, unknown>,
+    ): SumberPerbandingan | null => {
+      const urlBukti =
+        typeof b.sumber_url === "string" ? (b.sumber_url as string) : "";
+      const namaBukti =
+        typeof b.sumber_nama === "string" ? (b.sumber_nama as string) : "";
+      if (urlBukti) {
+        const cocok = sumber.find((s) => s.url === urlBukti);
+        if (cocok) return cocok;
+      }
+      if (namaBukti) {
+        const cocok = sumber.find((s) => s.nama === namaBukti);
+        if (cocok) return cocok;
+      }
+      return null;
+    };
+
+    const buktiPerKlaim = new Map<
+      string,
+      { sumberId: string | null; arah: string; tanggal: string | null }[]
+    >();
+    for (const b of (bukti as unknown as Record<string, unknown>[])) {
+      const kid = String(b.klaim_id ?? "");
+      const daftar = buktiPerKlaim.get(kid) ?? [];
+      const s = cocokKeSumber(b);
+      daftar.push({
+        sumberId: s ? s.id : null,
+        arah: String(b.arah ?? "netral"),
+        tanggal: tanggalKalender((b.dibuat_pada as string | null) ?? null),
+      });
+      buktiPerKlaim.set(kid, daftar);
+    }
+
+    // ---- Matriks + bobot ----
+    const daftarKlaim = (
+      klaim as unknown as Record<string, unknown>[]
+    ).map((k) => ({
+      id: String(k.id),
+      teks: String(k.teks ?? ""),
+      jenis: String(k.jenis ?? "lain"),
+      status: String(k.status ?? "belum_terverifikasi"),
+    }));
+    const sel: Record<string, Record<string, SelPerbandingan>> = {};
+    const bobot: BobotKlaim[] = [];
+
+    for (const k of daftarKlaim) {
+      const daftar = buktiPerKlaim.get(k.id) ?? [];
+      const tanggalUnik = [
+        ...new Set(daftar.map((d) => d.tanggal).filter((t): t is string => Boolean(t))),
+      ];
+      const tanggalAwal = tanggalUnik.length > 0 ? [...tanggalUnik].sort()[0] : null;
+      const mendukung = daftar.filter((d) => d.arah === "mendukung");
+      const menentang = daftar.filter((d) => d.arah === "menentang");
+      const netral = daftar.filter((d) => d.arah === "netral");
+      const independen = new Set(
+        mendukung.map((d) => d.sumberId).filter((s): s is string => Boolean(s)),
+      ).size;
+      const skorPendukung = sumber
+        .filter(
+          (s) =>
+            s.skor !== null &&
+            mendukung.some((d) => d.sumberId === s.id),
+        )
+        .map((s) => s.skor as number);
+      bobot.push({
+        klaimId: k.id,
+        mendukung: mendukung.length,
+        menentang: menentang.length,
+        netral: netral.length,
+        independen,
+        skorTertinggi:
+          skorPendukung.length > 0 ? Math.max(...skorPendukung) : null,
+      });
+
+      const baris: Record<string, SelPerbandingan> = {};
+      for (const s of sumber) {
+        const buktiSel = daftar.filter((d) => d.sumberId === s.id);
+        let status: StatusSelPerbandingan;
+        if (daftar.length === 0) {
+          status = "tanpa_bukti";
+        } else if (buktiSel.length === 0) {
+          status = "belum_diketahui";
+        } else if (buktiSel.some((d) => d.arah === "menentang")) {
+          status = "berbeda";
+        } else if (
+          tanggalAwal !== null &&
+          buktiSel.some((d) => d.tanggal !== null && d.tanggal !== tanggalAwal)
+        ) {
+          // Bukti untuk klaim ini dicatat pada tanggal berbeda —
+          // cerita berkembang; bukan sekadar "sama".
+          status = "beda_waktu";
+        } else if (buktiSel.some((d) => d.arah === "mendukung")) {
+          status = "sama";
+        } else {
+          status = "belum_diketahui";
+        }
+        baris[s.id] = { status, sumberAwal: s.utama };
+      }
+      sel[k.id] = baris;
+    }
+
+    return { artikelId, klaim: daftarKlaim, sumber, sel, bobot, tersedia: true };
+  } catch {
+    return kosong;
   }
 }

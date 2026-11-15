@@ -132,6 +132,9 @@ export default function Profil() {
           </p>
         )}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <Link className="tombol tombol-primer" href="/saya">
+            Dasbor Saya
+          </Link>
           <Link className="tombol" href="/feed-saya">
             Feed Saya
           </Link>

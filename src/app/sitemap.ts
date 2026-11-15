@@ -25,6 +25,7 @@ const HALAMAN_STATIS: Array<{
   { path: "/timeline", frekuensi: "weekly", prioritas: 0.7 },
   { path: "/kuis", frekuensi: "daily", prioritas: 0.6 },
   { path: "/tanya", frekuensi: "weekly", prioritas: 0.6 },
+  { path: "/laporkan", frekuensi: "monthly", prioritas: 0.5 },
   { path: "/rutin", frekuensi: "weekly", prioritas: 0.6 },
   { path: "/rutin/pagi", frekuensi: "daily", prioritas: 0.6 },
   { path: "/rutin/hari-ini", frekuensi: "daily", prioritas: 0.6 },

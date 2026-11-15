@@ -43,6 +43,9 @@ export default function Footer() {
               <li>
                 <Link href="/cari">Pencarian</Link>
               </li>
+              <li>
+                <Link href="/laporkan">Laporkan Kesalahan</Link>
+              </li>
             </ul>
           </div>
           <div>

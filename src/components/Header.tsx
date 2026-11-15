@@ -40,6 +40,8 @@ export default function Header() {
           <Link href="/tanya">Tanya</Link>
           <Link href="/rutin">Rutin</Link>
           <Link href="/feed-saya">Feed Saya</Link>
+          <Link href="/saya">Saya</Link>
+          <Link href="/laporkan">Laporkan</Link>
         </nav>
       </div>
     </header>

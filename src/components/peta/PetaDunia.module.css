@@ -3,8 +3,8 @@
   width: 100%;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid var(--garis, #e5e7eb);
-  background: #eef2f5;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   z-index: 0;
 }
 

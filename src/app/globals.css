@@ -7,7 +7,6 @@
 
 :root {
   /* Token merek (identik di kedua mode) */
-  --navy: #101827;
   --midnight: #0a101a;
   --mint: #65e6c0;
   --cyan: #64ddf0;
@@ -20,7 +19,6 @@
   --ink: #101827;
   --ink-2: #334155;
   --muted: #5b6b80; /* turunan lebih gelap dari #8492A6 agar kontras di terang */
-  --muted-token: #8492a6;
   --header-bg: rgba(255, 255, 255, 0.92);
   --accent: #0e7a5f; /* mint yang digelapkan untuk kontras di terang */
   --accent-ink: #ffffff;
@@ -1218,4 +1216,44 @@ td details summary {
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--accent);
+}
+
+/* ---------- Pin peta (G2 Fase 8 Gelombang 1) ---------- */
+/* Marker Leaflet dirender lewat string HTML divIcon, jadi gayanya
+   harus kelas global — bukan CSS module. Memakai token agar
+   adaptif mode gelap (sebelumnya hex hardcoded #b91c1c/#fff). */
+.pf-pin {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 3px solid var(--surface);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- Kartu statistik publik (My Prata, Gelombang 1) ---------- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .stat-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.stat-angka {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.stat-label {
+  font-size: 0.88rem;
+  color: var(--muted);
 }

@@ -6,6 +6,8 @@
 // pemanggil menampilkan empty state jujur — bukan angka, koordinat,
 // atau artikel karangan.
 import { createClient } from "@/lib/supabase/server";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import { tanggalWibHariIni } from "@/lib/rutin";
 import type { PfArtikelRingkas } from "@/lib/data";
 
 /* ============================================================
@@ -300,8 +302,7 @@ export async function getRiwayatSkor(
   }
 }
 
-/** Semua event + hitungan berapa yang punya koordinat. */
-export async function getSemuaEvent(
+/** Semua event + hitungan berapa yang punya koordinat. */export async function getSemuaEvent(
   limit = 100,
 ): Promise<{ events: PfEvent[]; adaKoordinat: number }> {
   try {
@@ -579,10 +580,17 @@ export async function getPengetahuanHarian(
    Kuis harian
    ============================================================ */
 
-/** 5 pertanyaan kuis untuk tanggal YYYY-MM-DD yang diminta. */
+/** 5 pertanyaan kuis untuk tanggal YYYY-MM-DD yang diminta.
+ *  T1-sisa (Fase 8 Gelombang 1): kolom `kunci` dibaca via service
+ *  role bila key tersedia — migrasi v8 me-REVOKE SELECT (kunci)
+ *  dari anon/authenticated, jadi session client tidak bisa lagi
+ *  membaca kolom itu. Bila key belum diatur (mis. dev sebelum
+ *  v8), mundur ke session client seperti sebelumnya; kunci tetap
+ *  TIDAK PERNAH diteruskan ke klien (halaman /kuis memetakan ke
+ *  PfKuisSoalPublik). */
 export async function getKuisHarian(tanggal: string): Promise<PfKuisSoal[]> {
   try {
-    const supabase = await createClient();
+    const supabase = cobaServiceClient() ?? (await createClient());
     const { data, error } = await supabase
       .from("pf_quiz_questions")
       .select(
@@ -775,5 +783,176 @@ export async function getRiwayatBaca(
     return hasil;
   } catch {
     return [];
+  }
+}
+
+/* ============================================================
+   My Prata — ringkasan dasbor personal (Fase 8 Gelombang 1)
+   ============================================================ */
+
+export type RingkasanSaya = {
+  /** Jumlah baris pf_reading_history (artikel dibaca, nyata). */
+  totalBaca: number;
+  /** Di antaranya yang selesai dibaca. */
+  selesaiBaca: number;
+  /** Jumlah hari berbeda pengguna bermain kuis. */
+  totalKuisHari: number;
+  /** Streak hari beruntun bermain kuis (berakhir hari ini atau
+   *  kemarin WIB; 0 bila belum pernah / sudah putus). */
+  streakKuis: number;
+  totalBenar: number;
+  totalSoal: number;
+  /** Akurasi kuis 0..1; null bila belum pernah bermain. */
+  rataBenar: number | null;
+  jumlahBookmark: number;
+  jumlahTopik: number;
+  notifikasiBelumDibaca: number;
+  /** false = satu atau lebih tabel belum dapat dibaca (angka
+   *  yang tampil tetap nyata dari tabel yang berhasil dibaca;
+   *  pemanggil menampilkan catatan jujur). */
+  tersedia: boolean;
+};
+
+/** Geser tanggal YYYY-MM-DD sebanyak `hari` hari (negatif = mundur). */
+function geserTanggal(tanggal: string, hari: number): string {
+  const d = new Date(`${tanggal}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + hari);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Streak kuis dari daftar tanggal YYYY-MM-DD (murni, diekspos
+ * untuk uji): hitung hari beruntun mundur dari hari ini WIB;
+ * bila hari ini belum bermain, mulai dari kemarin. 0 bila
+ * tanggal terakhir lebih dari sehari yang lalu.
+ */
+export function hitungStreakKuis(
+  tanggal: string[],
+  hariIni: string,
+): number {
+  const himpunan = new Set(tanggal);
+  let kursor = himpunan.has(hariIni) ? hariIni : geserTanggal(hariIni, -1);
+  let streak = 0;
+  while (himpunan.has(kursor)) {
+    streak += 1;
+    kursor = geserTanggal(kursor, -1);
+  }
+  return streak;
+}
+
+/**
+ * Agregasi statistik personal NYATA dari tabel yang sudah ada —
+ * tanpa angka palsu. Bila suatu tabel belum ada / gagal dibaca,
+ * angkanya 0 dan `tersedia` false (halaman menampilkan catatan
+ * jujur, bukan mengarang).
+ */
+export async function getRingkasanSaya(
+  userId: string,
+): Promise<RingkasanSaya> {
+  const kosong: RingkasanSaya = {
+    totalBaca: 0,
+    selesaiBaca: 0,
+    totalKuisHari: 0,
+    streakKuis: 0,
+    totalBenar: 0,
+    totalSoal: 0,
+    rataBenar: null,
+    jumlahBookmark: 0,
+    jumlahTopik: 0,
+    notifikasiBelumDibaca: 0,
+    tersedia: false,
+  };
+  try {
+    const supabase = await createClient();
+    const [baca, skor, bookmark, topik, notif] = await Promise.all([
+      supabase
+        .from("pf_reading_history")
+        .select("id, selesai", { count: "exact" })
+        .eq("user_id", userId)
+        .limit(5000),
+      supabase
+        .from("pf_quiz_scores")
+        .select("tanggal, benar, total")
+        .eq("user_id", userId)
+        .order("tanggal", { ascending: false })
+        .limit(366),
+      supabase
+        .from("pf_bookmarks")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      supabase
+        .from("pf_followed_topics")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId),
+      supabase
+        .from("pf_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("dibaca", false),
+    ]);
+
+    let tersedia = true;
+    let totalBaca = 0;
+    let selesaiBaca = 0;
+    if (baca.error || !baca.data) {
+      tersedia = false;
+    } else {
+      totalBaca = typeof baca.count === "number" ? baca.count : baca.data.length;
+      selesaiBaca = (baca.data as { selesai?: boolean }[]).filter(
+        (r) => r.selesai === true,
+      ).length;
+    }
+
+    let totalKuisHari = 0;
+    let streakKuis = 0;
+    let totalBenar = 0;
+    let totalSoal = 0;
+    let rataBenar: number | null = null;
+    if (skor.error || !skor.data) {
+      tersedia = false;
+    } else {
+      const baris = skor.data as { tanggal: string; benar: number; total: number }[];
+      totalKuisHari = baris.length;
+      streakKuis = hitungStreakKuis(
+        baris.map((b) => b.tanggal),
+        tanggalWibHariIni(),
+      );
+      totalBenar = baris.reduce((a, b) => a + (b.benar || 0), 0);
+      totalSoal = baris.reduce((a, b) => a + (b.total || 0), 0);
+      rataBenar = totalSoal > 0 ? totalBenar / totalSoal : null;
+    }
+
+    const hitung = (
+      res: { error: unknown; count: number | null },
+    ): number | null => {
+      if (res.error) return null;
+      return typeof res.count === "number" ? res.count : 0;
+    };
+    const jumlahBookmark = hitung(bookmark);
+    const jumlahTopik = hitung(topik);
+    const notifikasiBelumDibaca = hitung(notif);
+    if (
+      jumlahBookmark === null ||
+      jumlahTopik === null ||
+      notifikasiBelumDibaca === null
+    ) {
+      tersedia = false;
+    }
+
+    return {
+      totalBaca,
+      selesaiBaca,
+      totalKuisHari,
+      streakKuis,
+      totalBenar,
+      totalSoal,
+      rataBenar,
+      jumlahBookmark: jumlahBookmark ?? 0,
+      jumlahTopik: jumlahTopik ?? 0,
+      notifikasiBelumDibaca: notifikasiBelumDibaca ?? 0,
+      tersedia,
+    };
+  } catch {
+    return kosong;
   }
 }

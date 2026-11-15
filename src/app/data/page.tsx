@@ -78,9 +78,9 @@ function GrafikGaris({ poin, label }: { poin: PfPoinIndikator[]; label: string }
         role="img"
         aria-label={`Grafik tren ${label}: ${formatNilai(pertama.nilai)} pada ${pertama.tanggal} menjadi ${formatNilai(terakhir.nilai)} pada ${terakhir.tanggal}`}
       >
-        <path d={d} fill="none" stroke="var(--aksen, #b91c1c)" strokeWidth="2" />
+        <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" />
         {poin.map((p, i) => (
-          <circle key={`${p.tanggal}-${i}`} cx={x(i)} cy={y(p.nilai)} r="3" fill="var(--aksen, #b91c1c)">
+          <circle key={`${p.tanggal}-${i}`} cx={x(i)} cy={y(p.nilai)} r="3" fill="var(--accent)">
             <title>
               {p.tanggal}: {formatNilai(p.nilai)}
             </title>
