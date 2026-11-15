@@ -15,9 +15,12 @@
 #     01 WIB): memproses 10 item UNCONFIRMED teratas dari antrean.
 #   - Daily Brief setiap hari 22:00 UTC (= 05:00 WIB): menyusun brief
 #     hari itu dari draf artikel terbaru + antrean.
+#   - Terbitkan terjadwal setiap jam: menerbitkan artikel berstatus
+#     'terjadwal' yang waktunya sudah tiba dan lolos gate verifikasi
+#     (artikel yang gagal gate dilewati + dicatat alasannya).
 # Artikel yang dihasilkan SELALU status='draft' — workflow ini TIDAK
-# PERNAH menerbitkan. Penerbitan tetap butuh persetujuan editorial
-# (Fase 5).
+# PERNAH menerbitkan langsung. Penerbitan terjadwal tetap lewat gate
+# verifikasi di endpoint (Fase 5).
 
 name: Editorial AI PRATA FAKTA
 
@@ -27,10 +30,12 @@ on:
     - cron: "0 0,6,12,18 * * *"
     # Daily Brief setiap hari 22:00 UTC (= 05:00 WIB).
     - cron: "0 22 * * *"
+    # Terbitkan artikel terjadwal setiap jam.
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       tugas:
-        description: "Tugas yang dijalankan (pipeline / brief / keduanya)"
+        description: "Tugas yang dijalankan (pipeline / brief / terbitkan-terjadwal / keduanya)"
         required: false
         default: "keduanya"
         type: choice
@@ -38,6 +43,7 @@ on:
           - keduanya
           - pipeline
           - brief
+          - terbitkan-terjadwal
       limit:
         description: "Jumlah item yang diproses pipeline (1-50)"
         required: false
@@ -82,3 +88,22 @@ jobs:
             -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
             -H "Content-Type: application/json" \
             -d '{"dipicu_oleh":"github_actions"}'
+
+  terbitkan-terjadwal:
+    # Jalan setiap jam ATAU bila dipicu manual untuk
+    # terbitkan-terjadwal. (Jadwal 6-jaman dan 22:00 UTC bukan
+    # untuk job ini.)
+    if: >
+      github.event.schedule == '0 * * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.tugas == 'terbitkan-terjadwal')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Terbitkan artikel terjadwal yang waktunya tiba
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/admin/artikel/terbitkan-terjadwal" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}'

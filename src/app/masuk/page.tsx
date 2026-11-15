@@ -27,6 +27,23 @@ export default function Masuk() {
       );
       return;
     }
+    // Akun nonaktif (dibatasi super_admin) tidak boleh lanjut: keluar
+    // lagi dan tampilkan pesan. Bila endpoint status belum tersedia /
+    // gagal dibaca, login tetap dilanjutkan (fail-open untuk login).
+    try {
+      const res = await fetch("/api/akun/status");
+      if (res.ok) {
+        const data = (await res.json()) as { ok?: boolean; nonaktif?: boolean };
+        if (data.nonaktif === true) {
+          await supabase.auth.signOut();
+          setStatus("error");
+          setPesan("Akun Anda dibatasi. Hubungi admin.");
+          return;
+        }
+      }
+    } catch {
+      // Endpoint belum tersedia: lanjut seperti biasa.
+    }
     router.push("/profil");
     router.refresh();
   }

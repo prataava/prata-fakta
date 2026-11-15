@@ -527,3 +527,154 @@ sebelum Fase 5: migrasi v1–v4 dijalankan di produksi + deploy Vercel
 + secret terisi + workflow aktif + uji login staf nyata. Penerbitan
 artikel (terbit/koreksi), moderasi klaim, dan pengiriman newsletter
 tetap Fase 5 — tidak dibangun di Fase 4.
+
+## 12. Fase 5 — Editorial System / Admin Dashboard (16 Nov 2026, selesai di kode, terverifikasi lokal)
+
+### 12.1 Yang dibangun
+
+- **Migrasi v5** (`supabase/migrations/20261116_pf_v5_editorial.sql`):
+  `pf_audit_logs` (aktor, aksi 18 nilai, entitas, sebelum/sesudah
+  jsonb, ip), `pf_editorial_reviews` (artikel_id, reviewer,
+  keputusan setuju/tolak/kembalikan, catatan NOT NULL),
+  `pf_scheduled_jobs` (nama ingestion/editorial/brief, jadwal_cron,
+  aktif, terakhir_jalan, status_terakhir, error_terakhir) +
+  kolom `pf_articles.diterbitkan_oleh` + `pf_profiles.nonaktif`
+  (batasi akun). RLS aktif; audit select super_admin/editor saja;
+  reviews & jobs select staf; TIDAK ADA policy tulis staf — tulis
+  hanya service role. Seed 3 job dari jadwal workflow yang sudah
+  ada (ingestion `*/30 * * * *`, editorial `0 0,6,12,18 * * *`,
+  brief `0 22 * * *`). Tanpa seed operasional lain.
+- **Lapisan server** (`src/lib/admin/`): `types.ts` (interface
+  `AdminAdapter` — semua method async, satu param objek plain,
+  return JSON-able), `editorial.ts` (SEMUA aturan bisnis:
+  buat/edit/hapus artikel, gate terbit, review, verifikasi,
+  koreksi, peran/nonaktif, job, kategori, brief), `guard.ts`
+  (401/403 + cek `nonaktif`), `supabase-adapter.ts`
+  (service role; `listPengguna` via `auth.admin.listUsers()`),
+  `data.ts` (baca Server Component via session client + RLS,
+  gagal-aman), `format.ts` (tanggal id-ID).
+- **Gate terbit (jujur):** draft→terbit HANYA bila verification
+  record terakhir ADA dan keputusannya bukan UNCONFIRMED/DISPUTED
+  — bila tidak, 409 dengan alasan. Setiap terbit/edit/koreksi
+  menambah baris `pf_article_versions` (riwayat pembaruan tampil
+  di halaman artikel; koreksi → status CORRECTED + tanggal
+  koreksi dari verification record terbaru tampil sebagai lencana
+  "Dikoreksi pada …" di semua mode baca).
+- **API** (`src/app/api/admin/`, 20 route + `GET /api/akun/status`):
+  ringkasan, antrean, artikel CRUD + terbitkan/batalkan/jadwalkan/
+  review/fakta, terbitkan-terjadwal (secret `x-pf-ai-secret` ATAU
+  sesi editor), koreksi, pengguna (super_admin saja), sistem
+  (jobs + kategori + jalankan-ulang via fetch internal ke endpoint
+  terkait), audit, brief + terbitkan. Semua: rate limit 30/mnt/IP,
+  cek role server-side, 503 jujur bila tabel/service key belum ada,
+  pesan Bahasa Indonesia. Audit log dicatat untuk SEMUA aksi admin
+  penting (18 aksi).
+- **Dashboard** (`src/app/admin/`, 13 halaman + layout guard):
+  Overview (angka nyata: total/terbit/draft/terjadwal, antrean,
+  belum terkonfirmasi, dikoreksi, aktivitas sumber, API health,
+  scheduler — workflow GitHub dilaporkan "belum terhubung" secara
+  jujur karena status run tidak bisa dibaca tanpa token GitHub —,
+  status agen AI, error log, statistik kategori), Artikel
+  (filter + paginasi + Baru/Edit), Review (antrean + detail klaim/
+  evidence + tautan sumber asli + keputusan + catatan wajib),
+  Fakta (klaim dipisah bukti mendukung/menentang/netral + ubah
+  status), Koreksi, Pengguna (client fetch — email hanya ada di
+  service role), Sistem (jobs + kategori CRUD), Audit (filter +
+  paginasi), Brief, Sumber (memakai API Fase 3). Komponen
+  `src/components/admin/` (10 berkas) — semua tombol memanggil API
+  nyata + loading/sukses/error + konfirmasi hapus.
+- **Akun dibatasi:** `/masuk` sesudah sign-in memanggil
+  `GET /api/akun/status`; bila `nonaktif` → signOut + pesan
+  "Akun Anda dibatasi." Guard admin juga menolak nonaktif (403).
+- **Scheduler:** job baru `terbitkan-terjadwal` di
+  `.github/workflows/editorial.yml` (cron tiap jam) — TIDAK AKTIF
+  sampai deploy + secret terisi.
+
+### 12.2 Hasil verifikasi (16 Nov 2026, lokal)
+
+- **Migrasi** (`node /tmp/pf-sqlcheck/cek-v5.mjs`, exit 0):
+  v1→v5→v5 idempoten; **26 tabel pf_\***, **RLS 26/26**,
+  **62 policy** (59 + 3 baru); insert lolos (audit, review,
+  seed 3 job); 7 uji negatif ditolak.
+- **E2E editorial** (`node scripts/uji-fase5.mjs`, exit 0,
+  "SEMUA LOLOS", ~50 asersi): gate menolak UNCONFIRMED & tanpa
+  verifikasi; review setuju → terbit (status + diterbitkan_pada +
+  diterbitkan_oleh + versi 2 + tampil sebagai artikel terbit);
+  review tolak → tetap draft + alasan; CROSS-CHECKED → terbit;
+  koreksi terima → laporan diperbaiki + CORRECTED + versi 3 +
+  tanggal koreksi; koreksi tolak; jadwalkan + terbitkan-terjadwal
+  (1 diterbitkan, 0 dilewati); batalkan → draft; hapus draft
+  boleh / hapus terbit ditolak; edit → versi 4; review tanpa
+  catatan & tanggal tidak valid ditolak; peran writer→editor;
+  nonaktif; jadwal ingestion → `*/15`; kategori buat/hapus;
+  hapus kategori dipakai ditolak; brief terbit; ringkasan akhir
+  (total 4, terbit 2, draft 2, belum_terkonfirmasi 1, dikoreksi 1);
+  audit log 23 baris — semua 16 aksi tercatat sesuai hitungan.
+- **Build/lint/tsc**: `npm run build` EXIT 0 (13 halaman /admin +
+  21 route /api/admin/* + /api/akun/status sebagai Dynamic ƒ),
+  `npm run lint` EXIT 0 (0 warning), `npx tsc --noEmit` EXIT 0.
+- **Smoke test** (`next start` lokal): `/admin`, `/admin/artikel`,
+  `/admin/audit` tanpa login → payload berisi
+  `NEXT_REDIRECT;replace;/masuk;307` (browser mengikuti ke
+  /masuk); `GET /api/admin/ringkasan` & `POST .../terbitkan`
+  tanpa auth → **401**; `/brief` → **200**; log server bersih
+  (0 error prerender).
+
+### 12.3 Bug yang ditemukan & diperbaiki selama Fase 5
+
+1. **`/api/ai/status` Fase 4 memilih kolom `dibuat_pada` yang
+   TIDAK ADA di `pf_ai_runs`** (v4 hanya punya `dimulai_pada`) —
+   route status AI pasti gagal di runtime. Diperbaiki ke
+   `dimulai_pada` (select + order + `terakhir_pada`).
+2. **`Date.now()` di `getRingkasanAdmin()` melempar error
+   prerender** ("encountered the unstable value Date.now()")
+   sehingga shell `/admin` jadi `__next_error__`. Diperbaiki
+   dengan `await connection()` dari `next/server` SEBELUM membaca
+   waktu (aturan yang sama dengan TASIK: jangan baca waktu di
+   jalur render tanpa connection()).
+3. **`setState` sinkron di dalam `useEffect` di
+   `FormJadwalkan.tsx`** (lint `react-hooks/set-state-in-effect`).
+   Diperbaiki dengan inisialisasi state malas dari prop
+   (formatter deterministik, bukan waktu saat ini).
+4. **Skrip uji crash `pf_profiles_pkey`**: trigger v1
+   `pf_handle_new_user()` sudah membuat profil + peran 'user'
+   saat insert `auth.users` — seed uji diubah jadi UPDATE nama
+   tampilan, bukan INSERT profil.
+5. **Skrip uji crash "Kategori tidak ditemukan"**:
+   `buatKategori` hanya mengembalikan `{slug, nama}` (tanpa id)
+   — uji diubah mengambil id lewat daftar kategori.
+
+### 12.4 Blokir & catatan Fase 5 (jujur)
+
+1. **Migrasi v1–v5 BELUM dijalankan di Supabase produksi** —
+   butuh pemilik lewat SQL Editor. Sampai dijalankan, halaman
+   /admin menampilkan empty state jujur dan API mengembalikan
+   401/503 yang jujur.
+2. **Belum di-deploy ke Vercel** (blokir 403 tim `prataava`) →
+   workflow `terbitkan-terjadwal` + secret `PF_AI_SECRET` /
+   `PF_SITE_URL` belum bisa aktif.
+3. **Uji login staf nyata belum pernah jalan** (butuh migrasi +
+   akun staf di produksi): guard /admin sebagai user biasa → 403
+   baru terverifikasi di level route (401 tanpa auth); alur klik
+   di browser (login → overview terisi → tombol Terbitkan)
+   belum diuji end-to-end di browser.
+4. **Antrean review** didefinisikan sebagai draft/terjadwal
+   (API) — UI overview menghitung antrean lebih luas (draft/
+   terjadwal ATAU UNCONFIRMED/DISPUTED). Keduanya jujur, tapi
+   definisinya belum diseragamkan; mudah diubah di
+   `getAntreanAdmin()` bila diputuskan.
+5. **`GET /api/admin/ringkasan` vs `getRingkasanAdmin()`**
+   (UI) adalah dua implementasi ringkasan yang berbeda (API
+   memakai adapter service; UI memakai session client + RLS) —
+   angkanya harus sama karena sumber tabelnya sama, tapi belum
+   ada uji yang membandingkan keduanya.
+
+### 12.5 Kesiapan Fase 6 (Advanced Features)
+
+Fondasi tersedia: artikel terbit + versi + koreksi + brief terbit
++ antrean review + audit — semuanya bisa dipakai fitur Fase 6
+(peta dunia, visualisasi data, timeline, Tanya Berita AI, Daily
+Knowledge, text-to-speech, personal feed). Yang masih dibutuhkan
+sebelum Fase 6: migrasi v1–v5 dijalankan di produksi + deploy
+Vercel + secret terisi + uji login staf nyata + uji klik browser
+dashboard admin. Data Analysis (agen ke-10) tetap Fase 6.

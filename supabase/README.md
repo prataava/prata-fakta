@@ -229,6 +229,92 @@ ai_run, status klaim, arah evidence, keputusan verification
 record, klaim tanpa artikel_id DAN raw_item_id, tanggal brief
 duplikat).
 
+## Menjalankan migrasi (Fase 5)
+
+**WAJIB jalankan migrasi v1 dulu, lalu v2, lalu v3, lalu v4**
+(`migrations/20261116_pf_v1_foundation.sql`,
+`migrations/20261116_pf_v2_articles.sql`,
+`migrations/20261116_pf_v3_ingestion.sql`,
+`migrations/20261116_pf_v4_ai.sql`). Migrasi v5 bergantung
+pada v1+v2+v3+v4: tabel `pf_articles` dan `pf_profiles`,
+tabel `auth.users`, fungsi `pf_has_role(text)` dan
+`pf_set_updated_at()`. Menjalankan v5 tanpa v1–v4 akan gagal
+(FK / fungsi tidak ditemukan). Urutan di dalam v5 juga
+penting: `pf_audit_logs` → `pf_editorial_reviews` →
+`pf_scheduled_jobs` → ALTER `pf_articles` (kolom
+`diterbitkan_oleh`) → ALTER `pf_profiles` (kolom `nonaktif`)
+→ seed jadwal (tabel `pf_editorial_reviews` merujuk
+`pf_articles`).
+
+1. Buka Supabase Dashboard → proyek **prata** → **SQL Editor** → **New query**.
+2. Tempel seluruh isi `migrations/20261116_pf_v5_editorial.sql` → **Run**.
+3. Jalankan kueri verifikasi di bawah. Migrasi ini idempoten — aman
+   dijalankan ulang. Seed di sini HANYA konfigurasi jadwal nyata
+   dari workflow yang sudah ada (ingestion 30 menit, pipeline
+   editorial 6 jam, Daily Brief 05.00 WIB) — BUKAN data dummy
+   operasional (tanpa log audit palsu, review palsu, atau artikel
+   palsu). Ketiga tabel baru bersifat internal: hanya ditulis
+   service role dan dibaca peran staf — TIDAK ADA policy tulis
+   untuk peran staf. `pf_audit_logs` hanya dibaca super_admin /
+   editor; `pf_editorial_reviews` dan `pf_scheduled_jobs` dibaca
+   staf (super_admin / editor / fact_checker / writer).
+
+## Verifikasi (jalankan sesudah migrasi v5)
+
+```sql
+select 'pf_audit_logs' as tabel, count(*) from public.pf_audit_logs
+union all select 'pf_editorial_reviews', count(*) from public.pf_editorial_reviews
+union all select 'pf_scheduled_jobs', count(*) from public.pf_scheduled_jobs;
+```
+
+Ekspektasi: `pf_audit_logs` **0**, `pf_editorial_reviews` **0**,
+`pf_scheduled_jobs` **3** (seed konfigurasi jadwal).
+
+Cek kolom baru:
+
+```sql
+select column_name from information_schema.columns
+where table_schema = 'public'
+and table_name = 'pf_articles'
+and column_name = 'diterbitkan_oleh';
+
+select column_name from information_schema.columns
+where table_schema = 'public'
+and table_name = 'pf_profiles'
+and column_name = 'nonaktif';
+```
+
+Ekspektasi: 1 baris `pf_articles` + 1 baris `pf_profiles`.
+
+Cek RLS aktif di semua tabel + jumlah policy:
+
+```sql
+select tablename, rowsecurity
+from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+order by tablename;
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+```
+
+Ekspektasi: **26 tabel** `pf_*` ber-RLS (8 dari v1 + 8 dari v2 + 2
+dari v3 + 5 dari v4 + 3 dari v5), total **62 policy** (59 dari
+v1–v4 + 3 dari v5: `pf_audit_logs` 1, `pf_editorial_reviews` 1,
+`pf_scheduled_jobs` 1 — ketiganya select staf saja).
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`/tmp/pf-sqlcheck/cek-v5.mjs` menjalankan v1 lalu v2 lalu v3 lalu
+v4 lalu v5 (v5 2x, idempotensi), menghitung tabel/RLS/policy,
+lalu menguji INSERT + constraint negatif — hasil 16 Nov 2026:
+**SEMUA LOLOS** (26 tabel, RLS 26/26, 62 policy, 3 baris seed
+jobs terverifikasi, 2 kolom baru ada, insert uji berhasil — 1
+audit log + 1 review editorial termasuk relasi artikel→review
++ update `diterbitkan_oleh` dan `nonaktif` — dan 7 uji negatif
+ditolak: aksi audit, keputusan review, nama job,
+status_terakhir job, review tanpa catatan, FK artikel_id tidak
+ada, nama job duplikat).
+
 ## Menetapkan super_admin pertama
 
 Setelah ada akun terdaftar (daftar lewat aplikasi), tetapkan lewat SQL Editor:

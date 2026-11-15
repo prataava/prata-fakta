@@ -262,6 +262,10 @@ export type PfArtikelLengkap = {
   diterbitkan_pada: string | null;
   dibuat_pada: string | null;
   diperbarui_pada: string | null;
+  /** Waktu verification record CORRECTED terbaru; null bila belum
+   *  pernah dikoreksi. Dipakai lencana "Dikoreksi pada …" di halaman
+   *  artikel publik. */
+  koreksi_pada: string | null;
   kategori_nama: string | null;
   tags: { slug: string; nama: string }[];
   sumber_list: { nama: string; url: string }[];
@@ -308,7 +312,7 @@ export async function getArtikelLengkap(
     const kategoriSlug =
       typeof row.kategori_slug === "string" ? row.kategori_slug : null;
 
-    const [kat, tag, sum] = await Promise.all([
+    const [kat, tag, sum, kor] = await Promise.all([
       kategoriSlug
         ? supabase
             .from("pf_categories")
@@ -324,6 +328,15 @@ export async function getArtikelLengkap(
         .from("pf_article_sources")
         .select("url, pf_sources(nama)")
         .eq("artikel_id", artikelId),
+      // Verification record CORRECTED terbaru = tanggal koreksi.
+      supabase
+        .from("pf_verification_records")
+        .select("dibuat_pada")
+        .eq("artikel_id", artikelId)
+        .eq("keputusan", "CORRECTED")
+        .order("dibuat_pada", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     const tags: { slug: string; nama: string }[] = [];
@@ -386,6 +399,10 @@ export async function getArtikelLengkap(
       diterbitkan_pada: (row.diterbitkan_pada as string | null) ?? null,
       dibuat_pada: (row.dibuat_pada as string | null) ?? null,
       diperbarui_pada: (row.diperbarui_pada as string | null) ?? null,
+      koreksi_pada:
+        kor.data && !kor.error
+          ? ((kor.data as { dibuat_pada: string | null }).dibuat_pada ?? null)
+          : null,
       kategori_nama:
         kat.data && !kat.error
           ? ((kat.data as { nama: string }).nama ?? null)

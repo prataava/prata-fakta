@@ -95,6 +95,14 @@ export default async function HalamanArtikel({
           <span className={kelasLencanaStatus(artikel.status_verifikasi)}>
             {labelStatusVerifikasi(artikel.status_verifikasi)}
           </span>
+          {artikel.status_verifikasi === "CORRECTED" && artikel.koreksi_pada && (
+            <>
+              {" "}
+              <span className="lencana lencana-corrected">
+                Dikoreksi pada {formatTanggal(artikel.koreksi_pada)}
+              </span>
+            </>
+          )}
           <h1>{artikel.judul}</h1>
           {artikel.subjudul && <p className="artikel-subjudul">{artikel.subjudul}</p>}
           <p className="artikel-meta">

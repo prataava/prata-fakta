@@ -1114,3 +1114,108 @@ a.kartu:hover {
 .kartu-artikel {
   overflow: hidden;
 }
+
+/* ============================================================
+   Fase 5 — Dashboard admin
+   Semua warna memakai var(--token); mobile-first.
+   ============================================================ */
+
+/* ---------- Navigasi admin ---------- */
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 8px;
+}
+
+.admin-nav a {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.admin-nav a:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* ---------- Kartu statistik overview ---------- */
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .admin-stat-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.admin-stat-angka {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+a.admin-stat:hover {
+  transform: translateY(-2px);
+}
+
+/* ---------- Baris aksi admin ---------- */
+.admin-aksi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-aksi-tombol {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-aksi-tombol .pesan-sukses,
+.admin-aksi-tombol .pesan-error {
+  padding: 6px 10px;
+}
+
+/* ---------- Varian tombol bahaya ---------- */
+.tombol-bahaya {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+}
+
+[data-theme="dark"] .tombol-bahaya {
+  color: var(--midnight);
+}
+
+/* ---------- Formulir admin lebar ---------- */
+.form-lebar {
+  max-width: 720px;
+  margin: 0;
+}
+
+/* ---------- Detail ubah sebaris (sistem / sumber) ---------- */
+.admin-aksi details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+td details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--accent);
+}

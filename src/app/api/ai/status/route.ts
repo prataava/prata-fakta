@@ -48,8 +48,8 @@ export async function GET(req: Request) {
   const supabase = await createClient();
   const { data: runs, error } = await supabase
     .from("pf_ai_runs")
-    .select("id,agen,input_jenis,status,error,detail,durasi_ms,dipicu_oleh,dibuat_pada")
-    .order("dibuat_pada", { ascending: false })
+    .select("id,agen,input_jenis,status,error,detail,durasi_ms,dipicu_oleh,dimulai_pada")
+    .order("dimulai_pada", { ascending: false })
     .limit(500);
   if (error) {
     return belumTersedia(
@@ -81,7 +81,7 @@ export async function GET(req: Request) {
       dilewati: baris.filter((r) => r.status === "dilewati").length,
       berjalan: baris.filter((r) => r.status === "berjalan").length,
       terakhir_pada:
-        baris.length > 0 ? (baris[0].dibuat_pada as string) : null,
+        baris.length > 0 ? (baris[0].dimulai_pada as string) : null,
       belum_pernah_berjalan: baris.length === 0,
     };
   }
