@@ -1,0 +1,155 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+// POST /api/kuis/jawab — periksa satu jawaban kuis di server.
+// Body: { soal_id: UUID, jawaban: 0..4 }
+// Jawaban: { ok, benar, kunci, penjelasan, sumber_url, sumber_nama }.
+// Perbaikan T1 audit keamanan Fase 7: sebelumnya kunci jawaban
+// kuis (pf_quiz_questions.kunci) ikut terkirim ke browser bersama
+// soal — siapa pun bisa mengunduh semua kunci tanpa bermain.
+// Sekarang kunci TIDAK PERNAH dikirim ke klien sebelum menjawab:
+// klien hanya mengirim pilihan, server yang memeriksa dan
+// mengembalikan kunci soal ITU SAJA sesudah dijawab (pengguna
+// memang melihat kunci sesudah menjawab — itu perilaku kuis yang
+// benar). Pengambilan massal kunci tanpa bermain menjadi tidak
+// mungkin. Rate limit 20/menit/IP (5 soal + main ulang).
+// Boleh anonim (kuis bersifat publik). 503 jujur bila tabel belum
+// ada; 404 bila soal tidak ada atau bukan kuis hari ini/kemarin.
+const POLA_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const BATAS = 20;
+const JENDELA_MS = 60_000;
+const hitungan = new Map<string, { n: number; mulai: number }>();
+
+function lolosRateLimit(ip: string): boolean {
+  const sekarang = Date.now();
+  const entri = hitungan.get(ip);
+  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
+    hitungan.set(ip, { n: 1, mulai: sekarang });
+    return true;
+  }
+  if (entri.n >= BATAS) return false;
+  entri.n += 1;
+  return true;
+}
+
+/** Validasi murni body permintaan (diekspos untuk uji). */
+export function validasiJawabanKuis(
+  body: unknown,
+):
+  | { ok: true; soalId: string; jawaban: number }
+  | { ok: false; error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "Isi permintaan tidak valid." };
+  }
+  const { soal_id, jawaban } = body as Record<string, unknown>;
+  if (typeof soal_id !== "string" || !POLA_UUID.test(soal_id)) {
+    return { ok: false, error: "soal_id tidak valid." };
+  }
+  if (
+    typeof jawaban !== "number" ||
+    !Number.isInteger(jawaban) ||
+    jawaban < 0 ||
+    jawaban > 4
+  ) {
+    return { ok: false, error: "Jawaban harus bilangan bulat 0 sampai 4." };
+  }
+  return { ok: true, soalId: soal_id, jawaban };
+}
+
+function tanggalWibHariIni(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function kemarinWib(tanggal: string): string {
+  const d = new Date(`${tanggal}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "tak-dikenal";
+  if (!lolosRateLimit(ip)) {
+    return NextResponse.json(
+      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
+      { status: 429 },
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Isi permintaan tidak valid." },
+      { status: 400 },
+    );
+  }
+  const valid = validasiJawabanKuis(body);
+  if (!valid.ok) {
+    return NextResponse.json(
+      { ok: false, error: valid.error },
+      { status: 400 },
+    );
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("pf_quiz_questions")
+    .select("id, tanggal, kunci, penjelasan, sumber_url, sumber_nama")
+    .eq("id", valid.soalId)
+    .maybeSingle();
+  if (error) {
+    const kode = (error as { code?: string }).code;
+    if (kode === "PGRST205") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Layanan kuis belum aktif (tabel database belum dibuat).",
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
+      { status: 500 },
+    );
+  }
+  if (!data) {
+    return NextResponse.json(
+      { ok: false, error: "Soal tidak ditemukan." },
+      { status: 404 },
+    );
+  }
+  // Hanya soal kuis hari ini/kemarin yang boleh dijawab — mencegah
+  // enumerasi kunci kuis lama satu per satu.
+  const hariIni = tanggalWibHariIni();
+  const tanggal = String(
+    (data as { tanggal: unknown }).tanggal ?? "",
+  );
+  if (tanggal !== hariIni && tanggal !== kemarinWib(hariIni)) {
+    return NextResponse.json(
+      { ok: false, error: "Soal tidak ditemukan atau sudah kedaluwarsa." },
+      { status: 404 },
+    );
+  }
+
+  const kunci = Number((data as { kunci: unknown }).kunci);
+  return NextResponse.json({
+    ok: true,
+    benar: valid.jawaban === kunci,
+    kunci,
+    penjelasan: (data as { penjelasan?: string | null }).penjelasan ?? null,
+    sumber_url: (data as { sumber_url?: string | null }).sumber_url ?? null,
+    sumber_nama:
+      (data as { sumber_nama?: string | null }).sumber_nama ?? null,
+  });
+}

@@ -20,6 +20,33 @@ nyata, dan API `bookmark` / `laporan` / `riwayat`. Skema v2
 dijalankan di produksi**, jadi halaman-halaman Fase 2 menampilkan empty
 state jujur / 503 jujur sampai migrasi dijalankan.
 
+**Fase 3–6: SELESAI (kode, terverifikasi lokal)** (16 Nov 2026).
+Ingestion RSS + GDELT + dedup (v3), AI editorial deterministik +
+verifikasi dua sinyal + Daily Brief (v4), sistem editorial admin +
+gate terbit + koreksi + audit log (v5), fitur lanjutan: peta
+Leaflet, pengetahuan, kuis harian, data/indikator, timeline,
+tanya AI, feed personal, notifikasi, TTS (v6). Detail per fase:
+`ARSITEKTUR.md`.
+
+**Fase 7 — Production: SELESAI (kode, terverifikasi lokal)**
+(16 Nov 2026). Keputusan 404 slug (proxy → 404 nyata) +
+penyimpanan skor kuis (migrasi v7: `pf_quiz_scores`; 36 tabel,
+RLS 36/36, 79 policy); security audit 10 temuan (6 diperbaiki:
+kunci kuis server-side via `POST /api/kuis/jawab`, security
+headers, rate limit 4 route, cek nonaktif di route AI, pelindung
+SSRF, `search_path` fungsi SECURITY DEFINER, perbandingan secret
+timing-safe); SEO (sitemap, robots, RSS, JSON-LD, canonical, OG);
+monitoring (`/api/health`, `/admin/sistem`); backup
+(`scripts/backup-pf.mjs`, 36 tabel); QA 25 butir: 21 LOLOS
+(lokal), 4 BLOKIR. Verifikasi: `tsc` EXIT 0, `lint` EXIT 0,
+`node scripts/uji-fase7.mjs` **87/87 LOLOS**, `npm run build`
+EXIT 0 (87/87 halaman). Laporan lengkap: `LAPORAN-AKHIR.md`.
+
+**BELUM LIVE:** migrasi v1–v7 belum dijalankan di Supabase
+produksi dan deploy Vercel masih blokir 403 (akses tim
+`prataava`). Cara deploy langkah demi langkah:
+`LAPORAN-AKHIR.md` §11.
+
 ## Menjalankan lokal
 
 ```bash
@@ -28,6 +55,7 @@ cp .env.example .env.local   # isi NEXT_PUBLIC_SUPABASE_URL + ANON_KEY
 npm run dev                  # http://localhost:3000
 npm run build                # build produksi (harus exit 0)
 npm run lint                 # ESLint (harus exit 0)
+node scripts/uji-fase7.mjs   # uji migrasi v1-v7 + keamanan (87 asersi)
 ```
 
 ## Database

@@ -1,10 +1,26 @@
 // Helper autentikasi + rate limit untuk route /api/ai/*.
 // Mengikuti pola route ingestion (dua jalur autentikasi untuk POST:
 // header secret jadwal ATAU sesi login staf; GET hanya sesi staf).
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import type { DipicuOleh } from "./types.ts";
+
+// Bandingkan secret dengan timing-safe equal (temuan T9 audit
+// keamanan Fase 7): perbandingan `===` membocorkan panjang awalan
+// yang sama lewat waktu eksekusi. Mengembalikan false bila salah
+// satu kosong atau panjangnya berbeda.
+export function bandingkanSecret(
+  masukan: string | null | undefined,
+  rahasia: string | undefined,
+): boolean {
+  if (!masukan || !rahasia) return false;
+  const a = Buffer.from(masukan, "utf8");
+  const b = Buffer.from(rahasia, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // Rate limiter per-IP dalam memori (pola /api/langganan).
 export function buatRateLimiter(batas: number, jendelaMs = 60_000) {
@@ -49,6 +65,25 @@ export async function autentikasiStaf(): Promise<NextResponse | null> {
       { status: 401 },
     );
   }
+  // Akun dibatasi (nonaktif) tidak boleh memakai fitur AI editorial
+  // (temuan T4 audit keamanan Fase 7 — sebelumnya hanya guard admin
+  // yang memeriksa nonaktif). Bila tabel profil belum ada, jangan
+  // blokir di sini — route akan menjawab 503 yang jujur di bawah.
+  try {
+    const { data: profil } = await supabase
+      .from("pf_profiles")
+      .select("nonaktif")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+      return NextResponse.json(
+        { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+        { status: 403 },
+      );
+    }
+  } catch {
+    // Lanjut ke pemeriksaan role.
+  }
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR, ROLES.FACT_CHECKER)) {
     return NextResponse.json(
@@ -72,8 +107,7 @@ export async function autentikasiPemicuAi(
 ): Promise<HasilAutentikasiPemicu> {
   const secretEnv = process.env.PF_AI_SECRET;
   const secretHeader = req.headers.get("x-pf-ai-secret");
-  const lewatSecret =
-    !!secretEnv && !!secretHeader && secretHeader === secretEnv;
+  const lewatSecret = bandingkanSecret(secretHeader, secretEnv);
   if (lewatSecret) {
     return { ok: true, dipicuOleh: "github_actions" };
   }

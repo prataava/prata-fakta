@@ -879,3 +879,70 @@ keputusan status 404 rute [slug] (butir 13.4.3) +
 keputusan penyimpanan skor kuis (butir 13.4.5). Security
 audit, performance audit, SEO, backup, monitoring, dan QA
 penuh tetap Fase 7 — tidak dibangun di Fase 6.
+
+## 14. Fase 7 — Production (16 Nov 2026, SELESAI di kode)
+
+Laporan lengkap: `LAPORAN-AKHIR.md`. Ringkasan arsitektur:
+
+### 14.1 Keputusan tertunda Fase 6 — diputuskan
+
+1. **404 slug (butir 13.4.3): pola proxy.** `src/proxy.ts`
+   memeriksa keberadaan slug sebelum render: `/artikel/[slug]`
+   (pf_articles), `/pengetahuan/[slug]` (pf_knowledge_articles),
+   `/kategori/[slug]` (cek statis `cariKategori`, tanpa DB).
+   Helper `slugTidakAda(tabel, slug)` memakai REST anon,
+   fail-open; PGRST205 (tabel belum ada) → 404. Smoke test:
+   ketiga rute tak ada → HTTP 404 nyata.
+2. **Skor kuis (butir 13.4.5): DISIMPAN, hanya login.**
+   Migrasi v7 (`pf_quiz_scores`, unique (user_id, tanggal),
+   RLS 3 policy). Total: 36 tabel, RLS 36/36, 79 policy.
+   `POST /api/kuis/skor` (upsert; 401 bila anonim) +
+   riwayat 7 hari di `/kuis`.
+
+### 14.2 Keamanan (audit 10 temuan)
+
+Perbaikan tanpa ubah migrasi v1–v6: kunci kuis dipindah ke
+server (`POST /api/kuis/jawab`, rate limit 20/mnt/IP; klien
+hanya menerima `PfKuisSoalPublik` tanpa kunci); security
+headers di `next.config.ts`; limiter 30/mnt/IP di bookmark,
+notifikasi, riwayat, topik; cek `nonaktif` di
+`autentikasiStaf()`; pelindung SSRF `src/lib/ingestion/ssrf.ts`
+(`tolakHostPrivat` + `ipPrivat` murni) di `fetchRss` + cek
+sumber; `ALTER FUNCTION ... SET search_path = public` untuk
+3 fungsi SECURITY DEFINER v1 (di v7); `bandingkanSecret`
+(timingSafeEqual) di 3 lokasi. T5/T8 didokumentasikan sebagai
+migrasi susulan v8; T10 diterima fail-closed.
+
+### 14.3 SEO, performa, monitoring, backup
+
+Sitemap dinamis (statis + kategori + artikel/pengetahuan
+terbit), robots, RSS 2.0, JSON-LD NewsArticle/Article +
+BreadcrumbList, canonical + Open Graph, noindex admin/masuk/
+daftar/profil. CSS Leaflet pindah ke `PetaDuniaLazy`;
+`PembacaSuara` + `FormLaporan` lazy; header Cache-Control
+900 dtk untuk sitemap/robots/RSS. CSP BELUM dipasang
+(butuh nonce/hash). `GET /api/health` + seksi kesehatan
+`/admin/sistem` (`src/lib/kesehatan.ts`).
+`scripts/backup-pf.mjs` mengekspor 36 tabel ke JSON
+(service-role key dari ENV; tidak pernah mencetak key).
+
+### 14.4 Verifikasi Fase 7
+
+`tsc` EXIT 0; `lint` EXIT 0; `scripts/uji-fase7.mjs`
+**87/87 LOLOS** (v1–v7 idempoten; 36 tabel; RLS 36/36;
+79 policy; skenario skor; T1/T3/T4/T6/T7/T9 termasuk uji
+fungsi murni via ekstraksi+transpilasi TS);
+`npm run build` EXIT 0 (87/87 halaman); smoke test lolos
+(sitemap/robots/RSS/health 200; 404 nyata; jawab 400/503
+jujur; 4 security header). QA 25 butir: 21 LOLOS (lokal),
+4 BLOKIR (tombol, auto publishing, scheduler, responsive).
+
+### 14.5 Blokir yang tetap (di luar kode)
+
+Migrasi v1–v7 belum dijalankan di Supabase produksi;
+deploy Vercel masih 403 akses tim `prataava`; scheduler
+GitHub Actions tidak aktif sampai deploy + secret; uji
+browser nyata belum dilakukan. **URL: BELUM LIVE.**
+Expansion "Advanced Intelligence" (14 area, brief pengguna
+16 Nov 2026 ±06.11 WIB) dijadwalkan sebagai **FASE 8**,
+bukan bagian Fase 7.

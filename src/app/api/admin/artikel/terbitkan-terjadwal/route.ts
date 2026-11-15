@@ -15,6 +15,7 @@ import {
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { bandingkanSecret } from "@/lib/ai/route-auth";
 import { buatAdminAdapter } from "@/lib/admin/supabase-adapter";
 import { terbitkanTerjadwal } from "@/lib/admin/editorial";
 
@@ -25,8 +26,7 @@ export async function POST(req: Request) {
 
   const secretEnv = process.env.PF_AI_SECRET;
   const secretHeader = req.headers.get("x-pf-ai-secret");
-  const lewatSecret =
-    !!secretEnv && !!secretHeader && secretHeader === secretEnv;
+  const lewatSecret = bandingkanSecret(secretHeader, secretEnv);
 
   let aktor: { id: string | null; email: string | null };
   if (lewatSecret) {

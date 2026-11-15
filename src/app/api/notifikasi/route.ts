@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+
+// Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
+const batasi = buatRateLimiter(30);
 
 // GET /api/notifikasi → daftar notifikasi pengguna (terbaru dulu)
 // PATCH /api/notifikasi { id } atau { semua: true } → tandai dibaca
@@ -36,7 +44,8 @@ function respon503() {
   );
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -62,6 +71,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(

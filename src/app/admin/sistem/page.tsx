@@ -5,6 +5,7 @@ import FormKategori from "@/components/admin/FormKategori";
 import TombolAksi from "@/components/admin/TombolAksi";
 import { getSistemAdmin } from "@/lib/admin/data";
 import { formatWaktu } from "@/lib/admin/format";
+import { periksaKesehatan } from "@/lib/kesehatan";
 
 export const metadata: Metadata = {
   title: "Sistem — Admin",
@@ -15,6 +16,11 @@ export const instant = false;
 
 export default async function AdminSistem() {
   const { jobs, kategori, tersedia } = await getSistemAdmin();
+  // Kesehatan database nyata (Fase 7) — dibaca langsung lewat
+  // lib kesehatan yang sama dengan /api/health, bukan fetch ke
+  // diri sendiri. Bila tabel belum ada, statusnya
+  // "belum_tersedia" (jujur), bukan error.
+  const kesehatan = await periksaKesehatan();
 
   if (!tersedia) {
     return (
@@ -29,6 +35,46 @@ export default async function AdminSistem() {
 
   return (
     <>
+      <section className="seksi" aria-labelledby="judul-kesehatan">
+        <div className="seksi-kepala">
+          <h2 id="judul-kesehatan">Kesehatan Sistem</h2>
+          <p>
+            Status koneksi database nyata — sama dengan yang dilaporkan{" "}
+            <a href="/api/health">/api/health</a>.
+          </p>
+        </div>
+        <div className="tabel-gulir">
+          <table className="tabel-data">
+            <tbody>
+              <tr>
+                <th>Database</th>
+                <td>
+                  {kesehatan.db === "ok"
+                    ? "Terhubung"
+                    : kesehatan.db === "belum_tersedia"
+                      ? "Belum tersedia (migrasi belum dijalankan)"
+                      : kesehatan.db === "belum_dikonfigurasi"
+                        ? "Belum dikonfigurasi"
+                        : "Gagal"}
+                </td>
+              </tr>
+              <tr>
+                <th>Latensi</th>
+                <td>{kesehatan.latensiMs} ms</td>
+              </tr>
+              <tr>
+                <th>Diperiksa</th>
+                <td>{formatWaktu(kesehatan.waktu)}</td>
+              </tr>
+              <tr>
+                <th>Detail</th>
+                <td>{kesehatan.detail}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="seksi" aria-labelledby="judul-jobs">
         <div className="seksi-kepala">
           <h2 id="judul-jobs">Job Terjadwal</h2>

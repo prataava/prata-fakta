@@ -6,6 +6,7 @@ import EmptyState from "@/components/EmptyState";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
 import { KATEGORI_UTAMA, cariKategori } from "@/lib/categories";
 import { getArtikelPerKategori } from "@/lib/data";
+import { urlSitus } from "@/lib/situs";
 
 export function generateStaticParams() {
   return KATEGORI_UTAMA.map((k) => ({ slug: k.slug }));
@@ -19,9 +20,16 @@ export async function generateMetadata({
   const { slug } = await params;
   const k = cariKategori(slug);
   if (!k) return { title: "Kategori tidak ditemukan" };
+  const url = `${urlSitus()}/kategori/${slug}`;
   return {
     title: k.nama,
     description: k.deskripsi,
+    alternates: { canonical: url },
+    openGraph: {
+      url,
+      title: `${k.nama} — PRATA FAKTA`,
+      description: k.deskripsi,
+    },
   };
 }
 

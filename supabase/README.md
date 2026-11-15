@@ -430,3 +430,52 @@ status knowledge, kunci quiz 5, tipe followed_topic, jenis
 notifikasi, kategori indikator, data_point duplikat, FK event_id
 timeline tidak ada, status question, harian_tanggal duplikat,
 followed_topic duplikat, FK artikel_id kuis tidak ada).
+
+## Migrasi v7 — Skor kuis (Fase 7, 16 Nov 2026)
+
+Berkas: `20261116_pf_v7_quiz_scores.sql`. Jalankan SETELAH v1–v6,
+di SQL Editor yang sama (idempoten — aman diulang).
+
+Isi:
+
+- Tabel baru `pf_quiz_scores`: `id` uuid PK, `user_id` uuid
+  NOT NULL FK `auth.users` ON DELETE CASCADE, `tanggal` date,
+  `benar` int check 0..5, `total` int check 1..10,
+  check `benar <= total`, unique `(user_id, tanggal)`,
+  index `(user_id, tanggal desc)`, trigger `diperbarui_pada`
+  (memakai `pf_set_updated_at()` dari v1).
+- RLS aktif + 3 policy (baca pemilik, tambah pemilik, ubah
+  pemilik; tanpa policy delete/baca publik — skor hanya milik
+  pengguna login yang membuatnya).
+- Pengerasan T7 audit keamanan Fase 7 (tanpa mengubah v1):
+  `ALTER FUNCTION public.pf_has_role(text)`,
+  `pf_is_super_admin()`, `pf_handle_new_user()`
+  `SET search_path = public`.
+
+Ekspektasi sesudah v7: **36 tabel** `pf_*` ber-RLS (35 dari
+v1–v6 + 1 dari v7), total **79 policy** (76 dari v1–v6 + 3
+dari v7: `pf_quiz_scores` 3).
+
+Verifikasi cepat:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 36
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 79
+
+select proname, proconfig from pg_proc
+where proname in ('pf_has_role', 'pf_is_super_admin', 'pf_handle_new_user');
+-- ekspektasi: ketiganya proconfig = {search_path=public}
+```
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`scripts/uji-fase7.mjs` di repo menjalankan v1 lalu v2 lalu v3
+lalu v4 lalu v5 lalu v6 lalu v7 (v7 2x, idempotensi),
+menghitung tabel/RLS/policy, menguji skenario `pf_quiz_scores`
+(insert, upsert, unique, 6 check/FK negatif, trigger), lalu
+memeriksa perbaikan keamanan T1/T3/T4/T6/T7/T9 — hasil
+16 Nov 2026: **87/87 LOLOS**.

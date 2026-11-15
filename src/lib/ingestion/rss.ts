@@ -2,6 +2,7 @@
 // Hanya memakai Node built-in (fetch global) — tanpa library XML.
 // Hak cipta: yang disimpan hanya metadata + ringkasan sumber + URL;
 // JANGAN pernah menyalin isi penuh artikel media lain ke database.
+import { tolakHostPrivat } from "./ssrf.ts";
 
 export interface ItemMentah {
   url: string;
@@ -223,6 +224,11 @@ export async function fetchRss(
   opsi: OpsiFetchRss = {},
 ): Promise<HasilFetchRss> {
   const timeoutMs = opsi.timeoutMs ?? 10000;
+  // Pelindung SSRF (Fase 7): tolak host privat sebelum fetch.
+  // fetchFn kustom (dipakai uji) tetap melewati pemeriksaan ini —
+  // URL yang sama akan ditolak baik di produksi maupun di uji.
+  const ditolak = await tolakHostPrivat(url);
+  if (ditolak) throw new Error(`Feed ditolak: ${ditolak}`);
   const ambil = opsi.fetchFn ?? fetch;
   let respons: Response;
   try {

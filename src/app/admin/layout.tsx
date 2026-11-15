@@ -5,7 +5,12 @@ import { getAdminSession } from "@/lib/admin/data";
 
 export const metadata: Metadata = {
   title: "Dashboard Admin",
-  description: "Dashboard admin PRATA FAKTA: artikel, review, koreksi, pengguna, dan sistem.",
+  description:
+    "Dashboard admin PRATA FAKTA: artikel, review, koreksi, pengguna, dan sistem.",
+  // Halaman staf — jangan diindeks mesin pencari (Fase 7). Konten
+  // tetap dilindungi guard server di bawah; noindex menutup risiko
+  // URL admin muncul di hasil pencarian.
+  robots: { index: false, follow: false },
 };
 
 // Guard server: belum login → /masuk; bukan staf (super_admin /

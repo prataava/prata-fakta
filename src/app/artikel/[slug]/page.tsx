@@ -9,6 +9,7 @@ import {
 } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
+import { urlSitus } from "@/lib/situs";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
 
 // Halaman artikel: data dibaca per request (slug dinamis) — rute diblokir
@@ -23,9 +24,28 @@ export async function generateMetadata({
   const { slug } = await params;
   const artikel = await getArtikelLengkap(slug);
   if (!artikel) return { title: "Artikel tidak ditemukan" };
+  const url = `${urlSitus()}/artikel/${slug}`;
+  const deskripsi = artikel.ringkasan ?? artikel.subjudul ?? undefined;
   return {
     title: artikel.judul,
-    description: artikel.ringkasan ?? artikel.subjudul ?? undefined,
+    description: deskripsi,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      url,
+      title: artikel.judul,
+      description: deskripsi,
+      publishedTime: artikel.diterbitkan_pada ?? undefined,
+      modifiedTime: artikel.diperbarui_pada ?? undefined,
+      authors: artikel.penulis_nama ? [artikel.penulis_nama] : undefined,
+      images: artikel.gambar_url ? [artikel.gambar_url] : undefined,
+    },
+    twitter: {
+      card: artikel.gambar_url ? "summary_large_image" : "summary",
+      title: artikel.judul,
+      description: deskripsi,
+      images: artikel.gambar_url ? [artikel.gambar_url] : undefined,
+    },
   };
 }
 
@@ -77,8 +97,76 @@ export default async function HalamanArtikel({
     : false;
   const estimasi = hitungEstimasiBaca(artikel);
 
+  // Structured data JSON-LD (Fase 7): NewsArticle + BreadcrumbList
+  // agar mesin pencari memahami artikel ini sebagai berita. Data
+  // diambil dari baris artikel nyata — tanpa nilai karangan; tanggal
+  // yang tidak ada dihilangkan dari objek (bukan ditebak).
+  const urlArtikel = `${urlSitus()}/artikel/${slug}`;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "NewsArticle",
+        headline: artikel.judul,
+        description: artikel.ringkasan ?? artikel.subjudul ?? undefined,
+        ...(artikel.gambar_url ? { image: [artikel.gambar_url] } : {}),
+        ...(artikel.diterbitkan_pada
+          ? { datePublished: artikel.diterbitkan_pada }
+          : {}),
+        ...(artikel.diperbarui_pada
+          ? { dateModified: artikel.diperbarui_pada }
+          : {}),
+        author: {
+          "@type": "Organization",
+          name: artikel.penulis_nama ?? "Redaksi PRATA FAKTA",
+          url: urlSitus(),
+        },
+        publisher: {
+          "@type": "Organization",
+          name: "PRATA FAKTA",
+          url: urlSitus(),
+        },
+        mainEntityOfPage: urlArtikel,
+        inLanguage: "id-ID",
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Beranda",
+            item: urlSitus(),
+          },
+          ...(artikel.kategori_slug
+            ? [
+                {
+                  "@type": "ListItem",
+                  position: 2,
+                  name: artikel.kategori_nama ?? artikel.kategori_slug,
+                  item: `${urlSitus()}/kategori/${artikel.kategori_slug}`,
+                },
+              ]
+            : []),
+          {
+            "@type": "ListItem",
+            position: artikel.kategori_slug ? 3 : 2,
+            name: artikel.judul,
+            item: urlArtikel,
+          },
+        ],
+      },
+    ],
+  };
+
   return (
     <div className="wadah">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
       <article className="artikel">
         <header className="artikel-kepala">
           <p className="artikel-navigasi">
@@ -131,6 +219,8 @@ export default async function HalamanArtikel({
             className="artikel-gambar"
             src={artikel.gambar_url}
             alt={`Ilustrasi: ${artikel.judul}`}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="placeholder-gambar placeholder-gambar-besar" aria-hidden="true">

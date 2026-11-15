@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { KATEGORI_UTAMA } from "@/lib/categories";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+
+// Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
+const batasi = buatRateLimiter(30);
 
 // GET /api/topik → daftar topik yang diikuti pengguna
 // POST /api/topik { tipe, target } → ikuti topik
@@ -57,7 +65,8 @@ function validasiTarget(
   return null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -82,6 +91,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -126,6 +136,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(

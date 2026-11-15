@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+
+// Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
+const batasi = buatRateLimiter(30);
 
 // POST /api/riwayat — catat riwayat baca (sekali per artikel per 24 jam).
 // Body: { artikel_id, durasi_detik? }. Wajib login (401 bila tidak).
@@ -9,6 +17,7 @@ const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const supabase = await createClient();
   let pengguna = null;
   try {

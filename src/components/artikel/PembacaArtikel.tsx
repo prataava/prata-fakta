@@ -8,8 +8,19 @@ import type {
   PfVersiArtikel,
 } from "@/lib/data";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
-import PembacaSuara from "@/components/artikel/PembacaSuara";
-import FormLaporan from "@/components/artikel/FormLaporan";
+// Pembaca suara + formulir laporan baru dipakai sesudah interaksi
+// (tombol "Dengarkan" / "Laporkan Kesalahan") — dimuat malas
+// (Fase 7) agar tidak membebani First Load halaman artikel.
+import dynamic from "next/dynamic";
+
+const PembacaSuara = dynamic(
+  () => import("@/components/artikel/PembacaSuara"),
+  { loading: () => <p>Memuat pemutar suara…</p> },
+);
+const FormLaporan = dynamic(
+  () => import("@/components/artikel/FormLaporan"),
+  { loading: () => <p>Memuat formulir laporan…</p> },
+);
 
 type ModeBaca = "1menit" | "3menit" | "mendalam";
 type UkuranFont = "S" | "M" | "L";

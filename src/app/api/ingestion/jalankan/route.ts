@@ -10,6 +10,7 @@ import {
 } from "@/lib/ingestion/engine";
 import { buatSupabaseAdapter } from "@/lib/ingestion/supabase-adapter";
 import { fetchGdelt } from "@/lib/ingestion/gdelt";
+import { bandingkanSecret } from "@/lib/ai/route-auth";
 
 // POST /api/ingestion/jalankan — memicu ingestion dari sumber aktif.
 // Autentikasi DUA jalur:
@@ -70,8 +71,7 @@ export async function POST(req: Request) {
   // --- Autentikasi dua jalur ---
   const secretEnv = process.env.PF_INGESTION_SECRET;
   const secretHeader = req.headers.get("x-pf-ingestion-secret");
-  const lewatSecret =
-    !!secretEnv && !!secretHeader && secretHeader === secretEnv;
+  const lewatSecret = bandingkanSecret(secretHeader, secretEnv);
 
   let dipicuOlehDefault: DipicuOleh = "manual";
   if (!lewatSecret) {

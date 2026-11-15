@@ -91,6 +91,13 @@ export type PfKuisSoal = {
   artikel_id: string | null;
 };
 
+/**
+ * Tipe soal kuis untuk klien — TANPA kunci jawaban (temuan T1 audit
+ * keamanan Fase 7). Kunci hanya terungkap satu per satu lewat
+ * POST /api/kuis/jawab sesudah pengguna menjawab.
+ */
+export type PfKuisSoalPublik = Omit<PfKuisSoal, "kunci">;
+
 export type PfPertanyaan = {
   id: string;
   user_id: string | null;
@@ -249,6 +256,45 @@ export async function getArtikelDenganKoordinat(
       });
     }
     return hasil;
+  } catch {
+    return [];
+  }
+}
+
+/* ============================================================
+   Skor kuis (riwayat pengguna — Fase 7)
+   ============================================================ */
+
+export type PfSkorKuis = {
+  tanggal: string;
+  benar: number;
+  total: number;
+  dibuat_pada: string | null;
+};
+
+/** Riwayat skor kuis pengguna, terbaru dulu (maks `limit` baris). */
+export async function getRiwayatSkor(
+  userId: string,
+  limit = 7,
+): Promise<PfSkorKuis[]> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("pf_quiz_scores")
+      .select("tanggal, benar, total, dibuat_pada")
+      .eq("user_id", userId)
+      .order("tanggal", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return (data as unknown as Record<string, unknown>[])
+      .filter((r) => typeof r.tanggal === "string")
+      .map((r) => ({
+        tanggal: String(r.tanggal),
+        benar: typeof r.benar === "number" ? r.benar : 0,
+        total: typeof r.total === "number" ? r.total : 5,
+        dibuat_pada:
+          typeof r.dibuat_pada === "string" ? r.dibuat_pada : null,
+      }));
   } catch {
     return [];
   }

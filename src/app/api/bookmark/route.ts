@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+
+// Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7 —
+// sebelumnya route ini tanpa batas laju).
+const batasi = buatRateLimiter(30);
 
 // GET /api/bookmark?artikel_id=… → { bookmarked }
 // POST /api/bookmark { artikel_id } → toggle insert/delete → { bookmarked }
@@ -37,6 +46,7 @@ function respon503() {
 }
 
 export async function GET(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -70,6 +80,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!batasi(ipDariRequest(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(

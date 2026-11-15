@@ -8,6 +8,10 @@
 import dynamic from "next/dynamic";
 import type { MarkerPeta } from "./PetaDunia";
 
+// CSS Leaflet hanya dimuat bersama peta (Fase 7) — sebelumnya
+// diimpor global di layout sehingga membebani semua halaman.
+import "leaflet/dist/leaflet.css";
+
 const PetaDunia = dynamic(() => import("./PetaDunia"), {
   ssr: false,
   loading: () => <div className="kerangka" aria-label="Memuat peta…" />,

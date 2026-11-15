@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
+import { tolakHostPrivat } from "@/lib/ingestion/ssrf";
 
 // POST /api/sumber/[id]/cek — periksa koneksi sumber, HANYA super_admin/editor.
 // Mengambil URL sumber, mengukur waktu respons, dan menyimpan hasilnya ke
@@ -83,6 +84,25 @@ export async function POST(
   let http: number | null = null;
   let ok = false;
   let statusTerakhir: string;
+  // Pelindung SSRF (Fase 7): tolak host privat sebelum fetch.
+  const ditolak = await tolakHostPrivat(sumber.url as string);
+  if (ditolak) {
+    const ms = Date.now() - mulai;
+    statusTerakhir = `gagal: ${ditolak}, ${ms} ms`.slice(0, 200);
+    await supabase
+      .from("pf_sources")
+      .update({
+        terakhir_cek: new Date().toISOString(),
+        status_terakhir: statusTerakhir,
+      })
+      .eq("id", id);
+    return NextResponse.json({
+      ok: false,
+      http: null,
+      ms,
+      status_terakhir: statusTerakhir,
+    });
+  }
   try {
     const res = await fetch(sumber.url as string, {
       method: "GET",

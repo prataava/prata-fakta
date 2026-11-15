@@ -3,7 +3,12 @@ import { connection } from "next/server";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import KuisHarian from "@/components/lanjutan/KuisHarian";
-import { getKuisHarian } from "@/lib/lanjutan";
+import {
+  getKuisHarian,
+  getRiwayatSkor,
+  type PfKuisSoalPublik,
+} from "@/lib/lanjutan";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Kuis Harian",
@@ -47,6 +52,34 @@ export default async function Kuis() {
   await connection();
   const hariIni = tanggalHariIniJakarta();
   const soal = await getKuisHarian(hariIni);
+  // Kunci jawaban TIDAK PERNAH dikirim ke klien (T1, Fase 7):
+  // petakan ke tipe publik yang menghilangkan field `kunci`.
+  // Pemeriksaan jawaban dilakukan server via POST /api/kuis/jawab.
+  const soalPublik: PfKuisSoalPublik[] = soal.map((s) => ({
+    id: s.id,
+    tanggal: s.tanggal,
+    pertanyaan: s.pertanyaan,
+    opsi: s.opsi,
+    penjelasan: s.penjelasan,
+    sumber_url: s.sumber_url,
+    sumber_nama: s.sumber_nama,
+    artikel_id: s.artikel_id,
+  }));
+
+  // Pengguna login mendapat riwayat skor (Fase 7 — migrasi v7);
+  // pengguna anonim tetap bisa bermain, skornya hanya tampil di sesi.
+  let masuk = false;
+  let riwayat: Awaited<ReturnType<typeof getRiwayatSkor>> = [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
+      masuk = true;
+      riwayat = await getRiwayatSkor(data.user.id, 7);
+    }
+  } catch {
+    masuk = false;
+  }
 
   return (
     <div className="wadah">
@@ -62,11 +95,13 @@ export default async function Kuis() {
           <strong>{formatTanggal(hariIni)}</strong>
         </p>
         <p style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
-          Skor hanya tampil di sesi ini.
+          {masuk
+            ? "Skor Anda tersimpan dan tampil di riwayat di bawah."
+            : "Skor hanya tampil di sesi ini. Masuk untuk menyimpan riwayat skor."}
         </p>
       </section>
 
-      {soal.length === 0 ? (
+      {soalPublik.length === 0 ? (
         <section className="seksi">
           <EmptyState
             judul="Belum ada kuis hari ini."
@@ -79,7 +114,43 @@ export default async function Kuis() {
           />
         </section>
       ) : (
-        <KuisHarian soal={soal} />
+        <KuisHarian soal={soalPublik} tanggal={hariIni} masuk={masuk} />
+      )}
+
+      {masuk && (
+        <section className="seksi" aria-labelledby="judul-riwayat-skor">
+          <div className="seksi-kepala">
+            <h2 id="judul-riwayat-skor">Riwayat Skor Anda</h2>
+            <p>7 hari terakhir. Main ulang di hari yang sama menimpa skor sebelumnya.</p>
+          </div>
+          {riwayat.length === 0 ? (
+            <p className="artikel-meta-kecil">
+              Belum ada skor tersimpan — selesaikan kuis hari ini untuk
+              mencatat skor pertama Anda.
+            </p>
+          ) : (
+            <div className="tabel-gulir">
+              <table className="tabel-data">
+                <thead>
+                  <tr>
+                    <th>Tanggal</th>
+                    <th>Benar</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {riwayat.map((r) => (
+                    <tr key={r.tanggal}>
+                      <td>{formatTanggal(r.tanggal)}</td>
+                      <td>{r.benar}</td>
+                      <td>{r.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
