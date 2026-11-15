@@ -91,6 +91,79 @@ trigger — hasil 16 Nov 2026: **SEMUA LOLOS** (16 tabel, 51 policy,
 8 insert uji berhasil, 6 uji negatif ditolak, trigger `diperbarui_pada`
 terbukti berubah).
 
+## Menjalankan migrasi (Fase 3)
+
+**WAJIB jalankan migrasi v1 dulu, lalu v2**
+(`migrations/20261116_pf_v1_foundation.sql`,
+`migrations/20261116_pf_v2_articles.sql`). Migrasi v3 bergantung pada
+v1+v2: tabel `pf_sources` dan `pf_articles`, fungsi
+`pf_has_role(text)`. Menjalankan v3 tanpa v1+v2 akan gagal (FK /
+fungsi tidak ditemukan). Urutan di dalam v3 juga penting:
+`pf_ingestion_runs` → `pf_raw_items` → ALTER `pf_sources` → ALTER
+`pf_articles` (kolom `raw_item_id` mereferensikan `pf_raw_items`).
+
+1. Buka Supabase Dashboard → proyek **prata** → **SQL Editor** → **New query**.
+2. Tempel seluruh isi `migrations/20261116_pf_v3_ingestion.sql` → **Run**.
+3. Jalankan kueri verifikasi di bawah. Migrasi ini idempoten — aman
+   dijalankan ulang. Tidak ada seed data operasional (tanpa item mentah
+   palsu). Data mentah (`pf_ingestion_runs`, `pf_raw_items`) bersifat
+   internal: hanya ditulis service role dan dibaca peran staf
+   (super_admin / editor / fact_checker; raw items juga writer) —
+   TIDAK ADA policy baca publik untuk kedua tabel ini; yang publik
+   hanya artikel terbit. `pf_raw_items` hanya menyimpan metadata +
+   ringkasan sumber + URL, bukan isi penuh artikel media lain.
+
+## Verifikasi (jalankan sesudah migrasi v3)
+
+```sql
+select 'pf_ingestion_runs' as tabel, count(*) from public.pf_ingestion_runs
+union all select 'pf_raw_items', count(*) from public.pf_raw_items;
+```
+
+Ekspektasi: semua **0** (tanpa seed data operasional).
+
+Cek kolom baru:
+
+```sql
+select column_name from information_schema.columns
+where table_schema = 'public'
+and table_name = 'pf_sources'
+and column_name in ('terakhir_diambil', 'jumlah_item');
+
+select column_name from information_schema.columns
+where table_schema = 'public'
+and table_name = 'pf_articles'
+and column_name = 'raw_item_id';
+```
+
+Ekspektasi: 2 baris `pf_sources` + 1 baris `pf_articles`.
+
+Cek RLS aktif di semua tabel + jumlah policy:
+
+```sql
+select tablename, rowsecurity
+from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+order by tablename;
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+```
+
+Ekspektasi: **18 tabel** `pf_*` ber-RLS (8 dari v1 + 8 dari v2 + 2
+dari v3), total **53 policy** (51 dari v1+v2 + 2 dari v3:
+`pf_ingestion_runs` 1, `pf_raw_items` 1 — keduanya select staf saja).
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`/tmp/pf-sqlcheck/cek-v3.mjs` menjalankan v1 lalu v2 lalu v3 (v3 2x,
+idempotensi), menghitung tabel/RLS/policy dan kolom baru, lalu menguji
+INSERT + constraint negatif — hasil 16 Nov 2026: **SEMUA LOLOS**
+(18 tabel, RLS 18/18, 53 policy, 3 kolom baru ada, 6 insert uji
+berhasil — 1 run + 2 raw item termasuk relasi `disalin_dari` +
+perbarui `pf_sources` + 1 artikel dengan `raw_item_id` — dan 6 uji
+negatif ditolak: status run, `dipicu_oleh`, `status_verifikasi`,
+status raw item, `hash_url` duplikat, FK `sumber_id` tidak ada).
+
 ## Menetapkan super_admin pertama
 
 Setelah ada akun terdaftar (daftar lewat aplikasi), tetapkan lewat SQL Editor:

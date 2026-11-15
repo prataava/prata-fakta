@@ -1,0 +1,43 @@
+# PRATA FAKTA — Scheduler ingestion (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL         = URL deploy, mis. https://prata-fakta.vercel.app
+#                         (TANPA trailing slash)
+#   PF_INGESTION_SECRET = secret pemicu endpoint ingestion; nilainya HARUS
+#                         sama dengan env PF_INGESTION_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
+# dari endpoint (bukan error workflow).
+
+name: Ingestion PRATA FAKTA
+
+on:
+  schedule:
+    # Setiap 30 menit.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      sumber_id:
+        description: "ID sumber tertentu (kosong = semua sumber aktif)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  ingestion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pemicu ingestion
+        run: |
+          BODY='{"dipicu_oleh":"github_actions"}'
+          if [ -n "${{ inputs.sumber_id }}" ]; then
+            BODY=$(jq -n --arg s "${{ inputs.sumber_id }}" \
+              '{dipicu_oleh:"github_actions", sumber_id:$s}')
+          fi
+          curl --fail-with-body -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/ingestion/jalankan" \
+            -H "x-pf-ingestion-secret: ${{ secrets.PF_INGESTION_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "$BODY"

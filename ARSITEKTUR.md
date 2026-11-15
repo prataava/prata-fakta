@@ -194,3 +194,120 @@ dijalankan dan terverifikasi.
 skema v2 sedang ditulis agen migrasi dan belum dijalankan di produksi.
 Penulisan artikel manual oleh editor masih menunggu dashboard admin
 (Fase 5).
+
+## 10. Fase 3 — News Engine (16 Nov 2026, selesai di kode, terverifikasi lokal)
+
+### 10.1 Yang dibangun
+
+- **Migrasi v3** (`supabase/migrations/20261116_pf_v3_ingestion.sql`):
+  `pf_ingestion_runs` (per sumber, per run: ditemukan/baru/duplikat/ditolak/
+  gagal, status, pemicu) + `pf_raw_items` (HANYA metadata + ringkasan
+  sumber + URL — tanpa isi penuh artikel media lain; `hash_url` UNIQUE
+  sebagai kunci dedup, `hash_judul`, `disalin_dari_id`, flag
+  `diterbitkan_ulang`, `status_verifikasi` default `UNCONFIRMED`) +
+  kolom `pf_sources.terakhir_diambil`/`jumlah_item` +
+  `pf_articles.raw_item_id` (jejak provenance artikel ← item mentah).
+  RLS aktif; baca hanya staf, tulis hanya service role (tanpa policy
+  tulis untuk user terautentikasi), tanpa akses publik.
+- **Engine ingestion** (`src/lib/ingestion/`): `rss.ts` (fetch + parser XML
+  toleran tanpa library — RSS 2.0 & Atom, per-item try/catch),
+  `dedup.ts` (normalisasi URL/judul + sha256), `gdelt.ts` (DOC API
+  mode=artlist, per topik), `engine.ts` (`jalankanIngestion` — fetch
+  paralel, 1 run per sumber, aturan dedup §10.3), `supabase-adapter.ts`
+  (service role; error jelas bila `SUPABASE_SERVICE_ROLE_KEY` belum
+  diatur). Tanpa auto-publish, tanpa auto-VERIFIED: semua item baru
+  masuk sebagai `UNCONFIRMED`.
+- **API** (`src/app/api/`): `GET/POST /api/sumber`, `PATCH/DELETE
+  /api/sumber/[id]`, `POST /api/sumber/[id]/cek` (fetch nyata + ukur
+  ms + update `terakhir_cek`/`status_terakhir`), `POST
+  /api/ingestion/jalankan` (auth ganda: header `x-pf-ingestion-secret`
+  atau sesi super_admin/editor), `GET /api/ingestion/antrean`
+  (hitungan count nyata per status + 5 run terakhir). Semua mengikuti
+  pola `langganan`: rate limit in-memory, error 503 jujur bila tabel/
+  secret belum ada, pesan Bahasa Indonesia.
+- **Scheduler**: `.github/workflows/ingestion.yml` (cron `*/30 * * * *`
+  + `workflow_dispatch` dengan input `sumber_id` opsional; curl
+  `--fail-with-body` ke `/api/ingestion/jalankan`).
+- **Uji**: `scripts/uji-ingestion.mjs` (PGlite + 7 feed nyata + uji
+  sintetis dedup + GDELT 1×). Skrip cek migrasi: `/tmp/pf-sqlcheck/cek-v3.mjs`.
+
+### 10.2 Keputusan scheduler (berdasarkan bukti)
+
+| Opsi | Penilaian | Keputusan |
+|---|---|---|
+| (a) GitHub Actions cron (30 menit) | **TERBUKTI jalan** di repo ini (CI APK PRATA Remote: run sukses, pola curl + secret sudah dipakai). Gratis, independen dari VM Muse, jadwal 30 menit didukung. | **DIPILIH (utama)** |
+| (b) Vercel Cron | Paket Hobby Vercel hanya mengizinkan cron **1×/hari** (butuh 30 menit); deploy Vercel proyek ini juga masih blokir 403 akses tim `prataava` (lihat §3). | **DITOLAK** |
+| (c) Cron Muse → endpoint | Pola ini berjalan untuk Mesin Soal PRATA (cron 02.00 WIB). Bergantung pada runtime VM; dipakai bila (a) belum aktif. | **CADANGAN** |
+
+**Secret yang dibutuhkan (nama saja, tanpa nilai):** `PF_INGESTION_SECRET`
+(samakan di GitHub secret + env Vercel + `.env.example`),
+`SUPABASE_SERVICE_ROLE_KEY` (hanya server, dari Supabase Dashboard →
+Settings → API), GitHub secret `PF_SITE_URL` (URL deploy tanpa trailing
+slash). Scheduler **TIDAK aktif** sampai ada deploy + kedua secret
+terisi — workflow saat ini hanya konfigurasi.
+
+### 10.3 Aturan dedup (yang diimplementasikan)
+
+1. `hash_url` sudah ada → `duplikat`, tidak disimpan.
+2. `hash_judul` sama dari penerbit **berbeda** → disimpan sebagai
+   `disalin_dari` + `disalin_dari_id` menunjuk item tertua. Banyak media
+   menyalin berita yang sama TIDAK pernah dihitung sebagai banyak sumber
+   independen.
+3. `hash_judul` sama dari sumber **sama** + selisih tanggal terbit
+   > 48 jam (atau selisih tanggal ambil > 7 hari bila tanggal tak ada)
+   → disimpan sebagai `duplikat` + `diterbitkan_ulang = true`.
+4. Judul sama, sumber sama, tanggal dekat → `duplikat`, tidak disimpan.
+5. Tanpa URL/judul valid, URL bukan http(s), judul < 5 karakter →
+   `ditolak`, tidak disimpan.
+
+### 10.4 Hasil verifikasi (16 Nov 2026, dry-run lokal ke PGlite, feed nyata)
+
+- **Migrasi** (`node /tmp/pf-sqlcheck/cek-v3.mjs`, exit 0): v1→v2→v3→v3
+  lagi idempoten; **18 tabel pf_\***, **RLS 18/18**, **53 policy**
+  (51 + 2 baru); insert 6/6 berhasil; uji negatif 6/6 ditolak.
+- **Ingestion** (`node scripts/uji-ingestion.mjs`, fetch langsung dari VM):
+  Run 1 — **356 ditemukan / 353 baru / 3 duplikat / 0 ditolak /
+  0 gagal** (Antara 50/50, CNN 100/99, Liputan6 50/49, CNBC 100/100,
+  Tribunnews 20/20, Republika 15/14, BBC 21/21). Run 2 — **baru = 0 di
+  semua feed** (dedup terbukti). Ketiga "duplikat" run 1 adalah
+  `disalin_dari` antar-penerbit (CNN, Liputan6, Republika masing-masing
+  1). Uji sintetis: `disalin_dari` (id menunjuk item asli) dan
+  `diterbitkan_ulang` (flag true) keduanya lolos.
+- **Build/lint**: `npm run build` EXIT 0 (34/34 halaman; route Fase 3
+  terdaftar), `npm run lint` EXIT 0 (0 warning setelah pembersihan),
+  `npx tsc --noEmit` EXIT 0.
+- **GDELT GAGAL di VM ini**: 1 panggilan topik "Indonesia" → **HTTP
+  429** (±10,6 detik), sesuai hard-stop 429 tidak di-retry. Penyebab
+  paling mungkin: IP egress VM bersama sudah kena batas GDELT. Perlu
+  diuji ulang dari GitHub Actions (IP berbeda) sesudah deploy.
+
+### 10.5 Blokir & catatan Fase 3 (jujur)
+
+1. **Migrasi v1+v2+v3 BELUM dijalankan di Supabase produksi** — butuh
+   pemilik lewat SQL Editor (lihat `supabase/README.md`). Sampai
+   dijalankan, API Fase 3 mengembalikan 503/`tersedia:false` yang
+   jujur dan ingestion produksi tidak bisa jalan.
+2. **Belum di-deploy ke Vercel** (blokir 403 tim, lihat §3) → endpoint
+   ingestion + workflow GitHub Actions belum bisa aktif.
+3. **GDELT 429 dari VM** (lihat §10.4) — cadangan GDELT belum
+   terbukti end-to-end; perlu uji dari runner GitHub Actions.
+4. **Topik GDELT di engine hardcoded "Indonesia"** — `topik_gdelt`
+   dari body API saat ini hanya dipakai untuk pemeriksaan sekali jalan
+   di route, bukan untuk mengubah topik ingestion engine. Perlu opsi
+   injeksi topik bila Fase 4 butuh topik dinamis.
+5. **`tsconfig.json` +1 baris** (`allowImportingTsExtensions: true`) —
+   dibutuhkan agar Node 24 bisa mengimpor engine `.ts` langsung dari
+   skrip dry-run (impor `./rss.js` TIDAK dipetakan ke `rss.ts` oleh
+   type-stripping); build/lint/tsc tetap bersih.
+6. **Catatan kecil skrip uji**: `status_terakhir` Antara sesudah dry-run
+   tertulis "ok HTTP 200, 1 item" karena uji sintetis terakhir memakai
+   sumber Antara — kosmetik, hanya di PGlite uji, bukan produksi.
+
+### 10.6 Kesiapan Fase 4 (AI Editorial)
+
+Fondasi tersedia: antrean `pf_raw_items` berstatus `UNCONFIRMED` siap
+dibaca agen Muse (Research → Summarization → Article Writing →
+Editorial Quality) lewat cron/scheduled job + `pf_articles.raw_item_id`
+sebagai jejak provenance. Yang masih dibutuhkan sebelum Fase 4: migrasi
+dijalankan di produksi + deploy + secret terisi (lihat §10.5 butir 1–2).
+Daily Brief tetap Fase 4 — tidak dibangun di Fase 3.
