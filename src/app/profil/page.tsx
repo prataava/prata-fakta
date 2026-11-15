@@ -132,6 +132,17 @@ export default function Profil() {
           </p>
         )}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <Link className="tombol" href="/feed-saya">
+            Feed Saya
+          </Link>
+          <Link className="tombol" href="/kuis">
+            Kuis Harian
+          </Link>
+          <Link className="tombol" href="/tanya">
+            Tanya PRATA FAKTA
+          </Link>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
           <button className="tombol" type="button" onClick={kirimReset} disabled={reset === "loading"}>
             {reset === "loading" ? "Mengirim…" : "Kirim tautan ubah kata sandi"}
           </button>

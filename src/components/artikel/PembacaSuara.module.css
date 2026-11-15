@@ -1,0 +1,44 @@
+/* Pembaca Suara — gaya lokal komponen (globals.css tidak diubah). */
+.pembaca-suara {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--garis, #e5e7eb);
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
+.pembaca-suara-judul {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.pembaca-suara-tombol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pembaca-suara-kecepatan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.pembaca-suara-kecepatan select {
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--garis, #d1d5db);
+  background: var(--latar-kartu, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.pembaca-suara-pesan {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}

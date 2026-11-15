@@ -331,3 +331,102 @@ Ganti `UUID-AKUN-ANDA` dengan UUID dari Authentication → Users.
 Mengikuti pola TASIK JAYA (`~/workspace/tasik-jaya/supabase/migrations/`):
 `CREATE TABLE IF NOT EXISTS` + `ENABLE ROW LEVEL SECURITY` + policy +
 trigger + function + index, diterapkan manual via SQL Editor.
+
+## Menjalankan migrasi (Fase 6)
+
+**WAJIB jalankan migrasi v1 dulu, lalu v2, lalu v3, lalu v4, lalu v5**
+(`migrations/20261116_pf_v1_foundation.sql`,
+`migrations/20261116_pf_v2_articles.sql`,
+`migrations/20261116_pf_v3_ingestion.sql`,
+`migrations/20261116_pf_v4_ai.sql`,
+`migrations/20261116_pf_v5_editorial.sql`). Migrasi v6 bergantung
+pada v1–v5: tabel `pf_articles`, tabel `auth.users`, fungsi
+`pf_has_role(text)` dan `pf_set_updated_at()`. Menjalankan v6 tanpa
+v1–v5 akan gagal (FK / fungsi tidak ditemukan). Urutan di dalam v6
+juga penting: `pf_knowledge_articles` → `pf_followed_topics` →
+`pf_notifications` → `pf_quiz_questions` → `pf_data_indicators` →
+`pf_data_points` → `pf_events` → `pf_event_timeline` →
+`pf_questions` → ALTER `pf_articles` (kolom `lintang` / `bujur`).
+
+1. Buka Supabase Dashboard → proyek **prata** → **SQL Editor** → **New query**.
+2. Tempel seluruh isi `migrations/20261116_pf_v6_advanced.sql` → **Run**.
+3. Jalankan kueri verifikasi di bawah. Migrasi ini idempoten — aman
+   dijalankan ulang. **Tanpa seed operasional**: tanpa artikel
+   pengetahuan palsu, indikator palsu, kuis palsu, atau peristiwa
+   palsu — semua isi diisi lewat API / agen setelah migrasi berjalan.
+
+Kebijakan baca: `pf_quiz_questions`, `pf_data_indicators`,
+`pf_data_points`, `pf_events`, `pf_event_timeline` dibaca publik
+semua baris; `pf_knowledge_articles` dibaca publik hanya yang
+`status='terbit'` (draf hanya staf); `pf_followed_topics` dan
+`pf_notifications` hanya pemilik; `pf_questions` dibaca pemilik +
+staf, dan siapa pun (termasuk anon) boleh mengajukan pertanyaan.
+Tulis lewat service role (API) — TIDAK ADA policy tulis pengguna
+untuk tabel pengetahuan, kuis, data, dan peristiwa; `pf_questions`
+tidak punya policy update/delete pengguna.
+
+## Verifikasi (jalankan sesudah migrasi v6)
+
+```sql
+select 'pf_knowledge_articles' as tabel, count(*) from public.pf_knowledge_articles
+union all select 'pf_followed_topics', count(*) from public.pf_followed_topics
+union all select 'pf_notifications', count(*) from public.pf_notifications
+union all select 'pf_quiz_questions', count(*) from public.pf_quiz_questions
+union all select 'pf_data_indicators', count(*) from public.pf_data_indicators
+union all select 'pf_data_points', count(*) from public.pf_data_points
+union all select 'pf_events', count(*) from public.pf_events
+union all select 'pf_event_timeline', count(*) from public.pf_event_timeline
+union all select 'pf_questions', count(*) from public.pf_questions;
+```
+
+Ekspektasi: semua **0** (tanpa seed data operasional).
+
+Cek kolom baru:
+
+```sql
+select column_name from information_schema.columns
+where table_schema = 'public'
+and table_name = 'pf_articles'
+and column_name in ('lintang', 'bujur');
+```
+
+Ekspektasi: 2 baris `pf_articles` (koordinat terverifikasi saja;
+NULL bila belum terverifikasi — peta hanya menampilkan yang
+non-null).
+
+Cek RLS aktif di semua tabel + jumlah policy:
+
+```sql
+select tablename, rowsecurity
+from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+order by tablename;
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+```
+
+Ekspektasi: **35 tabel** `pf_*` ber-RLS (8 dari v1 + 8 dari v2 + 2
+dari v3 + 5 dari v4 + 3 dari v5 + 9 dari v6), total **76 policy**
+(62 dari v1–v5 + 14 dari v6: `pf_knowledge_articles` 2,
+`pf_followed_topics` 3, `pf_notifications` 2,
+`pf_quiz_questions` 1, `pf_data_indicators` 1,
+`pf_data_points` 1, `pf_events` 1, `pf_event_timeline` 1,
+`pf_questions` 2).
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`/tmp/pf-sqlcheck/cek-v6.mjs` menjalankan v1 lalu v2 lalu v3 lalu
+v4 lalu v5 lalu v6 (v6 2x, idempotensi), menghitung tabel/RLS/policy,
+lalu menguji INSERT + constraint negatif — hasil 16 Nov 2026:
+**SEMUA LOLOS** (35 tabel, RLS 35/35, 76 policy, 9 tabel baru
+kosong sebelum insert, 2 kolom baru ada, insert uji berhasil — 2
+knowledge (terbit + harian hari ini), 1 followed_topic, 1
+notifikasi, 1 quiz tanggal hari ini merujuk artikel, 1 indikator +
+2 data points, 2 event (1 berkoordinat + 1 tanpa koordinat NULL)
++ 1 timeline, 2 question (anon + user), update `lintang`/`bujur`
+artikel + update knowledge membuktikan trigger
+`diperbarui_pada` — dan 12 uji negatif ditolak: topik knowledge,
+status knowledge, kunci quiz 5, tipe followed_topic, jenis
+notifikasi, kategori indikator, data_point duplikat, FK event_id
+timeline tidak ada, status question, harian_tanggal duplikat,
+followed_topic duplikat, FK artikel_id kuis tidak ada).

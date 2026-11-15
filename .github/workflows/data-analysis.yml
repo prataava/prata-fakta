@@ -1,0 +1,39 @@
+# PRATA FAKTA — Data Analysis mingguan (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL   = URL deploy, mis. https://prata-fakta.vercel.app
+#                   (TANPA trailing slash)
+#   PF_AI_SECRET  = secret pemicu endpoint AI; nilainya HARUS sama dengan
+#                   env PF_AI_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
+# dari endpoint (bukan error workflow).
+#
+# Jadwal:
+#   - Data Analysis setiap Senin 01:00 UTC (= 08:00 WIB): menghitung
+#     tren semua indikator di pf_data_indicators dari pf_data_points
+#     nyata dan menulis ringkasan_tren (deterministik, tanpa LLM).
+# Agen TIDAK PERNAH mengarang angka: indikator dengan < 2 titik data
+# dilewati dengan alasan dan dicatat di pf_ai_runs.
+
+name: Data Analysis PRATA FAKTA
+
+on:
+  schedule:
+    # Setiap Senin 01:00 UTC (= 08:00 WIB).
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+jobs:
+  data-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pemicu agen Data Analysis
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/ai/data-analysis" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"dipicu_oleh":"github_actions"}'

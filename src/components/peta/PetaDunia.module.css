@@ -1,0 +1,15 @@
+.peta {
+  height: 480px;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--garis, #e5e7eb);
+  background: #eef2f5;
+  z-index: 0;
+}
+
+@media (max-width: 640px) {
+  .peta {
+    height: 360px;
+  }
+}

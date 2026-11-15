@@ -678,3 +678,204 @@ Knowledge, text-to-speech, personal feed). Yang masih dibutuhkan
 sebelum Fase 6: migrasi v1–v5 dijalankan di produksi + deploy
 Vercel + secret terisi + uji login staf nyata + uji klik browser
 dashboard admin. Data Analysis (agen ke-10) tetap Fase 6.
+
+## 13. Fase 6 — Advanced Features (16 Nov 2026, selesai di kode, terverifikasi lokal)
+
+### 13.1 Yang dibangun
+
+- **Migrasi v6** (`supabase/migrations/20261116_pf_v6_advanced.sql`):
+  `pf_knowledge_articles` (topik 9 nilai, status draft/terbit,
+  `harian_tanggal` unique — satu Fakta Hari Ini per tanggal),
+  `pf_followed_topics` (unique user+tipe+target; tipe
+  kategori/negara/isu), `pf_notifications` (6 jenis, `dibaca`),
+  `pf_quiz_questions` (tanggal, 5 opsi jsonb, kunci 0–4,
+  penjelasan, sumber, FK opsional artikel), `pf_data_indicators`
+  (7 kategori, sumber_nama/url, metodologi, tanggal_pembaruan,
+  `ringkasan_tren`), `pf_data_points` (unique indikator+tanggal),
+  `pf_events` (lokasi_teks, lintang/bujur nullable — NULL bila
+  koordinat belum terverifikasi), `pf_event_timeline`,
+  `pf_questions` (user_id nullable = anonim, jawaban, referensi
+  jsonb, status menunggu/terjawab/tidak_ada_data) + ALTER
+  `pf_articles` (kolom `lintang`/`bujur` numeric(9,6) nullable).
+  RLS aktif di 9 tabel; **14 policy baru** (total 76). Tanpa seed
+  operasional.
+- **Peta dunia `/peta`**: Leaflet 1.9.4 + tile OpenStreetMap
+  (gratis, tanpa key) via `next/dynamic` di pembungkus client
+  (`PetaDuniaLazy` — `ssr:false` di Server Component DITOLAK
+  build Next 16); divIcon HTML sendiri (tanpa ikon gambar
+  bawaan); marker HANYA dari event/artikel berkoordinat
+  terverifikasi; peristiwa tanpa koordinat terdaftar di bawah
+  peta dengan catatan jujur; 0 marker → peta tetap tampil +
+  empty state.
+- **Data & Statistik `/data`**: kartu per indikator (nilai
+  terakhir + satuan, sumber resmi + tautan, metodologi, tanggal
+  pembaruan, ringkasan_tren), grafik garis SVG buatan tangan +
+  tabel poin, filter `?kategori=`. Hanya data tabel; kosong →
+  empty state.
+- **Timeline `/timeline`**: `pf_events` + entri
+  `pf_event_timeline` per event (waktu, peristiwa, sumber,
+  perubahan, dampak), terbaru dulu.
+- **Pengetahuan `/pengetahuan` + `/pengetahuan/[slug]`**: filter
+  topik, Fakta Hari Ini (tanggal WIB), isi + referensi yang
+  bisa diklik. Detail memakai `generateMetadata` (judul asli
+  per artikel) + `notFound()` bila slug tidak ada.
+- **Kuis Harian `/kuis`**: 5 soal hari ini (tanggal WIB); jawab
+  satu per satu → kunci + penjelasan + sumber; skor akhir
+  tampil; **skor TIDAK disimpan** (tidak ada tabel skor di v6)
+  — halaman menyatakan jujur "Skor hanya tampil di sesi ini."
+- **Tanya Berita AI `/tanya` + `POST /api/tanya`**: retrieval
+  ekstraktif atas artikel terbit + pengetahuan terbit
+  (`kataKunci`: token ≥4 huruf tanpa stopwords, maks 6; skor
+  judul 3 / isi 1; maks 3 referensi). Cocok → jawaban =
+  ringkasan artikel terbaik + referensi yang bisa dibuka,
+  status `terjawab`; tidak cocok → jawaban jujur "Belum ada
+  data…" + status `menunggu` (antrean editor/Muse). Boleh
+  anonim; rate limit 5/menit/IP; hitungan antrean nyata tampil.
+- **Feed personal `/feed-saya`** (wajib login → redirect
+  `/masuk`): topik diikuti (tambah/hapus via `/api/topik`),
+  rekomendasi HANYA dari kategori diikuti (tanpa topik →
+  pesan "Ikuti topik dulu…", tidak ada artikel acak),
+  notifikasi (tandai dibaca via `/api/notifikasi`), artikel
+  disimpan + riwayat baca (memakai `data.ts` Fase 2).
+- **Text-to-speech**: `PembacaSuara` di halaman artikel —
+  SpeechSynthesis browser (gratis, tanpa key): Putar/Jeda/
+  Lanjutkan/Berhenti + kecepatan 0.75–1.5; teks dipecah per
+  kalimat maks 200 karakter; feature-detect jujur (browser
+  tidak mendukung → pesan + tombol nonaktif).
+- **Data Analysis (agen ke-10)**: `src/lib/ai/data-analysis.ts`
+  — deterministik: nilai terakhir/sebelumnya, selisih + persen,
+  min/maks, label naik (≥+1%) / turun (≤−1%) / stabil; tulis
+  `ringkasan_tren` Bahasa Indonesia hanya dari angka data;
+  <2 titik → dilewati + alasan; 1 baris `pf_ai_runs` per
+  indikator. `POST /api/ai/data-analysis` (auth ganda +
+  rate limit, 503 jujur) + workflow GitHub Actions mingguan
+  (Senin 01:00 UTC; TIDAK AKTIF sampai deploy + secret).
+  Status agen sudah terdaftar di `/api/ai/status` sejak Fase 4.
+- **Konten rutin `/rutin`** (indeks + 6 halaman): Pagi (dari
+  brief terbit terbaru), Mingguan (artikel + brief 7 hari),
+  Bulanan (30 hari), Dunia (pengetahuan negara/geografi +
+  artikel kategori dunia), Angka (indikator Indonesia),
+  Hari Ini (event + artikel hari ini). Semua hanya baris data
+  nyata + empty state jujur; tanpa ringkasan karangan.
+- **Navigasi**: Header tambah Peta, Data, Timeline,
+  Pengetahuan, Kuis, Tanya, Rutin, Feed Saya; profil menautkan
+  /feed-saya, /kuis, /tanya. BottomNav tidak diubah (tetap
+  5 item).
+
+### 13.2 Hasil verifikasi (16 Nov 2026, lokal)
+
+- **Migrasi** (`node /tmp/pf-sqlcheck/cek-v6.mjs`, exit 0,
+  dijalankan 2× + diulang koordinator): v1→v6→v6 idempoten;
+  **35 tabel pf_\***, **RLS 35/35**, **76 policy** (62 + 14);
+  insert 14/14 + 3 cek baca/trigger; uji negatif **12/12**
+  ditolak. (Catatan: skrip cek-v6.mjs + seluruh /tmp/pf-sqlcheck
+  hilang saat restart runtime 16 Nov ±23.00 WIB — /tmp
+  ephemera; pemeriksaannya tercakup ulang oleh
+  `scripts/uji-fase6.mjs` yang kini masuk repo.)
+- **E2E Fase 6** (`node scripts/uji-fase6.mjs`, exit 0,
+  **53/53 LOLOS**): peta (marker 1 berkoordinat, 1 tanpa
+  koordinat di daftar saja, draft tidak jadi marker);
+  pengetahuan harian = fotosintesis (2026-11-16); kuis 5 soal
+  hari ini (5 opsi + kunci 0–4, tanggal lain 0); follow →
+  rekomendasi 2 artikel terbit dunia (draft tidak ikut) →
+  unfollow → [] → follow lagi → 2; notifikasi belum dibaca
+  1 → 0 sesudah ditandai (total tetap 2); kataKunci
+  ("fotosintesis, prosesnya", stopwords → []); retrieval
+  fotosintesis → k1, kuantum → 0 → antrean menunggu 1 → 2;
+  referensi terjawab → /pengetahuan/fotosintesis;
+  data-analysis (5,20 persen, naik 0,10 dari 5,10, +1,96%,
+  min 4,90 maks 5,20, tren naik; ringkasan tersimpan memuat
+  angka itu; indikator 1 titik → dilewati, ringkasan_tren
+  tetap null); TTS chunking (6 potongan, terpanjang 171 ≤200,
+  semua kalimat terjaga, teks kosong → []).
+- **Build/lint/tsc**: `npm run build` EXIT 0 (81/81 halaman;
+  rute Fase 6: /peta, /data, /timeline, /pengetahuan ƒ,
+  /pengetahuan/[slug] ◐, /kuis ƒ, /tanya ƒ, /feed-saya ƒ,
+  /rutin + 6 sub-rute ƒ, /api/ai/data-analysis ƒ,
+  /api/topik, /api/notifikasi, /api/tanya ƒ),
+  `npm run lint` EXIT 0 (0 error, 0 warning),
+  `npx tsc --noEmit` EXIT 0.
+- **Smoke test** (`next start` lokal, log 0 error): 14
+  halaman publik baru → **200** (isi diperiksa: "Belum ada
+  kuis hari ini", "Belum ada marker di peta",
+  "Belum ada indikator", antrean tanya tampil);
+  `/feed-saya` tanpa login → payload
+  `NEXT_REDIRECT;replace;/masuk;307` (browser mengikuti);
+  `GET /api/tanya|topik|notifikasi` tanpa login → **401**;
+  `POST /api/ai/data-analysis` tanpa secret → **503** jujur;
+  `/artikel/tidak-ada` → **404**.
+
+### 13.3 Bug yang ditemukan & diperbaiki selama Fase 6
+
+1. **Lint `react-hooks/set-state-in-effect` +
+   `react-hooks/immutability` di `PembacaSuara.tsx`**
+   (2 error): setState sinkron di effect feature-detect +
+   `ucapkanBagian` (useCallback) dipakai sebelum deklarasi
+   di `onend`. Diperbaiki: deteksi lewat callback
+   `setTimeout` (nilai awal null cegah mismatch hidrasi)
+   + `ucapkanBagian` jadi deklarasi fungsi biasa (rekursi
+   ter-hoist; isi dibaca lewat ref).
+2. **`ssr:false` di Server Component DITOLAK build Next 16**
+   (`/peta`): dynamic import Leaflet dipindah ke pembungkus
+   client `PetaDuniaLazy.tsx`.
+3. **`new Date()` di jalur render menggagalkan prerender**
+   (`/kuis`, `/pengetahuan`, `/rutin/mingguan|bulanan|
+   hari-ini`): tambah `await connection()` dari
+   `next/server` sebelum membaca waktu (pola Fase 5).
+4. **Skrip uji: 3 asersi salah** (bukan bug aplikasi):
+   bandingkan `count(*)` PGlite sebagai string, ekspektasi
+   kataKunci "dimaksud" sebagai stopword (bukan), dan asersi
+   guard 1-titik yang lemah — ketiganya diperbaiki (uji
+   akhir 53/53).
+5. **Restart runtime 16 Nov ±23.00 WIB menghapus /tmp**
+   (termasuk /tmp/pf-sqlcheck + PGlite): PGlite
+   diinstal ulang (`npm install @electric-sql/pglite`) dan
+   uji diulang — LOLOS. Pelajaran: skrip cek di /tmp tidak
+   tahan restart; uji Fase 6 kini masuk repo
+   (`scripts/uji-fase6.mjs`).
+
+### 13.4 Blokir & catatan Fase 6 (jujur)
+
+1. **Migrasi v1–v6 BELUM dijalankan di Supabase produksi**
+   — butuh pemilik lewat SQL Editor. Sampai dijalankan,
+   halaman Fase 6 menampilkan empty state jujur dan API
+   mengembalikan 401/503 yang jujur; tidak ada data nyata
+   yang bisa dibaca publik.
+2. **Belum di-deploy ke Vercel** (blokir 403 tim `prataava`)
+   → workflow Data Analysis + secret `PF_AI_SECRET` /
+   `PF_SITE_URL` belum bisa aktif; endpoint data-analysis
+   belum pernah dipanggil terhadap DB nyata (hanya fungsi
+   murni + SQL-nya yang teruji di PGlite).
+3. **`/pengetahuan/[slug]` yang tidak ada: UI 404 benar,
+   status HTTP 200** (bukan 404). Penyebab: Partial
+   Prerender mengirim shell 200 sebelum lubang dinamis
+   memanggil `notFound()`; `generateMetadata` + `notFound()`
+   tidak mengubah status; `dynamic = "force-dynamic"`
+   DITOLAK build karena tidak kompatibel dengan
+   `cacheComponents`. Hanya memengaruhi status HTTP (SEO),
+   bukan tampilan pengguna. Perlu keputusan arsitektur
+   Fase 7.
+4. **TTS belum diuji di browser nyata** (suara `id-ID`
+   tergantung perangkat); **Leaflet belum dilihat di
+   browser** (hanya build + smoke HTTP); **alur klik
+   /tanya + /feed-saya dengan login nyata belum diuji**
+   (butuh migrasi + akun di produksi). Semuanya gagal-aman
+   bila tabel belum ada.
+5. **Skor kuis TIDAK disimpan persisten** (tidak ada tabel
+   skor di v6) — skor hanya tampil di sesi ini; bila
+   diinginkan, butuh tabel + migrasi susulan.
+6. **Pertanyaan `/tanya` berstatus `menunggu` belum punya
+   penjawab otomatis** — dijawab Muse/editor lewat
+   cron/chat (mekanisme Fase 4); tidak ada SLA.
+
+### 13.5 Kesiapan Fase 7 (Production)
+
+Fondasi tersedia: seluruh fitur Fase 1–6 selesai di kode
+(migrasi v1–v6, 35 tabel, 76 policy, 81 halaman). Yang masih
+dibutuhkan sebelum Fase 7: migrasi v1–v6 dijalankan di
+produksi + deploy Vercel + secret terisi + uji login nyata +
+uji klik browser (admin, peta, kuis, tanya, feed, TTS) +
+keputusan status 404 rute [slug] (butir 13.4.3) +
+keputusan penyimpanan skor kuis (butir 13.4.5). Security
+audit, performance audit, SEO, backup, monitoring, dan QA
+penuh tetap Fase 7 — tidak dibangun di Fase 6.

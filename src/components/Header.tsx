@@ -32,6 +32,14 @@ export default function Header() {
           ))}
           <Link href="/arsip">Arsip</Link>
           <Link href="/brief">Daily Brief</Link>
+          <Link href="/peta">Peta</Link>
+          <Link href="/data">Data</Link>
+          <Link href="/timeline">Timeline</Link>
+          <Link href="/pengetahuan">Pengetahuan</Link>
+          <Link href="/kuis">Kuis</Link>
+          <Link href="/tanya">Tanya</Link>
+          <Link href="/rutin">Rutin</Link>
+          <Link href="/feed-saya">Feed Saya</Link>
         </nav>
       </div>
     </header>

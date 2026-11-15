@@ -8,6 +8,7 @@ import type {
   PfVersiArtikel,
 } from "@/lib/data";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import PembacaSuara from "@/components/artikel/PembacaSuara";
 import FormLaporan from "@/components/artikel/FormLaporan";
 
 type ModeBaca = "1menit" | "3menit" | "mendalam";
@@ -255,6 +256,10 @@ export default function PembacaArtikel({
             Laporkan Kesalahan
           </button>
         </div>
+        <PembacaSuara
+          judul={artikel.judul}
+          teks={`${artikel.ringkasan ?? ""}\n\n${artikel.isi ?? ""}`}
+        />
       </div>
       {(bookmarkPesan || bagikanPesan) && (
         <p className="pesan-sukses" role="status" style={{ marginTop: 12 }}>
