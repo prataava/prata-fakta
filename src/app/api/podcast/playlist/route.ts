@@ -13,6 +13,7 @@ import {
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { getPlaylist } from "@/lib/podcast";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Gelombang B1 (P1-5/B-S1): playlist dibatasi 30/menit
 // (sebelumnya tanpa limiter sama sekali).
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
     .eq("episode_id", episodeId)
     .maybeSingle();
   if (errSudah) {
+    void catatGalatRoute("POST /api/podcast/playlist", errSudah);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa playlist. Coba lagi." },
       { status: 500 },
@@ -132,6 +134,7 @@ export async function POST(req: Request) {
     .from("pf_podcast_playlist_items")
     .insert({ user_id: user.id, episode_id: episodeId, urutan });
   if (error) {
+    void catatGalatRoute("POST /api/podcast/playlist", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menambah playlist. Coba lagi." },
       { status: 500 },
@@ -169,6 +172,7 @@ export async function DELETE(req: Request) {
     .eq("user_id", sesi.user.id)
     .eq("episode_id", episodeId);
   if (error) {
+    void catatGalatRoute("DELETE /api/podcast/playlist", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menghapus dari playlist. Coba lagi." },
       { status: 500 },

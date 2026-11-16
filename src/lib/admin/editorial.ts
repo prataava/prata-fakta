@@ -104,6 +104,24 @@ function wajibTeks(nilai: unknown, nama: string, maks = 0): string {
   return teks;
 }
 
+/**
+ * Normalisasi isu artikel (Tahap C-5, v15): opsional; string
+ * kosong → null; lebih dari 120 karakter → dilempar (batas
+ * yang sama seperti target topik di /api/topik).
+ */
+function normalisasiIsu(nilai: unknown): string | null {
+  if (nilai === undefined || nilai === null) return null;
+  if (typeof nilai !== "string") {
+    throw new Error("Isu harus berupa teks.");
+  }
+  const teks = nilai.trim();
+  if (teks === "") return null;
+  if (teks.length > 120) {
+    throw new Error("Isu maksimal 120 karakter.");
+  }
+  return teks;
+}
+
 // ---------- Artikel ----------
 
 export async function buatArtikel(
@@ -123,6 +141,7 @@ export async function buatArtikel(
     isi,
     kategori_slug,
     slug,
+    isu: normalisasiIsu(input.isu),
   });
   await adapter.simpanVersi({
     artikel_id: artikel.id,
@@ -157,6 +176,12 @@ export async function perbaruiArtikel(
   if (bersih.isi !== undefined) bersih.isi = wajibTeks(bersih.isi, "Isi artikel");
   if (bersih.kategori_slug !== undefined) {
     bersih.kategori_slug = wajibTeks(bersih.kategori_slug, "Kategori");
+  }
+  // Tahap C-5 (v15): isu opsional — string kosong berarti hapus
+  // isu (null). Pre-v15, update ini gagal PGRST204 → adapter
+  // memetakannya ke 503 jujur (migrasi belum dijalankan).
+  if (bersih.isu !== undefined) {
+    bersih.isu = normalisasiIsu(bersih.isu);
   }
   const catatanVersi =
     typeof patch.catatan_versi === "string" && patch.catatan_versi.trim()

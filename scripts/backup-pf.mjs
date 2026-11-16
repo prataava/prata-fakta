@@ -96,6 +96,10 @@ const TABEL_PF = [
   "pf_push_subscriptions",
   "pf_kunjungan",
   "pf_app_errors",
+  // v15 (Tahap C) — tabel baru: pf_quiz_daily_answers
+  // (jawaban kuis harian tersimpan; skor harian dihitung
+  // server). Total sesudah v15: 62 tabel.
+  "pf_quiz_daily_answers",
 ];
 
 function bacaEnvLocal() {

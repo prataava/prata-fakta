@@ -7,6 +7,13 @@
 // Kode tabel-belum-ada PostgREST: "PGRST205"; kode Postgres:
 // "42P01" (undefined_table); pesan juga diperiksa karena
 // beberapa jalur mengembalikan galat tanpa kode.
+// Tahap C-4: galat baca yang BUKAN tabel-belum-ada kini juga
+// ditulis ke pf_app_errors (via catatGalatAplikasi,
+// fire-and-forget — pencatatan tidak boleh menggagalkan
+// pembacaan) agar tampil di /admin/monitoring. Galat
+// tabel-belum-ada TIDAK ditulis ke DB (kondisi pra-migrasi
+// yang diketahui — mencatatnya hanya membanjiri log).
+import { catatGalatAplikasi } from "@/lib/analytics/galat";
 
 /** true bila galat berarti tabel/database belum tersedia. */
 export function galatTabelBelumAda(err: unknown): boolean {
@@ -43,6 +50,22 @@ export function catatGalatBaca(fungsi: string, err: unknown): boolean {
     return true;
   }
   console.error(`[baca] ${fungsi}: galat baca database.`, err);
+  // Tahap C-4: galat baca nyata (bukan tabel belum ada) juga
+  // dicatat ke pf_app_errors agar tampil di /admin/monitoring.
+  void catatGalatAplikasi({
+    sumber: `baca:${fungsi}`,
+    pesan:
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Galat baca database.",
+    kode:
+      err && typeof err === "object"
+        ? String((err as { code?: unknown }).code ?? "") || null
+        : null,
+    stack: err instanceof Error ? (err.stack ?? null) : null,
+  });
   return false;
 }
 

@@ -30,8 +30,8 @@ export type KeputusanReview = "setuju" | "tolak" | "kembalikan";
 
 export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 
-// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v11
-// (migrasi v11 §3, 53 aksi). Sebelum Gelombang 2 tipe ini hanya 19
+// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v15
+// (migrasi v15 §4, 59 aksi). Sebelum Gelombang 2 tipe ini hanya 19
 // anggota sementara CHECK sudah 47 — route baru menulis audit via
 // insert service-client langsung karena tipenya tak memuat aksi
 // mereka. Jangan tambah aksi di sini tanpa menambahkannya dulu ke
@@ -39,6 +39,9 @@ export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 // Aksi akun.hapus.* + data.hapus (Gelombang B2-A) MASUK CHECK
 // v14 (pf_audit_logs_aksi_check_v14) — sampai v14 diterapkan,
 // route hapus akun / hapus data menjawab 503 jujur, bukan 500.
+// Aksi akademi.soal.buat + akademi.sertifikat.cabut (Tahap C)
+// MASUK CHECK v15 — sampai v15 diterapkan, route soal/cabut
+// menjawab 503 jujur, bukan 500.
 export type AksiAudit =
   | "artikel.buat"
   | "artikel.ubah"
@@ -80,6 +83,8 @@ export type AksiAudit =
   | "akademi.kursus"
   | "akademi.modul"
   | "akademi.progres"
+  | "akademi.soal.buat"
+  | "akademi.sertifikat.cabut"
   | "podcast.episode"
   | "podcast.terbit"
   | "sistem.flag"
@@ -129,11 +134,15 @@ export interface Artikel {
   ringkasan: string;
   isi: string;
   kategori_slug: string;
-  subkategori_slug: string | null;
+  subkategori_slug?: string | null;
   status_verifikasi: StatusVerifikasi;
   status: StatusArtikel;
   penulis_nama: string | null;
   penulis_id: string | null;
+  // Tahap C-5 (v15): isu artikel untuk notifikasi pengikut
+  // topik tipe 'isu'. Opsional — undefined bila kolom belum ada
+  // (migrasi v15 belum dijalankan).
+  isu?: string | null;
   sumber_url: string | null;
   gambar_url: string | null;
   estimasi_baca_menit: number | null;
@@ -160,6 +169,9 @@ export interface ArtikelInput {
   subkategori_slug?: string | null;
   penulis_nama?: string | null;
   penulis_id?: string | null;
+  // Tahap C-5 (v15): isu artikel (maks 120 karakter, sama
+  // seperti batas target topik di /api/topik).
+  isu?: string | null;
   sumber_url?: string | null;
   gambar_url?: string | null;
   estimasi_baca_menit?: number | null;
@@ -178,6 +190,8 @@ export interface ArtikelPatch {
   isi?: string;
   kategori_slug?: string;
   subkategori_slug?: string | null;
+  // Tahap C-5 (v15): isu artikel.
+  isu?: string | null;
   penulis_nama?: string | null;
   sumber_url?: string | null;
   gambar_url?: string | null;
@@ -541,7 +555,16 @@ export function adalahGalatBelumSiap(err: unknown): boolean {
 export function adalahGalatTabelBelumAda(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as { code?: unknown; message?: unknown };
-  if (e.code === "PGRST205" || e.code === "42P01" || e.code === "42703") {
+  // PGRST204 (kolom belum ada di schema cache) = migrasi yang
+  // menambah kolom itu belum dijalankan — diperlakukan sama
+  // seperti tabel belum ada (Tahap C-5: kolom pf_articles.isu
+  // v15): 503 jujur, bukan 500.
+  if (
+    e.code === "PGRST205" ||
+    e.code === "PGRST204" ||
+    e.code === "42P01" ||
+    e.code === "42703"
+  ) {
     return true;
   }
   const pesan = typeof e.message === "string" ? e.message : "";

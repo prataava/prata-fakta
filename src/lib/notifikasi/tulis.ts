@@ -7,9 +7,12 @@
 // menggagalkan operasi utama).
 //
 // KEJADIAN YANG DITULIS (semuanya sudah ada jalurnya di kode):
-//   topik    — artikel terbit di kategori/negara yang diikuti
-//              (dipanggil terbitkanArtikel; 'isu' TIDAK dicocokkan
-//              karena pf_articles tidak punya kolom isu)
+//   topik    — artikel terbit di kategori/negara/isu yang diikuti
+//              (dipanggil terbitkanArtikel; Tahap C-5: isu
+//              dicocokkan terhadap kolom pf_articles.isu v15 —
+//              pengikut tipe 'isu' sudah didukung /api/topik
+//              sejak v6, yang hilang hanya kolom + pencocokan
+//              ini)
 //   jawaban  — pertanyaan pengguna terjawab / dinyatakan tidak ada
 //              datanya (PATCH /api/admin/tanya/[id])
 //   koreksi  — laporan koreksi pengguna diterima/ditolak/ditinjau
@@ -311,7 +314,7 @@ async function kirimMassal(
   return baru.length;
 }
 
-/** Artikel terbit → beri tahu pengikut kategori / negaranya. */
+/** Artikel terbit → beri tahu pengikut kategori / negara / isunya. */
 export async function kirimNotifikasiTopik(
   service: SupabaseClient | null | undefined,
   artikelId: string,
@@ -319,21 +322,38 @@ export async function kirimNotifikasiTopik(
   const klien = klienAtauNull(service ?? null);
   if (!klien || !POLA_UUID.test(artikelId)) return 0;
   try {
-    const { data: artikel, error } = await klien
+    // Tahap C-5 (v15): kolom isu dibaca bila ada; bila migrasi
+    // v15 belum dijalankan, PostgREST menjawab PGRST204 dan
+    // fungsi mundur ke select tanpa isu (notifikasi isu
+    // dilewati; kategori/negara tetap jalan).
+    let artikelRes = await klien
       .from("pf_articles")
-      .select("id, slug, judul, kategori_slug, negara_kode")
+      .select("id, slug, judul, kategori_slug, negara_kode, isu")
       .eq("id", artikelId)
       .maybeSingle();
+    if (
+      artikelRes.error &&
+      (artikelRes.error as { code?: string }).code === "PGRST204"
+    ) {
+      artikelRes = await klien
+        .from("pf_articles")
+        .select("id, slug, judul, kategori_slug, negara_kode")
+        .eq("id", artikelId)
+        .maybeSingle();
+    }
+    const { data: artikel, error } = artikelRes;
     if (error || !artikel) return 0;
     const a = artikel as {
       slug: string;
       judul: string;
       kategori_slug: string | null;
       negara_kode: string | null;
+      isu?: string | null;
     };
     const syarat: string[] = [];
     if (a.kategori_slug) syarat.push(`kategori:${a.kategori_slug}`);
     if (a.negara_kode) syarat.push(`negara:${a.negara_kode}`);
+    if (a.isu) syarat.push(`isu:${a.isu}`);
     if (syarat.length === 0) return 0;
     // Target topik negara boleh berupa kode ISO-2 ('ID') ATAU nama
     // ('Indonesia') — validasi ikut di /api/topik menerima keduanya
@@ -361,6 +381,13 @@ export async function kirimNotifikasiTopik(
       if (namaNegara) {
         kondisi.push(`and(tipe.eq.negara,target.ilike.${namaNegara})`);
       }
+    }
+    // Tahap C-5: pengikut topik tipe 'isu' dicocokkan dengan
+    // ilike terhadap isu artikel (case-insensitive, seperti
+    // negara — target isu divalidasi huruf/spasi/tanda hubung
+    // di /api/topik, jadi tidak ada karakter or() yang lolos).
+    if (a.isu) {
+      kondisi.push(`and(tipe.eq.isu,target.ilike.${a.isu})`);
     }
     // Pengikut kategori ATAU negara artikel ini.
     const { data: pengikut, error: errIkut } = await klien

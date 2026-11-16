@@ -99,6 +99,8 @@ export async function POST(req: Request) {
       typeof body.belum_diketahui === "string"
         ? body.belum_diketahui
         : null,
+    // Tahap C-5 (v15): isu artikel (opsional, maks 120 karakter).
+    isu: typeof body.isu === "string" ? body.isu : null,
   };
 
   try {

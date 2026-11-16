@@ -159,6 +159,9 @@ export class SupabaseAdminAdapter implements AdminAdapter {
         mengapa_penting: input.mengapa_penting ?? null,
         dampak: input.dampak ?? null,
         belum_diketahui: input.belum_diketahui ?? null,
+        // Tahap C-5 (v15): isu artikel; pre-v15 insert ini
+        // gagal PGRST204 → lempar() memetakannya ke 503 jujur.
+        isu: input.isu ?? null,
       })
       .select(KOLOM_ARTIKEL)
       .single();

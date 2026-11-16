@@ -27,6 +27,7 @@ import {
   responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -146,6 +147,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/progres", errPelajaran);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa pelajaran. Coba lagi." },
       { status: 500 },
@@ -183,7 +185,8 @@ export async function POST(req: Request) {
         user.id,
         valid.lessonId,
       );
-    } catch {
+    } catch (err) {
+      void catatGalatRoute("POST /api/akademi/progres", err);
       return NextResponse.json(
         { ok: false, error: "Gagal menghitung skor kuis. Coba lagi." },
         { status: 500 },
@@ -236,6 +239,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/progres", error);
     return NextResponse.json(
       { ok: false, error: "Progres gagal disimpan. Coba lagi." },
       { status: 500 },

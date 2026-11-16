@@ -12,6 +12,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/cerita/[slug]/ikuti { aksi: "ikuti" | "berhenti" }
 // → ikuti / berhenti mengikuti cerita. Wajib login (401 bila
@@ -70,6 +71,7 @@ export async function POST(
   if (aksi === "berhenti") {
     const hasil = await berhentiIkutiCerita(user.id, cerita.id);
     if (!hasil.ok) {
+      void catatGalatRoute("POST /api/cerita/[slug]/ikuti", hasil.error ?? "galat server (500)");
       return NextResponse.json(
         { ok: false, error: hasil.error ?? "Gagal berhenti mengikuti cerita." },
         { status: 500 },
@@ -79,6 +81,7 @@ export async function POST(
   }
   const hasil = await ikutiCerita(user.id, cerita.id);
   if (!hasil.ok) {
+    void catatGalatRoute("POST /api/cerita/[slug]/ikuti", "galat server (500)");
     return NextResponse.json(
       { ok: false, error: hasil.error ?? "Gagal mengikuti cerita." },
       { status: 500 },

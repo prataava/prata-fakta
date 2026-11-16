@@ -10,6 +10,7 @@ import {
   catatAuditWajib,
   responGalatAudit,
 } from "@/lib/admin/audit";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // PATCH /api/sumber/[id] — ubah sumber, HANYA super_admin/editor.
 // DELETE /api/sumber/[id] — hapus sumber, HANYA super_admin.
@@ -180,6 +181,7 @@ export async function PATCH(
     .single();
 
   if (error) {
+    void catatGalatRoute("PATCH /api/sumber/[id]", error);
     return NextResponse.json(
       {
         ok: false,
@@ -270,6 +272,7 @@ export async function DELETE(
   // Raw item tidak ikut terhapus (FK set null).
   const { error } = await supabase.from("pf_sources").delete().eq("id", id);
   if (error) {
+    void catatGalatRoute("DELETE /api/sumber/[id]", error);
     return NextResponse.json(
       {
         ok: false,

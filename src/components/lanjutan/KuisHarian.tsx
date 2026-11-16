@@ -8,9 +8,12 @@ import type { PfKuisSoalPublik } from "@/lib/lanjutan";
 // sesudah menjawab satu soal tampil kunci + penjelasan + sumber.
 // Fase 7: skor DISIMPAN untuk pengguna login (POST /api/kuis/skor
 // sekali saat kuis selesai; main ulang di hari yang sama menimpa
-// skor sebelumnya). Pengguna anonim tetap bisa bermain — skornya
-// hanya tampil di sesi ini dan halaman menyatakan jujur bahwa
-// riwayat skor butuh masuk.
+// skor sebelumnya). Tahap C-3: klien HANYA mengirim tanggal —
+// skor dihitung server dari jawaban tersimpan (satu jawaban
+// tersimpan per soal lewat POST /api/kuis/jawab); angka benar/
+// total dari klien tidak lagi dipercaya. Pengguna anonim tetap
+// bisa bermain — skornya hanya tampil di sesi ini dan halaman
+// menyatakan jujur bahwa riwayat skor butuh masuk.
 // Keamanan (T1): soal yang diterima klien TIDAK mengandung kunci
 // jawaban — setiap jawaban diperiksa server lewat POST
 // /api/kuis/jawab, dan kunci soal itu saja dikembalikan sesudah
@@ -51,15 +54,18 @@ export default function KuisHarian({
 
   if (!aktif && !selesai) return null;
 
-  async function simpanSkor(benarAkhir: number) {
+  async function simpanSkor() {
     if (!masuk) return;
     setSimpan("menyimpan");
     setPesanSimpan("");
     try {
+      // Tahap C-3: hanya tanggal yang dikirim — skor dihitung
+      // server dari jawaban tersimpan (benar/total klien tidak
+      // lagi dipercaya; server mengabaikannya bila dikirim).
       const res = await fetch("/api/kuis/skor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tanggal, benar: benarAkhir, total }),
+        body: JSON.stringify({ tanggal }),
       });
       const hasil = (await res.json()) as { ok?: boolean; error?: string };
       if (res.ok && hasil.ok) {
@@ -115,8 +121,10 @@ export default function KuisHarian({
     if (indeks + 1 >= total) {
       setSelesai(true);
       // `benar` sudah final di titik ini (jawab() terjadi pada klik
-      // sebelumnya, bukan klik ini) — aman dipakai untuk simpan.
-      void simpanSkor(benar);
+      // sebelumnya, bukan klik ini) — tetapi skor TIDAK dikirim
+      // dari klien (Tahap C-3): server menghitungnya dari jawaban
+      // tersimpan.
+      void simpanSkor();
     } else {
       setIndeks((x) => x + 1);
       setPilihan(null);

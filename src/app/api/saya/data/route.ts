@@ -46,6 +46,7 @@ import {
   apakahGalatTabelTakAda,
   responV14BelumSiap,
 } from "@/lib/akun/respons";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const batasiBaca = buatRateLimiter(30);
 const batasiHapus = buatRateLimiterKeras(30);
@@ -189,6 +190,7 @@ export async function DELETE(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("DELETE /api/saya/data", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menghapus data." },
       { status: 500 },

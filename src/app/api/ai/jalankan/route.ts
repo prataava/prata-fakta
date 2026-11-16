@@ -10,6 +10,7 @@ import {
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 import { bacaFlag } from "@/lib/scheduler/flags";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/ai/jalankan — memicu pipeline editorial AI.
 // Autentikasi DUA jalur:
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/ai/jalankan", err);
     return NextResponse.json(
       { ok: false, error: `Pipeline editorial gagal: ${pesan}` },
       { status: 500 },

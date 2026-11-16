@@ -21,6 +21,7 @@ import {
 } from "@/lib/ai/route-auth";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 import { bacaFlag } from "@/lib/scheduler/flags";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/ingestion/jalankan — memicu ingestion dari sumber aktif.
 // Autentikasi DUA jalur:
@@ -346,6 +347,7 @@ export async function POST(req: Request) {
   } catch (err) {
     galatRun =
       err instanceof Error ? err.message : "kesalahan tidak diketahui";
+    void catatGalatRoute("POST /api/ingestion/jalankan", err);
     return NextResponse.json(
       {
         ok: false,

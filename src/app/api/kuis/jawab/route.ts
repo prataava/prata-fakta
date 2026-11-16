@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiterKeras,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
 // Body: { soal_id: UUID, jawaban: 0..4 }
@@ -122,6 +124,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/jawab", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },
@@ -151,6 +154,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/jawab", errKunci);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },
@@ -176,9 +180,48 @@ export async function POST(req: Request) {
   }
 
   const kunci = Number((jawaban as { kunci: unknown }).kunci);
+  const benar = valid.jawaban === kunci;
+  // Tahap C-3: simpan jawaban pengguna LOGIN ke
+  // pf_quiz_daily_answers (service role, upsert per
+  // pengguna+soal+tanggal) agar POST /api/kuis/skor bisa
+  // menghitung skor server dari jawaban tersimpan, bukan dari
+  // angka klien. Anonim tidak disimpan (keputusan Fase 7).
+  // Best-effort: gagal simpan TIDAK menggagalkan jawaban ini
+  // (pengguna tetap melihat benar/kunci) — skor nanti menjawab
+  // 409 jujur bila jawaban tersimpan belum lengkap. Tabel v15
+  // belum ada (PGRST205) = kondisi yang sama: kuis tetap jalan,
+  // skor belum bisa disimpan.
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { error: errSimpan } = await service
+        .from("pf_quiz_daily_answers")
+        .upsert(
+          {
+            user_id: user.id,
+            soal_id: valid.soalId,
+            tanggal,
+            jawaban: valid.jawaban,
+            benar,
+          },
+          { onConflict: "user_id,soal_id,tanggal" },
+        );
+      if (errSimpan) {
+        console.error(
+          "[kuis/jawab] gagal menyimpan jawaban harian:",
+          errSimpan,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[kuis/jawab] gagal menyimpan jawaban harian:", err);
+  }
   return NextResponse.json({
     ok: true,
-    benar: valid.jawaban === kunci,
+    benar,
     kunci,
     penjelasan: (data as { penjelasan?: string | null }).penjelasan ?? null,
     sumber_url: (data as { sumber_url?: string | null }).sumber_url ?? null,

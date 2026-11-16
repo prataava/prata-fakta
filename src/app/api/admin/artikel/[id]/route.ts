@@ -34,6 +34,8 @@ const FIELD_PATCH = [
   "isi",
   "kategori_slug",
   "subkategori_slug",
+  // Tahap C-5 (v15): isu artikel.
+  "isu",
   "penulis_nama",
   "sumber_url",
   "gambar_url",
