@@ -639,7 +639,6 @@ cek("T6: BATAS_DNS_MS = 5000", ssrf.BATAS_DNS_MS === 5000, `dapat ${ssrf.BATAS_D
     String(tolakRedirect),
   );
   // Jalur ingestion: hop lanjutan di luar allowlist ditolak.
-  const allowlist = bacaRepo("src/lib/ingestion/feed-allowlist.ts");
   const gdeltSrc = bacaRepo("src/lib/ingestion/gdelt.ts");
   const rssSrc = bacaRepo("src/lib/ingestion/rss.ts");
   cek("T6: GDELT memakai fetchAman + tolakHostFeedAman", /fetchAman\(/.test(gdeltSrc) && /periksaHost: tolakHostFeedAman/.test(gdeltSrc));
