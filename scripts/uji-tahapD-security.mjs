@@ -807,14 +807,29 @@ cek(
   // TIDAK ADA lagi pola best-effort penelan galat audit di route/lib admin,
   // KECUALI yang terdokumentasi: catatUpayaGate (penanda backoff gate,
   // bukan aksi admin) + notifikasi best-effort (bukan audit).
-  const polaBestEffort = /catch\s*\{[^}]*console\.error\([^)]*audit/i;
+  // Koreksi integrasi Tahap C: catch boleh mengikat variabel
+  // (catch (err) {) — pola tetap terdeteksi sesudah perbaikan C-4.
+  // LOG KEGAGALAN GANDA yang dirancang (bukan penelan audit):
+  // bila audit gagal DAN compensating ikut gagal, operasi sudah
+  // dijawab 500 dan satu-satunya yang tersisa adalah log
+  // terstruktur ke server ("audit_compensating_*_gagal" /
+  // "TETAP DICABUT TANPA AUDIT"). Berkas yang HANYA punya
+  // kecocokan semacam itu bukan pelanggar.
+  const polaBestEffort = /catch\s*(?:\([^)]*\))?\s*\{[^}]*console\.error\([^)]*audit/gi;
+  const polaLogGanda = /compensating|tanpa audit/i;
   const pelanggar = [];
   for (const f of [
     ...semuaBerkas(`${DIR_REPO}src/app/api`),
     ...semuaBerkas(`${DIR_REPO}src/lib/admin`),
   ]) {
     const isi = fs.readFileSync(f, "utf8");
-    if (polaBestEffort.test(isi) && !f.endsWith("editorial.ts")) pelanggar.push(f.replace(DIR_REPO, ""));
+    if (f.endsWith("editorial.ts")) continue;
+    const cocok = [...isi.matchAll(polaBestEffort)];
+    // Uji konteks sesudah kecocokan juga: pola berhenti tepat di
+    // kata "audit", padahal penanda log ganda ("audit_compensating_*")
+    // baru muncul SESUDAH kata itu.
+    const nyata = cocok.filter((m) => !polaLogGanda.test(isi.slice(m.index, m.index + m[0].length + 120)));
+    if (nyata.length > 0) pelanggar.push(f.replace(DIR_REPO, ""));
   }
   // Pengecualian TERDOKUMENTASI (bukan penelan audit operasi):
   // saya/akun/hapus/route.ts — catch di jalur KEGAGALAN (deleteUser
@@ -1059,10 +1074,10 @@ console.log("\n== §I. Sapuan keamanan umum ==");
   const routeAdmin = semuaBerkas(`${DIR_REPO}src/app/api/admin`).filter((f) => f.endsWith("route.ts"));
   const tanpaAuth = routeAdmin.filter((f) => !/autentikasiAdmin/.test(fs.readFileSync(f, "utf8")));
   cek("Admin: 0 route /api/admin/* tanpa autentikasiAdmin", tanpaAuth.length === 0, tanpaAuth.map((f) => f.replace(DIR_REPO, "")).join(", "));
-  // Backup: 61 tabel.
+  // Backup: 62 tabel (61 v14 + 1 v15 pf_quiz_daily_answers — Tahap C).
   const backupSrc = bacaRepo("scripts/backup-pf.mjs");
   const tabelBackup = new Set([...backupSrc.matchAll(/"(pf_[a-z0-9_]+)"/g)].map((m) => m[1]));
-  cek("Backup: scripts/backup-pf.mjs mencakup 61 tabel", tabelBackup.size === 61, `dapat ${tabelBackup.size}`);
+  cek("Backup: scripts/backup-pf.mjs mencakup 62 tabel", tabelBackup.size === 62, `dapat ${tabelBackup.size}`);
   // Upload: tanpa permukaan upload file pengguna.
   const polaUpload = [/type="file"/, /type='file'/, /formidable/i, /multer/i, /uploadthing/i];
   const temuanUpload = [];

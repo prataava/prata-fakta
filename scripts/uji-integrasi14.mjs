@@ -987,7 +987,7 @@ const adminF = new AdapterF(dbF);
 {
   const berkasAdmin = jalanSemua(path.join(DIR_SRC, "app/api/admin"), [".ts"]).filter((f) => f.endsWith("/route.ts"));
   const tanpaGuard = berkasAdmin.filter((f) => !fs.readFileSync(f, "utf8").includes("autentikasiAdmin"));
-  cek("F12 semua 44 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 44, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
+  cek("F12 semua 45 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 45, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
   // Tiap handler mutasi (POST/PATCH/DELETE/PUT) wajib punya cek
   // peran (argumen ROLES di autentikasiAdmin) — kecuali
   // terbitkan-terjadwal (otentikasi ganda: secret ATAU sesi
@@ -1002,7 +1002,9 @@ const adminF = new AdapterF(dbF);
       const badanHandler = badan.split(/export async function \w+\b/)[0];
       if (metode === "GET") continue;
       const punyaPeran =
-        /autentikasiAdmin\(req,\s*ROLES\./.test(badanHandler) ||
+        // Koreksi integrasi Tahap C: panggilan boleh multi-baris
+        // (autentikasiAdmin(\n req,\n ROLES.EDITOR, ...) di soal/route.ts).
+        /autentikasiAdmin\(\s*req,\s*ROLES\./.test(badanHandler) ||
         /punyaRole\(roles,\s*ROLES\.EDITOR/.test(badanHandler);
       if (!punyaPeran) {
         celahMutasi.push(`${f.replace(DIR_SRC, "")}:${metode}`);
