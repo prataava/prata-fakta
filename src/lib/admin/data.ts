@@ -472,6 +472,10 @@ export type ArtikelAdmin = {
   status: string;
   status_verifikasi: string;
   penulis_nama: string | null;
+  // Tahap C-5 (v15): isu artikel; null bila kolom belum ada
+  // (migrasi v15 belum dijalankan — getArtikelAdmin mundur ke
+  // select tanpa isu).
+  isu: string | null;
   sumber_url: string | null;
   gambar_url: string | null;
   dijadwalkan_pada: string | null;
@@ -486,6 +490,8 @@ export type ArtikelAdmin = {
 };
 
 const KOLOM_ARTIKEL_ADMIN =
+  "id, slug, judul, subjudul, ringkasan, isi, kategori_slug, subkategori_slug, isu, status, status_verifikasi, penulis_nama, sumber_url, gambar_url, dijadwalkan_pada, diterbitkan_pada, dibuat_pada, diperbarui_pada";
+const KOLOM_ARTIKEL_ADMIN_LAMA =
   "id, slug, judul, subjudul, ringkasan, isi, kategori_slug, subkategori_slug, status, status_verifikasi, penulis_nama, sumber_url, gambar_url, dijadwalkan_pada, diterbitkan_pada, dibuat_pada, diperbarui_pada";
 
 export async function getArtikelAdmin(
@@ -493,11 +499,27 @@ export async function getArtikelAdmin(
 ): Promise<ArtikelAdmin | null> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
+    // Tahap C-5 (v15): kolom isu dibaca bila ada; bila migrasi
+    // v15 belum dijalankan, PostgREST menjawab PGRST204 dan
+    // fungsi mundur ke select tanpa isu (artikel tetap bisa
+    // dibuka — isu tampil kosong). Pola yang sama seperti
+    // getKuisHarian untuk kolom jenis v14.
+    let res = await supabase
       .from("pf_articles")
       .select(KOLOM_ARTIKEL_ADMIN)
       .eq("id", id)
       .maybeSingle();
+    if (
+      res.error &&
+      (res.error as { code?: string }).code === "PGRST204"
+    ) {
+      res = await supabase
+        .from("pf_articles")
+        .select(KOLOM_ARTIKEL_ADMIN_LAMA)
+        .eq("id", id)
+        .maybeSingle();
+    }
+    const { data, error } = res;
     if (error || !data) return null;
     const artikel = data as unknown as Omit<
       ArtikelAdmin,

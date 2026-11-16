@@ -29,6 +29,9 @@ export default function FormArtikel({
   const [sumberUrl, setSumberUrl] = useState(artikel?.sumber_url ?? "");
   const [gambarUrl, setGambarUrl] = useState(artikel?.gambar_url ?? "");
   const [penulisNama, setPenulisNama] = useState(artikel?.penulis_nama ?? "");
+  // Tahap C-5 (v15): isu artikel — pengikut topik tipe 'isu'
+  // mendapat notifikasi saat artikel ini terbit.
+  const [isu, setIsu] = useState(artikel?.isu ?? "");
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "sukses">(
     "idle",
   );
@@ -58,6 +61,9 @@ export default function FormArtikel({
       sumber_url: sumberUrl.trim() || undefined,
       gambar_url: gambarUrl.trim() || undefined,
       penulis_nama: penulisNama.trim() || undefined,
+      // Tahap C-5 (v15): isu artikel; string kosong berarti
+      // tanpa isu (server menormalisasi ke null).
+      isu: isu.trim() || undefined,
     };
     try {
       const res = await fetch(
@@ -206,6 +212,20 @@ export default function FormArtikel({
           onChange={(e) => setPenulisNama(e.target.value)}
           placeholder="Nama penulis — kosong berarti Redaksi"
         />
+      </label>
+      <label>
+        Isu artikel (opsional)
+        <input
+          type="text"
+          value={isu}
+          onChange={(e) => setIsu(e.target.value)}
+          maxLength={120}
+          placeholder="Contoh: pemilu 2029"
+        />
+        <span>
+          Pengikut topik isu ini mendapat notifikasi saat artikel
+          terbit. Huruf, spasi, dan tanda hubung saja.
+        </span>
       </label>
       <button
         className="tombol tombol-primer"
