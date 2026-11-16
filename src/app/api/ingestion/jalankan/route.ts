@@ -95,6 +95,23 @@ export async function POST(req: Request) {
         { status: 401 },
       );
     }
+    // Gate Fase 8 (T4): akun dibatasi (nonaktif) tidak boleh memicu
+    // ingestion — jalur sesi ini sebelumnya tidak memeriksa nonaktif.
+    try {
+      const { data: profil } = await supabaseUser
+        .from("pf_profiles")
+        .select("nonaktif")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+        return NextResponse.json(
+          { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+          { status: 403 },
+        );
+      }
+    } catch {
+      // Bila tabel profil belum ada, lanjut ke pemeriksaan role.
+    }
     const roles = await getUserRoles(user.id);
     if (!punyaRole(roles, ROLES.EDITOR)) {
       return NextResponse.json(

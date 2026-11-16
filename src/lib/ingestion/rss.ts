@@ -2,7 +2,7 @@
 // Hanya memakai Node built-in (fetch global) — tanpa library XML.
 // Hak cipta: yang disimpan hanya metadata + ringkasan sumber + URL;
 // JANGAN pernah menyalin isi penuh artikel media lain ke database.
-import { tolakHostPrivat } from "./ssrf.ts";
+import { fetchAman, tolakHostPrivat } from "./ssrf.ts";
 
 export interface ItemMentah {
   url: string;
@@ -232,13 +232,19 @@ export async function fetchRss(
   const ambil = opsi.fetchFn ?? fetch;
   let respons: Response;
   try {
-    respons = await ambil(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/rss+xml, application/xml, text/xml, */*",
+    // Gate Fase 8 (T6): fetchAman, bukan fetch mentah — redirect ke
+    // host privat ditolak di tiap hop, bukan hanya URL awal.
+    respons = await fetchAman(
+      url,
+      {
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "application/rss+xml, application/xml, text/xml, */*",
+        },
+        signal: AbortSignal.timeout(timeoutMs),
       },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+      ambil,
+    );
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);
     throw new Error(`Gagal mengambil feed ${url}: ${pesan}`);

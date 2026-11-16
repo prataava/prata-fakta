@@ -45,6 +45,23 @@ async function guard(
       { status: 401 },
     );
   }
+  // Gate Fase 8 (T4): akun dibatasi (nonaktif) tidak boleh mengelola
+  // sumber — guard ini dipakai PATCH (editor) dan DELETE (super_admin).
+  try {
+    const { data: profil } = await supabase
+      .from("pf_profiles")
+      .select("nonaktif")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+      return NextResponse.json(
+        { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+        { status: 403 },
+      );
+    }
+  } catch {
+    // Bila tabel profil belum ada, lanjut ke pemeriksaan role.
+  }
   const roles = await getUserRoles(user.id);
   const lolos = butuhSuperAdmin
     ? roles.includes(ROLES.SUPER_ADMIN)

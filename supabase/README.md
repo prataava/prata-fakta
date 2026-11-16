@@ -592,3 +592,43 @@ terlihat), lalu menguji sesudah v8 (uji negatif T5/T8/T1,
 Area 1, CHECK enum, D1/D2, tabel/kolom baru) dan pemeriksaan
 statis (patch service role, desain G1/G2/G3, berkas Area
 1/3/13/7, fungsi murni streak/validasi/nomor lacak).
+
+### Pengecekan berkala T1-sisa (Gate keamanan Fase 8)
+
+Perlindungan kolom `kunci` di §v8 di atas bertumpu pada GRANT
+per kolom — dan GRANT itu RAPUH terhadap satu perintah:
+`GRANT SELECT ON pf_quiz_questions TO anon;` (mis. diklik di
+Dashboard → Table Editor → "Grant access", atau dijalankan
+ulang oleh skrip setup) memberi SELECT tingkat tabel, dan hak
+tingkat tabel MENGALAHKAN pembatasan per kolom — kunci
+terbuka lagi tanpa perubahan policy apa pun. Terbukti di
+PGlite (gate Fase 8): sesudah grant tingkat tabel,
+`has_column_privilege('anon', ..., 'kunci', 'SELECT') = true`
+dan `SELECT kunci` sebagai anon BERHASIL; sesudah revoke
+ulang + grant per kolom, tertutup lagi.
+
+Jalankan cek ini berkala (mis. tiap selesai utak-atik hak
+akses di Dashboard, atau minimal sebulan sekali) di SQL Editor
+sebagai pemilik — SEMUA baris harus `false` / `0`:
+
+```sql
+-- 1. Hak kolom kunci harus false untuk anon DAN authenticated.
+select has_column_privilege('anon', 'public.pf_quiz_questions', 'kunci', 'SELECT') as anon_bisa_baca_kunci,
+       has_column_privilege('authenticated', 'public.pf_quiz_questions', 'kunci', 'SELECT') as auth_bisa_baca_kunci;
+-- ekspektasi: false, false
+
+-- 2. Tidak boleh ada GRANT SELECT tingkat tabel ke anon/authenticated
+--    pada pf_quiz_questions (baris di bawah = grant per kolom, aman).
+select grantee, privilege_type, is_grantable
+from information_schema.column_privileges
+where table_schema = 'public' and table_name = 'pf_quiz_questions'
+  and column_name = 'kunci' and grantee in ('anon', 'authenticated');
+-- ekspektasi: 0 baris
+
+-- 3. Bila cek 1/2 gagal, pulihkan (lalu ulangi cek 1/2):
+--    revoke select on public.pf_quiz_questions from anon, authenticated;
+--    grant select (id, tanggal, pertanyaan, opsi, penjelasan,
+--      sumber_url, sumber_nama, artikel_id, dibuat_pada)
+--      on public.pf_quiz_questions to anon, authenticated;
+--    (JANGAN grant select tingkat tabel lagi sesudahnya.)
+```

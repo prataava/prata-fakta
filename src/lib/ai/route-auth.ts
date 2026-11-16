@@ -138,6 +138,28 @@ export async function autentikasiPemicuAi(
       ),
     };
   }
+  // Gate Fase 8 (T4): akun dibatasi (nonaktif) tidak boleh memicu job
+  // AI editorial — sebelumnya hanya autentikasiStaf (GET) yang
+  // memeriksa nonaktif, jalur pemicu POST ini lolos. Fail-open bila
+  // tabel profil belum ada (route menjawab 503 jujur di bawah).
+  try {
+    const { data: profil } = await supabase
+      .from("pf_profiles")
+      .select("nonaktif")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+      return {
+        ok: false,
+        respon: NextResponse.json(
+          { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+          { status: 403 },
+        ),
+      };
+    }
+  } catch {
+    // Lanjut ke pemeriksaan role.
+  }
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR)) {
     return {

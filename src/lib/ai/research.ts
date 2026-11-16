@@ -5,6 +5,7 @@
 // Fetch halaman bersifat best-effort: bila gagal, fallback ke
 // ringkasan/isi_ringkas item dan kegagalan dicatat di hasil.
 import { bersihkanHtml } from "../ingestion/rss.ts";
+import { fetchAman, tolakHostPrivat } from "../ingestion/ssrf.ts";
 import type { JenisKlaim } from "./types.ts";
 
 const USER_AGENT =
@@ -244,13 +245,24 @@ async function ambilTeksHalaman(
 ): Promise<string> {
   const ambil = opsi.fetchFn ?? fetch;
   const timeoutMs = opsi.timeoutMs ?? 8000;
-  const respons = await ambil(url, {
-    headers: {
-      "User-Agent": USER_AGENT,
-      Accept: "text/html, */*",
+  // Gate Fase 8 (T6): jalur fetch ini sebelumnya TANPA pelindung SSRF
+  // sama sekali — URL artikel dari feed/GDELT langsung di-fetch.
+  // Sekarang: tolak host privat dulu, lalu fetchAman (redirect ke
+  // host privat ditolak di tiap hop). Gagal → throw → telitiItem
+  // fallback ke ringkasan (best-effort, bukan 500).
+  const ditolak = await tolakHostPrivat(url);
+  if (ditolak) throw new Error(`URL ditolak: ${ditolak}`);
+  const respons = await fetchAman(
+    url,
+    {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html, */*",
+      },
+      signal: AbortSignal.timeout(timeoutMs),
     },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+    ambil,
+  );
   if (!respons.ok) {
     throw new Error(`HTTP ${respons.status}`);
   }

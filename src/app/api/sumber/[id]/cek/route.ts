@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
-import { tolakHostPrivat } from "@/lib/ingestion/ssrf";
+import { fetchAman, tolakHostPrivat } from "@/lib/ingestion/ssrf";
 
 // POST /api/sumber/[id]/cek — periksa koneksi sumber, HANYA super_admin/editor.
 // Mengambil URL sumber, mengukur waktu respons, dan menyimpan hasilnya ke
@@ -50,6 +50,23 @@ export async function POST(
       { ok: false, error: "Anda harus masuk terlebih dahulu." },
       { status: 401 },
     );
+  }
+  // Gate Fase 8 (T4): akun dibatasi (nonaktif) tidak boleh memeriksa
+  // sumber (fetch URL eksternal) — sebelumnya hanya peran yang diperiksa.
+  try {
+    const { data: profil } = await supabase
+      .from("pf_profiles")
+      .select("nonaktif")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+      return NextResponse.json(
+        { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+        { status: 403 },
+      );
+    }
+  } catch {
+    // Bila tabel profil belum ada, lanjut ke pemeriksaan role.
   }
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR)) {
@@ -104,7 +121,9 @@ export async function POST(
     });
   }
   try {
-    const res = await fetch(sumber.url as string, {
+    // Gate Fase 8 (T6): fetchAman, bukan fetch mentah — redirect ke
+    // host privat ditolak di tiap hop, bukan hanya URL awal.
+    const res = await fetchAman(sumber.url as string, {
       method: "GET",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: {
