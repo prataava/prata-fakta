@@ -1,5 +1,21 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
+
+// Halaman dirender per request (`instant = false`), BUKAN prerender
+// statis — 16 Nov 2026: sebagai halaman statis murni (tanpa data /
+// komponen klien / async apa pun), SELURUH konten termasuk Suspense
+// boundary halaman ikut ter-prerender di build, sehingga skrip
+// bootstrap $RC React (reveal boundary) ikut terpanggang TANPA
+// nonce ke shell statis. CSP (script-src nonce+hash) memblokir
+// skrip itu → $RC undefined → hidrasi gagal (#419) → React me-render
+// ulang → SELURUH isi halaman ganda di DOM (h1=2, 54 kartu).
+// Dengan `instant = false`, render terjadi per request dalam konteks
+// nonce proxy, skrip $RC membawa nonce seperti halaman dinamis lain
+// (/kategori dsb.) dan hidrasi berhasil. Biaya: nyaris nol (daftar
+// statis tanpa DB). JANGAN hapus baris ini tanpa menguji ulang
+// /jelajahi di CDP (h1 harus = 1, tanpa $RC error).
+export const instant = false;
 
 export const metadata: Metadata = {
   title: "Jelajahi",
@@ -74,7 +90,13 @@ const GRUP: {
   },
 ];
 
-export default function Jelajahi() {
+export default async function Jelajahi() {
+  // Render per request (bukan prerender statis): connection()
+  // memaksa halaman dirender dalam konteks request sehingga skrip
+  // bootstrap $RC React membawa nonce proxy (lihat komentar
+  // `instant = false` di atas — tanpa ini saja halaman tetap
+  // ter-prerender dan $RC tetap tanpa nonce).
+  await connection();
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-jelajahi">
