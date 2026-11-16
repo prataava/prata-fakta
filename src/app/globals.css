@@ -557,8 +557,16 @@ main.konten {
 }
 
 /* ---------- Hero & seksi ---------- */
+/* Aurora Fase 4: hero editorial — "fakta." beraksen mint selaras
+ * logo; CTA nyata (Daily Brief + Kategori); ritme seksi lebih lega. */
 .hero {
   padding: 36px 0 8px;
+}
+
+@media (min-width: 768px) {
+  .hero {
+    padding: 48px 0 12px;
+  }
 }
 
 .hero-label {
@@ -590,6 +598,18 @@ main.konten {
   max-width: 720px;
 }
 
+.hero h1 em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.hero-cta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
 .hero p {
   margin-top: 12px;
   color: var(--muted);
@@ -598,7 +618,7 @@ main.konten {
 }
 
 .seksi {
-  padding: 28px 0 4px;
+  padding: 32px 0 8px;
 }
 
 .seksi-kepala {
@@ -615,6 +635,19 @@ main.konten {
   font-family: var(--font-serif);
   font-size: 1.45rem;
   font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Tanda aksen editorial di depan judul seksi. */
+.seksi-kepala h2::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .seksi-kepala a {
@@ -622,6 +655,18 @@ main.konten {
   font-weight: 600;
   color: var(--accent);
   flex-shrink: 0;
+}
+
+.seksi-kepala a:hover {
+  text-decoration: underline;
+}
+
+/* Aurora Fase 4: kartu newsletter memakai kaca bernuansa mint
+ * (satu-satunya aksen permukaan di beranda — selektif). */
+.seksi-newsletter .kartu {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--mint) 14%, transparent), color-mix(in srgb, var(--cyan) 8%, transparent)),
+    var(--glass-bg);
 }
 
 .grid-berita {
@@ -655,13 +700,20 @@ main.konten {
 }
 
 /* ---------- Kartu ---------- */
+/* Aurora Fase 4: kartu menjadi permukaan kaca (blur 18px, border
+ * kaca, radius besar, bayangan kaca). Berlaku untuk semua kartu
+ * daftar di situs — satu sistem, bukan gaya per halaman. */
 .kartu {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(145%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
   padding: 18px;
-  box-shadow: var(--shadow);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow-glass);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -669,6 +721,47 @@ main.konten {
 
 a.kartu:hover {
   transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.grid-kategori .kartu:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Kartu fitur asimetris (Berita Utama): di ≥1024px gambar di kiri
+ * (2/5 lebar, memenuhi tinggi kartu) dan isi di kanan; di bawah
+ * itu tampil seperti kartu biasa (gambar di atas). */
+.kartu-isi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .kartu-fitur {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .kartu-fitur .placeholder-gambar {
+    height: 100%;
+    min-height: 240px;
+    border-radius: 0;
+  }
+
+  .kartu-fitur .kartu-isi {
+    padding: 24px;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .kartu-fitur .kartu-judul {
+    font-size: 1.5rem;
+  }
 }
 
 .kartu-kategori {
@@ -728,10 +821,15 @@ a.kartu:hover {
 }
 
 /* ---------- Empty state / skeleton / error ---------- */
+/* Aurora Fase 4: empty state premium — panel kaca, bukan kotak
+ * polos; garis putus-putus dipertahankan sebagai penanda "kosong". */
 .kosong {
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px dashed var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-glass);
   padding: 36px 24px;
   text-align: center;
   color: var(--muted);
@@ -1277,13 +1375,17 @@ a.kartu:hover {
 }
 
 /* ---------- Placeholder gambar editorial (tanpa foto berita) ---------- */
+/* Aurora Fase 4: tint aksen sangat halus (mint/cyan/ungu) di atas
+ * permukaan — tetap blok editorial, bukan foto palsu. */
 .placeholder-gambar {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 120px;
   border-radius: 10px;
-  background: var(--surface-2);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mint) 14%, transparent), color-mix(in srgb, var(--cyan) 10%, transparent) 55%, color-mix(in srgb, var(--purple) 12%, transparent)),
+    var(--surface-2);
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;

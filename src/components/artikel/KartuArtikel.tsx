@@ -9,14 +9,18 @@ import Kartu from "@/components/Kartu";
 export default function KartuArtikel({
   artikel,
   kategoriNama,
+  fitur,
 }: {
   artikel: PfArtikelRingkas;
   kategoriNama?: string | null;
+  /** Teruskan ke Kartu: tata letak fitur asimetris (Fase 4 Aurora). */
+  fitur?: boolean;
 }) {
   const kategori = kategoriNama ?? artikel.kategori_slug ?? "Umum";
   return (
     <Kartu
       href={`/artikel/${artikel.slug}`}
+      fitur={fitur}
       gambar={
         <div className="placeholder-gambar" aria-hidden="true">
           <span>{kategori}</span>

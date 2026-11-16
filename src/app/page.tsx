@@ -51,7 +51,9 @@ export default async function Beranda() {
     <div className="wadah">
       <section className="hero" aria-labelledby="hero-judul">
         <span className="hero-label">Berita · Fakta · Data</span>
-        <h1 id="hero-judul">Pahami dunia. Berdasarkan fakta.</h1>
+        <h1 id="hero-judul">
+          Pahami dunia. Berdasarkan <em>fakta</em>.
+        </h1>
         <p>
           Berita terkini Indonesia dan dunia dengan sumber yang jelas,
           pemeriksaan fakta yang ketat, serta data dan kronologi yang dapat
@@ -63,6 +65,14 @@ export default async function Beranda() {
         <div style={{ marginTop: 18, display: "block" }}>
           <SearchBar />
         </div>
+        <div className="hero-cta">
+          <Link className="tombol tombol-primer" href="/brief">
+            Baca Daily Brief
+          </Link>
+          <Link className="tombol tombol-hantu" href="/kategori">
+            Jelajahi Kategori
+          </Link>
+        </div>
       </section>
 
       <section className="seksi" aria-labelledby="seksi-utama">
@@ -72,8 +82,8 @@ export default async function Beranda() {
         </div>
         {utama ? (
           <>
-            <div style={{ marginBottom: 16 }}>
-              <KartuArtikel artikel={utama} />
+            <div className="berita-fitur" style={{ marginBottom: 16 }}>
+              <KartuArtikel artikel={utama} fitur />
             </div>
             {terbaruLain.length > 0 && (
               <div className="grid-berita">
@@ -266,7 +276,7 @@ export default async function Beranda() {
         )}
       </section>
 
-      <section className="seksi" aria-labelledby="seksi-newsletter">
+      <section className="seksi seksi-newsletter" aria-labelledby="seksi-newsletter">
         <div className="seksi-kepala">
           <h2 id="seksi-newsletter">Newsletter</h2>
         </div>

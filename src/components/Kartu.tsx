@@ -22,6 +22,9 @@ export type KartuProps = {
   gambar?: ReactNode;
   /** Aksi di luar tautan (mis. tombol Ikuti). */
   aksi?: ReactNode;
+  /** Kartu fitur (asimetris, Fase 4 Aurora): gambar di kiri, isi di
+   * kanan pada ≥1024px; di bawah itu tampil seperti kartu biasa. */
+  fitur?: boolean;
 };
 
 export default function Kartu({
@@ -34,10 +37,10 @@ export default function Kartu({
   metaTambahan,
   gambar,
   aksi,
+  fitur,
 }: KartuProps) {
-  const isi = (
+  const teksIsi = (
     <>
-      {gambar}
       {kategori !== undefined && (
         <span className="kartu-kategori">{kategori}</span>
       )}
@@ -55,17 +58,29 @@ export default function Kartu({
       )}
     </>
   );
+  const isi = fitur ? (
+    <>
+      {gambar}
+      <span className="kartu-isi">{teksIsi}</span>
+    </>
+  ) : (
+    <>
+      {gambar}
+      {teksIsi}
+    </>
+  );
+  const kelas = `kartu${fitur ? " kartu-fitur" : ""}`;
 
   if (href) {
     return (
-      <Link className="kartu kartu-artikel" href={href}>
+      <Link className={`${kelas} kartu-artikel`} href={href}>
         {isi}
       </Link>
     );
   }
 
   return (
-    <article className="kartu">
+    <article className={kelas}>
       {isi}
       {aksi}
     </article>
