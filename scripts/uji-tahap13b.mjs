@@ -404,5 +404,22 @@ console.log("\n--- (J) skrip tema pakai hash ---");
   cek("csp.ts mendokumentasikan hash skrip tema", csp.includes("HASH_SKRIP_TEMA") && csp.includes("sha256-"));
 }
 
+// ---------- (K) /jelajahi render per request (regresi $RC tanpa nonce) ----------
+// 16 Nov 2026: /jelajahi (halaman statis murni) ter-prerender di build
+// sehingga skrip bootstrap $RC React terpanggang TANPA nonce → CSP
+// memblokirnya → hidrasi gagal (#419) → SELURUH isi halaman ganda
+// di DOM (h1=2, 54 kartu). Perbaikan: `await connection()` di
+// page.tsx (render per request, skrip $RC membawa nonce seperti
+// halaman dinamis lain). Penjaga sumber: bila connection() dihapus,
+// halaman kembali statis dan bug kembali — baterai ini menangkapnya.
+console.log("\n--- (K) /jelajahi render per request ---");
+{
+  const baca = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+  const jelajahi = baca("src/app/jelajahi/page.tsx");
+  cek("/jelajahi memanggil connection() (render per request)", jelajahi.includes("await connection()"), "connection() tidak ditemukan — risiko regresi $RC tanpa nonce");
+  cek("/jelajahi mengimpor connection dari next/server", jelajahi.includes('from "next/server"') && jelajahi.includes("connection"), "impor connection tidak ditemukan");
+  cek("/jelajahi tetap instant=false (pola halaman dinamis repo)", jelajahi.includes("export const instant = false"), "instant=false tidak ditemukan");
+}
+
 console.log(`\nHASIL: ${lolos} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);
