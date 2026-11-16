@@ -6,7 +6,13 @@
 //   (A) Workflow YAML: 5 jadwal §10.1 tetap terjaga sesudah
 //       editorial.yml dipecah jadi 3 workflow (F4); tanpa
 //       perbandingan string github.event.schedule di kode;
-//       concurrency group per workflow (F3); --retry 2 (F8);
+//       concurrency group per workflow (F3); --retry 2 (F8) —
+//       KECUALI ingestion + editorial-pipeline (FU3, 16 Nov
+//       2026): pengecualian Tahap E — retry hidup DI DALAM
+//       engine per-sumber / per-item; memicu ulang endpoint
+//       berarti mengulang seluruh job. Header kedua workflow
+//       mendokumentasikannya; asersi di bawah memeriksa
+//       pengecualian + retry di dalam engine, bukan curl.
 //       assert isi respons jq di tiap workflow (F5); simulasi
 //       logika gating LAMA (membuktikan bug F2/F4) vs BARU.
 //   (B) Lock server-side + F6 di PGlite: klaim SQL yang sama
@@ -206,12 +212,44 @@ for (const [nama, rel] of Object.entries(WORKFLOW)) {
     `${nama}: tanpa github.event.schedule di kode`,
     !barisKode.some((b) => b.includes("github.event.schedule")),
   );
-  cek(
-    `${nama}: curl --fail-with-body + --retry 2 + --retry-delay`,
-    teks.includes("--fail-with-body") &&
-      teks.includes("--retry 2") &&
-      teks.includes("--retry-delay"),
-  );
+  // FU3 (16 Nov 2026): ingestion + editorial-pipeline
+  // DIKECUALIKAN dari curl --retry — keputusan Tahap E yang
+  // disengaja (retry hidup DI DALAM engine; memicu ulang
+  // endpoint = mengulang seluruh job). Yang diperiksa di sini:
+  // pengecualian terdokumentasi di header + retry di dalam
+  // engine benar-benar ada. Mengembalikan --retry ke curl
+  // kedua workflow ini adalah REGRESI desain Tahap E.
+  if (nama === "ingestion" || nama === "editorial-pipeline") {
+    cek(
+      `${nama}: pengecualian retry Tahap E terdokumentasi di header`,
+      teks.includes("TIDAK ADA curl --retry") &&
+        teks.includes("Retry hidup DI DALAM"),
+      "header workflow",
+    );
+    if (nama === "ingestion") {
+      const retrySrc = bacaRepo("src/lib/ingestion/retry.ts");
+      cek(
+        "ingestion: retry di dalam engine (maks 3 percobaan, backoff eksponensial, Retry-After)",
+        /percobaanMaks \?\? 3/.test(retrySrc) &&
+          /Retry-After/.test(retrySrc),
+        "src/lib/ingestion/retry.ts",
+      );
+    } else {
+      const jalankanSrc = bacaRepo("src/app/api/ai/jalankan/route.ts");
+      cek(
+        "editorial-pipeline: retry di dalam pipeline (per-item try/catch)",
+        (jalankanSrc.match(/try \{/g) ?? []).length >= 2,
+        "src/app/api/ai/jalankan/route.ts",
+      );
+    }
+  } else {
+    cek(
+      `${nama}: curl --fail-with-body + --retry 2 + --retry-delay`,
+      teks.includes("--fail-with-body") &&
+        teks.includes("--retry 2") &&
+        teks.includes("--retry-delay"),
+    );
+  }
   cek(
     `${nama}: assert jq atas isi respons`,
     teks.includes("jq -e") && teks.includes(ASSERT_HARAP[nama]),

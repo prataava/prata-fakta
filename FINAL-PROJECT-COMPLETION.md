@@ -1088,11 +1088,226 @@ workflow, push, MP3, email hapus akun) belum dilakukan;
 Vercel 403 + migrasi produksi v1–v14 menunggu akses
 pemilik (§27).
 
+## 31. Ultimate — Follow-up 1–6 + Tahap H: QC penuh (16 Nov 2026)
+
+Penyelesaian Ultimate Mandate: 6 follow-up dari laporan Tahap C–G
++ QC penuh Tahap H, dikerjakan koordinator dengan 3 subagen paralel
+(FU1, FU2+FU4, FU5+6) + integrasi + perbaikan oleh koordinator
+sendiri. Semua hasil diverifikasi independen oleh koordinator
+(bukan sekadar klaim agen). Repo: main, HEAD `c3efa51` saat mulai;
+commit Tahap H menyusul (agen utama yang push — koordinator tidak
+punya token GitHub).
+
+### 31.1 Follow-up 1–6 — hasil
+
+| # | Isu | Hasil | Bukti |
+|---|-----|-------|-------|
+| FU1 | T10 residual: 17 fungsi `editorial.ts` tanpa compensating | TERTUTUP. Try/catch inline di tiap `await catat(` + 6 metode adapter baru (`hapusVersi`, `hapusReview`, `hapusVerifikasi`, `pulihkanArtikel`, `pulihkanKategori`, `pulihkanBrief`) + `simpanVersiBaru` kembalikan versi. Baterai baru `uji-followup1.mjs` **70/70**; D battery **145/145** (T10 residual 0 fungsi) | `src/lib/admin/editorial.ts`, `types.ts`, `supabase-adapter.ts` |
+| FU2 | 19 helper di `route.ts` (TS2344 webpack) | SELESAI — koreksi: 16 ekspor nilai (bukan 19) + 5 `export type`. Pindah ke `src/lib/admin/validasi.ts` (baru), `src/lib/kuis.ts` (baru), `src/lib/topik.ts` (baru), `src/lib/akademi/penilaian.ts`; 2 helper jadi lokal tak-terekspor. 0 ekspor non-handler di 92 berkas route (139 handler), 0 impor antar-route. Webpack build EXIT 0 | `uji-followup24.mjs` **33/33** |
+| FU3 | Retry 2 workflow tersisa (tanya-jawab-draf, terbitkan-terjadwal) | SELESAI. Temuan: keduanya SUDAH punya `--retry 2` sejak Tahap 13C (diverifikasi, bukan ditambah). Baterai 13c gagal 2 asersi karena Tahap E memindah retry ke DALAM engine (lib/ingestion/retry.ts, maks 3 + Retry-After) tanpa memperbarui baterai — baterai diperbaiki + retry di dalam engine dibuktikan. Retry ditambah ke 7 curl podcast-tts + 1 curl retensi (idempoten). Baterai baru `uji-followup3.mjs` **15/15**. JANGAN kembalikan `--retry` ke curl ingestion/editorial-pipeline (regresi desain Tahap E) | `uji-tahap13c.mjs` LOLOS, `uji-followup3.mjs` **15/15** |
+| FU4 | CSRF per-route | SELESAI. `cekOrigin` ditambah ke 56 berkas route (tiap handler POST/PATCH/PUT/DELETE, sesudah rate-limit, sebelum auth/DB). D battery TEMUAN CSRF: 58/67 → **0/67** (67/67 route mutasi memanggil `cekOrigin`; 1 terakhir — `POST /api/tanya` — ditambah koordinator saat integrasi) | `uji-tahapD-security.mjs` **145/145 LOLOS** |
+| FU5+6 | Celah F7/F9/F10/F11 + migrasi v16 | SELESAI. F7: label "Negara:" di /data dipisah dari kondisional frekuensi_update. F9: `getArtikelTerkait(topik)` + seksi "Berita terkait" di /pengetahuan/[slug]. F10: kandidat negara di `cariKandidat` kini `url=/negara/${kode}`; `kataKunci`/`kategoriPertanyaan`/`cariKandidat` pindah ke `src/lib/tanya/retrieval.ts` (baru). F11 (keputusan desain: PERLUAS `pf_bookmarks`, bukan tabel baru): migrasi v16 (`pengetahuan_id` nullable + CHECK tepat-satu + UNIQUE + index + FK cascade); `/api/bookmark` terima `pengetahuan_id`; tombol Simpan baru di /pengetahuan/[slug]. `uji-integrasi14.mjs` **112/112** (naik dari 97) | Migrasi `20261116_pf_v16_bookmark_pengetahuan.sql`; CUTOVER §3.17 |
+
+### 31.2 Integrasi — 7 perbaikan baterai basi (semua sisi-tes, didokumentasi)
+
+Pemindahan `cariKandidat` (FU5+6) + v15/v16 + situs 500 baru
+mematahkan 6 baterai + 1 asersi. Semua diperbaiki koordinator
+(dengan bukti, bukan dengan menghapus asersi):
+
+1. `uji-fase6` CRASH — STOPWORDS + `kataKunci` dibaca dari
+   `route.ts`, sudah pindah ke `src/lib/tanya/retrieval.ts` →
+   path baterai dialihkan. SEMUA LOLOS.
+2. `uji-fase8-gel2-tanya-podcast` 64/2 — ekstraksi fungsi murni +
+   korpus retrieval dialihkan ke `retrieval.ts`; asersi perilaku
+   route (menunggu/tidak_ada_data/kategori/publik) tetap baca
+   `route.ts`. **72/72** (naik karena sub-asersi yang tadinya
+   ter-skip kini jalan).
+3. `uji-ultimate-backend` P2-11 — query `.in("indikator_id", ids)`
+   dibaca dari `retrieval.ts`. **115/115**.
+4. `uji-ultimate-b2-tanya` F1 — `cariKandidat` diekspor dari
+   `retrieval.ts` + job draf mengimpor dari lib. **92/92**.
+5. `uji-fase8-gel1` T1-sisa — asersi lama ("route tanpa
+   `createClient()`") basi pasca-C-3: route kini memakai
+   `createClient()` untuk sesi + baca jawaban harian MILIK SENDIRI
+   (policy "baca sendiri", by design). Asersi baru menguji sifat
+   keamanan yang sebenarnya: kunci (`pf_quiz_answers`) dibaca
+   HANYA via service role (tepat satu situs `.from()`, memakai
+   `await service`). **159/159**.
+6. `uji-tahapC-limitasi` C-4 — total `catatGalatRoute` 52 → 53
+   (situs 500 baru di POST /api/bookmark, FU5/6 — sah). **87/87**
+   (naik dari 78: +7 asersi PPR §31.3 + 2 asersi objek Supabase).
+7. `uji-fase7` 85/2 — (a) ekspektasi 61 tabel/61 RLS/119 policy
+   basi: v15 menambah `pf_quiz_daily_answers` (62/62/120);
+   baterai kini menjalankan v1–v16. (b) Skenario skor kuis
+   ditulis ulang untuk dunia v15: seed 5 soal + jawaban
+   tersimpan (4 benar), trigger menghitung ulang; CHECK
+   benar/total kini diuji lewat definisi skema
+   (`pg_constraint`) karena trigger menimpa nilai SEBELUM
+   CHECK dievaluasi — penolakan insert langsung tidak lagi
+   menguji CHECK (dijelaskan di komentar baterai). **91/91**.
+
+Kesalahan koordinator sendiri (jujur): edit pertama RLS
+mengubah label jadi "RLS 62/62" tetapi perbandingan tetap
+`=== 61` — ketahuan lewat probe PGlite, diperbaiki, kini
+detail hitungan dicetak (`${rlsAktif} aktif`).
+
+### 31.3 Bug nyata ditemukan Tahap H — banjir log PPR (diperbaiki)
+
+**Temuan:** smoke `next start` pertama: log 532 baris, penuh dump
+stack trace `Error: During prerendering, fetch() rejects when the
+prerender is complete` di /, /cerita, /brief, /negara, /podcast —
+diklasifikasi keliru sebagai "galat baca database" oleh
+`catatGalatBaca` (`src/lib/galat.ts`) + ditulis ke `pf_app_errors`
+via `catatGalatAplikasi`. Halaman tetap 200 (React menangani),
+tetapi tiap kunjungan halaman PPR membanjiri log + tabel galat.
+
+**Akar:** artefak framework Next.js 16 PPR — shell statis selesai
+lebih dulu dari fetch dinamis. Bukan galat database, bukan
+regresi FU1–FU6 (jalur `galat.ts`/PPR tidak disentuh agen
+follow-up). Varian kedua ketahuan dari log build: `cookies()`
+rejects (route /tanya, `getJumlahPertanyaanMenunggu`).
+
+**Perbaikan** (`src/lib/galat.ts`): fungsi baru
+`galatPrerenderPPR(err)` — detektor keluarga pesan
+("During prerendering," + "rejects when the prerender is
+complete", API apa pun: fetch()/cookies()/headers()) — diperiksa
+`catatGalatBaca` SEBELUM `galatTabelBelumAda`; bila cocok,
+kembali `true` (empty state) tanpa log, tanpa tulis
+`pf_app_errors`. **Jebakan yang ketahuan saat verifikasi:**
+perbaikan pertama hanya menangani `Error`/string — di runtime
+penolakan sampai sebagai OBJEK galat Supabase (`{ message,
+details, hint, code }`), jadi dump tetap muncul; detektor
+diperluas ke `message` + `details` objek, baru bersih.
+
+**Verifikasi:** build log 0 baris "During prerendering";
+smoke ulang: log **109 baris** (dari 532) — 0 dump PPR,
+0 `[galat-db]`, 0 "galat baca database"; sisa hanya
+PGRST205 empty-state jujur + 1 peringatan fail-open rate-limit
+(PGRST202, terdokumentasi sampai v11 diterapkan) + notice
+service key kuis. 9 asersi baru di `uji-tahapC-limitasi` §F
+(detektor: Error/string/objek Supabase/varian cookies/negatif).
+
+### 31.4 QC penuh — hasil
+
+**Baterai: 35/35 hijau, 2.541 asersi terhitung + 5 baterai
+SEMUA LOLOS (tanpa hitungan), 0 gagal.**
+
+| Baterai | Hasil | Baterai | Hasil |
+|---|---|---|---|
+| uji-fase5 | SEMUA LOLOS | uji-tahapC-limitasi | 87/87 |
+| uji-fase6 | SEMUA LOLOS | uji-tahapD-security | 145/145 |
+| uji-fase7 | 91/91 | uji-tahapE-news | 76/76 |
+| uji-fase8-gel1 | 159/159 | uji-integrasi14 | 112/112 |
+| uji-fase8-gel2-admin | 84/84 | uji-followup1 | 70/70 |
+| uji-fase8-gel2-akademi | 107/107 | uji-followup24 | 33/33 |
+| uji-fase8-gel2-cerita | 66/66 | uji-followup3 | 15/15 |
+| uji-fase8-gel2-migrasi | 28/28 | uji-ultimate-gate | 77/77 |
+| uji-fase8-gel2-negara | 77/77 | uji-ultimate-ingestion | 71/71 |
+| uji-fase8-gel2-riset | 71/71 | uji-ultimate-security | 109/109 |
+| uji-fase8-gel2-tanya-podcast | 72/72 | uji-ultimate-backend | 115/115 |
+| uji-editorial | SEMUA LOLOS | uji-ultimate-b2-akademi | 120/120 |
+| uji-remediasi-integrasi | 17/17 | uji-ultimate-b2-akun | 114/114 |
+| uji-remediasi-multisource | 71/71 | uji-ultimate-b2-migrasi | 32/32 |
+| uji-tahap13-migrasi | 15/15 | uji-ultimate-b2-notifikasi | 54/54 |
+| uji-tahap13a | 191/191 | uji-ultimate-b2-podcast | 61/61 |
+| uji-tahap13b | 109/109 | uji-ultimate-b2-tanya | 92/92 |
+| uji-tahap13c | SEMUA LOLOS | uji-ingestion | SEMUA LOLOS* |
+
+\* `uji-ingestion`: 1 dilewati — GDELT HTTP 429 eksternal
+(flake sejak Fase 3, dilewati by design, bukan gagal).
+`uji-tahapE-news`: GDELT 429 juga teramati, 76/76 tetap lolos.
+`uji-editorial` lambat (±337 dtk: fetch RSS live + pipeline) —
+bukan gantung; dijalankan di latar.
+
+**TypeScript / lint / build:** `npx tsc --noEmit` EXIT 0;
+`npm run lint` EXIT 0; `npm run build` (Turbopack) EXIT 0 —
+166/166 halaman, BUILD_ID `NM3JoG_bTU4FuDCRI5sV5`;
+`npx next build --webpack` EXIT 0 — BUILD_ID
+`aIgI56ULA_doTWIH7coI8` (webpack BUKAN jalur gate proyek,
+dijalankan karena FU2 wajib meloloskannya).
+
+**Smoke `next start` (port 3101, build `NM3JoG_bTU4FuDCRI5sV5`):**
+12× 200 (/, /brief, /cari, /arsip, /peta, /data, /timeline,
+/pengetahuan, /kuis, /tanya, /feed-saya, /rutin) + 8× 404
+jujur; `/api/health` 200 `{"ok":false,"status":"degraded",
+"db":"belum_tersedia"}` (jujur, pra-migrasi); CSP hadir di /
+dan 404, nonce unik per request, script-src nonce +
+strict-dynamic + hash tema, tanpa unsafe-inline/unsafe-eval;
+log 109 baris, 0 dump PPR (§31.3). Catatan: /artikel (indeks)
+404 BY DESIGN — `src/app/artikel/` hanya berisi `[slug]`,
+tanpa `page.tsx`; /profil 307 (redirect login, wajar).
+
+**Aksesibilitas + responsif (spot-check STATIS, bukan visual):**
+`<html lang="id">` ✓; viewport meta
+`width=device-width, initial-scale=1` hadir di HTML prerender
+(default Next.js — tanpa `user-scalable=no`, pinch-zoom
+diizinkan) ✓; 1/1 `<img>` punya `alt` + width/height + lazy ✓;
+10 aturan `@media` di `globals.css` (640/768/1024px +
+`prefers-reduced-motion`) — mekanisme responsif ADA di kode
+(proyek memakai CSS kustom, bukan Tailwind — 0 prefix
+`sm:/md:` adalah ekspektasi, bukan temuan). **Render visual
+320–1920px BELUM DIUJI** (browser tidak tersedia untuk
+subagen) — TIDAK diklaim; 122 tombol belum diperiksa satu per
+satu nama aksesibelnya (status sama seperti Tahap 15).
+
+**Infra darurat selama Tahap H:** /tmp/pf-sqlcheck (PGlite)
+hilang lagi saat VM diganti — diinstal ulang
+(`npm install @electric-sql/pglite` di /tmp/pf-sqlcheck);
+bila baterai PGlite gagal MODULE_NOT_FOUND, periksa direktori
+itu dulu.
+
+### 31.5 Risiko tersisa (jujur, tidak ditutup)
+
+- T10 compensating (FU1) BUKAN transaksi atomik: proses mati
+  di antara mutasi-audit → baris yatim tetap mungkin; hanya
+  RPC/transaksi DB yang menutupnya (tidak dibuat, sesuai
+  aturan). Versi/review/verifikasi yang ikut terhapus cascade
+  saat hapus-balik tidak dapat dipulihkan; notifikasi
+  best-effort yang sudah terkirim tidak dapat ditarik.
+- T6 pinning: DIPERSEMPIT, penutupan penuh belum terverifikasi
+  dari egress langsung (Vercel/staging) — tetap butuh uji
+  pasca-live.
+- CSRF live + flag cookie sesi: belum diuji live (hanya statis
+  + baterai D).
+- Scheduler live: 0 run Actions (menunggu deploy + secret).
+- TTS server Podcast: TETAP BELUM BISA (lisensi suara id_ID
+  Piper tidak jelas — bukti primer MODEL_CARD).
+- Responsif visual 320–1920px + klik browser nyata + login
+  staf nyata: belum diuji (butuh browser/HP).
+- Produksi: 0 tabel `pf_*` (PGRST205); migrasi v1–v16 +
+  deploy Vercel menunggu akses pemilik (lihat §31.6).
+
+### 31.6 Status production + pekerjaan berikutnya
+
+**BELUM LIVE.** Blokir tidak berubah sejak B1: (1) migrasi
+v1–v16 di Supabase produksi via SQL Editor (prosedur
+`supabase/CUTOVER.md` §3, tahap 3A–3F; validasi 62/62/120 +
+seed 5 job) — atau serahkan `SUPABASE_SERVICE_ROLE_KEY` via
+Secure Vault; (2) pulihkan deploy Vercel 403 (opsi A hubungkan
+ulang / B import manual / C ZIP sumber — `DEPLOY.md`);
+(3) isi 6 env var Vercel + 3 secret GitHub Actions + 4 env var
+VAPID + allowlist Redirect URL `/saya/hapus-akun/konfirmasi` +
+buat bucket `podcast-audio` publik; (4) backup baseline +
+pasca-migrasi 62/62; (5) sesudah live: uji login + klik browser
+nyata + HP/desktop, tetapkan super_admin pertama, verifikasi
+pinning T6 dari egress langsung, uji CSRF live + flag cookie
+sesi. **JANGAN sebut live sebelum deployment berhasil + diuji.**
+
+Commit menunggu push agen utama (koordinator tidak punya
+token): B2 (`f38f7ec` + `aed1d28`), Tahap D (`9b494e8`),
+Tahap F (`d362661`), Tahap E (`5edb38c`), Tahap C (`c5455a7`),
+integrasi C–G (`c3efa51`), + commit Tahap H (follow-up 1–6,
+integrasi, perbaikan PPR, §31 ini — hash menyusul).
+92 berkas berubah (belum commit) saat §31 ditulis; token
+GitHub perlu ditempel ulang di chat (dipakai transiently,
+tidak disimpan).
+
 ---
 
 *Dokumen ini ditulis 16 November 2026, sesudah Tahap 15–17,
-diperbarui Gelombang B1 (commit `ebd4cf7`, §29) dan
-Gelombang B2 (commit `f38f7ec`, §30).
+diperbarui Gelombang B1 (commit `ebd4cf7`, §29),
+Gelombang B2 (commit `f38f7ec`, §30), dan Follow-up 1–6 +
+Tahap H (§31).
 Semua angka dari pengujian nyata lokal (PGlite + Node 24 +
 `next start`); tidak ada angka dari production karena situs
 belum live. Bila satu angka di sini terbukti salah, perbaiki

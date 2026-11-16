@@ -385,11 +385,16 @@ cek(
 );
 
 // ---------- Fungsi murni: kataKunci + kategoriPertanyaan ----------
+// (Follow-up 5/6: kataKunci/kategoriPertanyaan/cariKandidat + STOPWORDS
+//  pindah dari route /api/tanya ke src/lib/tanya/retrieval.ts —
+//  dipakai ulang route + job draf. Asersi perilaku route tetap baca
+//  route.ts; asersi fungsi murni + korpus baca retrieval.ts.)
 const tanyaSrc = bacaRepo("src/app/api/tanya/route.ts");
-const stopSrc = /const STOPWORDS = new Set\(\[[\s\S]*?\]\);/.exec(tanyaSrc)?.[0];
-const katSrc = /const KATA_KATEGORI: \{ kategori: string; kata: string\[\] \}\[\] = \[[\s\S]*?\n\];/.exec(tanyaSrc)?.[0];
-const fnKata = /export function kataKunci\([\s\S]*?\n\}/.exec(tanyaSrc)?.[0];
-const fnKategori = /export function kategoriPertanyaan\([\s\S]*?\n\}/.exec(tanyaSrc)?.[0];
+const retrievalSrc = bacaRepo("src/lib/tanya/retrieval.ts");
+const stopSrc = /const STOPWORDS = new Set\(\[[\s\S]*?\]\);/.exec(retrievalSrc)?.[0];
+const katSrc = /const KATA_KATEGORI: \{ kategori: string; kata: string\[\] \}\[\] = \[[\s\S]*?\n\];/.exec(retrievalSrc)?.[0];
+const fnKata = /export function kataKunci\([\s\S]*?\n\}/.exec(retrievalSrc)?.[0];
+const fnKategori = /export function kategoriPertanyaan\([\s\S]*?\n\}/.exec(retrievalSrc)?.[0];
 cek("kataKunci + kategoriPertanyaan dapat diekstrak dari sumber", Boolean(stopSrc && katSrc && fnKata && fnKategori));
 if (stopSrc && katSrc && fnKata && fnKategori) {
   const { kataKunci, kategoriPertanyaan } = new Function(
@@ -439,10 +444,10 @@ cek(
 );
 cek(
   "korpus retrieval mencakup indikator + event + negara",
-  tanyaSrc.includes('from("pf_data_indicators")') &&
-    tanyaSrc.includes('from("pf_data_points")') &&
-    tanyaSrc.includes('from("pf_events")') &&
-    tanyaSrc.includes('from("pf_countries")'),
+  retrievalSrc.includes('from("pf_data_indicators")') &&
+    retrievalSrc.includes('from("pf_data_points")') &&
+    retrievalSrc.includes('from("pf_events")') &&
+    retrievalSrc.includes('from("pf_countries")'),
 );
 cek(
   "route tanya menyimpan kategori + publik=false",

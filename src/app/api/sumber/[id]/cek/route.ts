@@ -4,6 +4,7 @@ import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import { fetchAman, tolakHostPrivat } from "@/lib/ingestion/ssrf";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   ipDariRequest,
   responRateLimit,
   responRateLimitBelumSiap,
@@ -33,6 +34,9 @@ export async function POST(
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const { id } = await params;
 

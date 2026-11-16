@@ -229,7 +229,7 @@ cek(
 
 // ---------- §F. Pengujian nyata PGlite (Tahap F) ----------
 // Memverifikasi hubungan 1–12 di tingkat database + logika
-// (bukan hanya statis): migrasi v1–v14 NYATA diterapkan ke
+// (bukan hanya statis): migrasi v1–v16 NYATA diterapkan ke
 // PGlite, data uji SINTETIS disisipkan, lalu tiap hubungan
 // diuji lewat SQL yang sama dengan yang dipakai lib/*,
 // RPC asli, fungsi murni, dan gate editorial asli.
@@ -298,6 +298,8 @@ const MIGRASI_F = [
   "20261116_pf_v12_seed_jobs.sql",
   "20261116_pf_v13_ultimate.sql",
   "20261116_pf_v14_gelombang_b2.sql",
+  "20261116_pf_v15_tahap_c.sql",
+  "20261116_pf_v16_bookmark_pengetahuan.sql",
 ];
 
 const dbF = new PGlite();
@@ -327,7 +329,22 @@ if (gagalMigrasiF > 0) {
   console.log(`\n${lolos} lolos, ${gagal + gagalMigrasiF} gagal (migrasi §F)`);
   process.exit(1);
 }
-console.log("OK: §F migrasi v1–v14 diterapkan (2 putaran)");
+console.log("OK: §F migrasi v1–v16 diterapkan (2 putaran)");
+{
+  const g = await dbF.query(
+    `select count(*) as n from information_schema.role_table_grants
+     where table_schema = 'public' and table_name like 'pf_%' and grantee = 'PUBLIC'`,
+  );
+  cek("§F v16: 0 blanket grant ke PUBLIC (v1–v16)", Number(g.rows[0].n) === 0, `ada ${g.rows[0].n}`);
+  const jmlTabel = await dbF.query(
+    `select count(*) as n from pg_tables where schemaname = 'public' and tablename like 'pf_%'`,
+  );
+  cek("§F v16: jumlah tabel pf_* tetap 62 (v16 tanpa tabel baru)", Number(jmlTabel.rows[0].n) === 62, `ada ${jmlTabel.rows[0].n}`);
+  const rls = await dbF.query(
+    `select count(*) as n from pg_tables where schemaname = 'public' and tablename like 'pf_%' and rowsecurity`,
+  );
+  cek("§F v16: RLS 62/62", Number(rls.rows[0].n) === 62, `ada ${rls.rows[0].n}`);
+}
 
 async function sebagaiF(role, sql, params = []) {
   await dbF.query(`set role ${role}`);
@@ -375,6 +392,7 @@ const ART1 = "a1111111-1111-1111-1111-111111111111"; // draf VERIFIED (ID) — s
 const ART2 = "a2222222-2222-2222-2222-222222222222"; // draf UNCONFIRMED (MY)
 const ART3 = "a3333333-3333-3333-3333-333333333333"; // terbit VERIFIED (ID)
 const ART4 = "a4444444-4444-4444-4444-444444444444"; // terbit (MY)
+const PNG1 = "d3d3d3d3-d3d3-d3d3-d3d3-d3d3d3d3d3d3"; // pengetahuan terbit (inflasi-penjelasan)
 const CL1 = "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1";
 const CL2 = "d2d2d2d2-d2d2-d2d2-d2d2-d2d2d2d2d2d2";
 const RAW_X = "e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1"; // akar (Antara)
@@ -836,9 +854,11 @@ const adminF = new AdapterF(dbF);
     "6 label hadir",
   );
   cek(
-    "CATATAN F7: label 'Negara:' di /data hanya tampil bila frekuensi_update terisi (bukan selalu)",
-    halamanData.includes("ind.frekuensi_update && (") && halamanData.includes("Negara: ${ind.negara_kode}"),
-    "kondisional — lihat laporan Tahap F",
+    "F7 label 'Negara:' di /data tampil kapan pun negara_kode ada (tidak lagi digandeng frekuensi_update)",
+    halamanData.includes("ind.negara_kode && (") &&
+    halamanData.includes("Negara: {ind.negara_kode}") &&
+    !halamanData.includes("· Negara: ${ind.negara_kode}"),
+    "Negara: mandiri; Frekuensi pembaruan: tetap kondisional",
   );
   cek("F7 artikel lengkap membawa data_pendukung (konteks data artikel)", libData.includes("data_pendukung"), "KOLOM_ARTIKEL_LENGKAP");
 }
@@ -866,10 +886,17 @@ const adminF = new AdapterF(dbF);
   const halamanPengetahuan = fs.readFileSync(path.join(DIR_SRC, "app/pengetahuan/[slug]/page.tsx"), "utf8");
   const libExplainer = fs.readFileSync(path.join(DIR_SRC, "lib/explainer.ts"), "utf8");
   cek(
-    "KESENJANGAN TERDOKUMENTASI F9: explainer TIDAK menautkan artikel berita terkait (0 rujukan /artikel/ di halaman + lib)",
-    !halamanPengetahuan.includes("/artikel/") && !libExplainer.includes("pf_articles"),
-    "lihat laporan Tahap F — balik asersi ini bila ditutup",
+    "F9 explainer menautkan artikel berita terkait (lib memanggil pf_articles + halaman mengandung /artikel/)",
+    libExplainer.includes("pf_articles") && libExplainer.includes("getArtikelTerkait") &&
+    halamanPengetahuan.includes("/artikel/") && halamanPengetahuan.includes("Berita terkait"),
+    "getArtikelTerkait + seksi 'Berita terkait'",
   );
+  // Pola retrieval F9 di tingkat DB: topik 'inflasi' menemukan
+  // artikel terbit yang judul/ringkasannya mengandung kata itu.
+  const qTerkait = await dbF.query(
+    `select slug from public.pf_articles where status = 'terbit' and (judul ilike '%inflasi%' or ringkasan ilike '%inflasi%')`,
+  );
+  cek("F9 retrieval berita terkait: kata 'inflasi' menemukan artikel terbit", qTerkait.rows.some((r) => r.slug === "artikel-id-2"), qTerkait.rows.map((r) => r.slug).join(","));
   cek("F9 arah sebaliknya ada: halaman riset menautkan /pengetahuan/ + explainer punya seri", libExplainer.includes("getSeri") && halamanPengetahuan.includes("Dalam seri ini"), "getSeri + 'Dalam seri ini'");
 }
 
@@ -895,11 +922,19 @@ const adminF = new AdapterF(dbF);
     `select kode from public.pf_countries where nama ilike '%indonesia%' or kode ilike '%indonesia%'`,
   );
   cek("F10 retrieval negara: kata 'indonesia' menemukan profil negara", qNeg.rows.some((r) => r.kode === "ID"), qNeg.rows.map((r) => r.kode).join(","));
+  // Retrieval tinggal di src/lib/tanya/retrieval.ts (follow-up
+  // 5/6) — route /api/tanya hanya mengimpornya.
+  const libTanya = fs.readFileSync(path.join(DIR_SRC, "lib/tanya/retrieval.ts"), "utf8");
   const ruteTanya = fs.readFileSync(path.join(DIR_SRC, "app/api/tanya/route.ts"), "utf8");
   cek(
     "F10 cariKandidat membaca 5 basis (artikel+pengetahuan+indikator+event+negara)",
-    ["pf_articles", "pf_knowledge_articles", "pf_data_indicators", "pf_events", "pf_countries"].every((t) => ruteTanya.includes(t)),
-    "5 tabel di cariKandidat",
+    ["pf_articles", "pf_knowledge_articles", "pf_data_indicators", "pf_events", "pf_countries"].every((t) => libTanya.includes(t)),
+    "5 tabel di cariKandidat (lib/tanya/retrieval.ts)",
+  );
+  cek(
+    "F10 route /api/tanya mengimpor retrieval dari lib (tanpa duplikasi cariKandidat)",
+    ruteTanya.includes("@/lib/tanya/retrieval") && !ruteTanya.includes("export async function cariKandidat"),
+    "import lib + tidak ada definisi lokal",
   );
   const drafAda = susunDrafJawaban([
     { judul: "Inflasi Indonesia", ringkasan: "Nilai 2,8%.", url: "/data", skor: 3 },
@@ -909,9 +944,9 @@ const adminF = new AdapterF(dbF);
   const drafKosong = susunDrafJawaban([]);
   cek("F10 tanpa referensi -> draf TIDAK dibuat, alasan tidak_ada_data (jujur)", !drafKosong.dibuat && drafKosong.alasan === "tidak_ada_data" && drafKosong.referensi.length === 0);
   cek(
-    "KESENJANGAN TERDOKUMENTASI F10: kandidat negara di cariKandidat url=null (komentar usang 'Belum ada halaman /negara')",
-    ruteTanya.includes("Belum ada halaman /negara"),
-    "src/app/api/tanya/route.ts — /negara/[kode] sudah ada, tautan belum dipakai",
+    "F10 kandidat negara menautkan /negara/[kode] (halaman sudah ada, komentar usang dihapus)",
+    libTanya.includes("`/negara/${r.kode}`") && !libTanya.includes("Belum ada halaman /negara"),
+    "/negara/${kode}",
   );
 }
 
@@ -958,6 +993,14 @@ const adminF = new AdapterF(dbF);
       hitungA: `select count(*)::int as n from public.pf_podcast_playlist_items where user_id = $1`,
       hitungB: `select count(*)::int as n from public.pf_podcast_playlist_items where user_id = $1`,
     },
+    {
+      jenis: "pengetahuan (bookmark)",
+      tabel: "pf_bookmarks",
+      insertA: `insert into public.pf_bookmarks (user_id, pengetahuan_id) values ($1, $2)`,
+      paramA: [UID_A, PNG1],
+      hitungA: `select count(*)::int as n from public.pf_bookmarks where user_id = $1 and pengetahuan_id is not null`,
+      hitungB: `select count(*)::int as n from public.pf_bookmarks where user_id = $1 and pengetahuan_id is not null`,
+    },
   ];
   for (const s of simpan) {
     const okInsert = await berhasilSebagaiUidF("authenticated", UID_A, s.insertA, s.paramA);
@@ -975,11 +1018,55 @@ const adminF = new AdapterF(dbF);
     anonLihat = 0; // ditolak di tingkat GRANT/RLS = tidak terlihat
   }
   cek("F11 isolasi: anon tidak melihat bookmark siapa pun", anonLihat === 0, `dapat ${anonLihat}`);
+  // v16 (follow-up 5/6): skema bookmark pengetahuan.
+  const kolomPng = await dbF.query(
+    `select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'pf_bookmarks' and column_name = 'pengetahuan_id'`,
+  );
+  cek("F11 v16: kolom pf_bookmarks.pengetahuan_id ada", kolomPng.rows[0].n === 1, `dapat ${kolomPng.rows[0].n}`);
+  const cekSatuTarget = await dbF.query(
+    `select count(*)::int as n from pg_constraint
+     where conrelid = 'public.pf_bookmarks'::regclass and conname = 'pf_bookmarks_satu_target_check'`,
+  );
+  cek("F11 v16: CHECK tepat-satu-target ada", cekSatuTarget.rows[0].n === 1, `dapat ${cekSatuTarget.rows[0].n}`);
+  const uniqPng = await dbF.query(
+    `select count(*)::int as n from pg_constraint
+     where conrelid = 'public.pf_bookmarks'::regclass and conname = 'pf_bookmarks_user_pengetahuan_uniq'`,
+  );
+  cek("F11 v16: UNIQUE (user_id, pengetahuan_id) ada", uniqPng.rows[0].n === 1, `dapat ${uniqPng.rows[0].n}`);
+  let tolakDuaTarget = false;
+  try {
+    await sebagaiUidF("authenticated", UID_A, `insert into public.pf_bookmarks (user_id, artikel_id, pengetahuan_id) values ($1, $2, $3)`, [UID_A, ART4, PNG1]);
+  } catch {
+    tolakDuaTarget = true;
+  }
+  cek("F11 v16: CHECK menolak bookmark dua target sekaligus", tolakDuaTarget);
+  let tolakTanpaTarget = false;
+  try {
+    await sebagaiUidF("authenticated", UID_A, `insert into public.pf_bookmarks (user_id) values ($1)`, [UID_A]);
+  } catch {
+    tolakTanpaTarget = true;
+  }
+  cek("F11 v16: CHECK menolak bookmark tanpa target", tolakTanpaTarget);
+  let tolakDuplikatPng = false;
+  try {
+    await sebagaiUidF("authenticated", UID_A, `insert into public.pf_bookmarks (user_id, pengetahuan_id) values ($1, $2)`, [UID_A, PNG1]);
+  } catch {
+    tolakDuplikatPng = true;
+  }
+  cek("F11 v16: UNIQUE menolak bookmark pengetahuan ganda", tolakDuplikatPng);
+  const policyBm = await dbF.query(
+    `select count(*)::int as n from pg_policies where schemaname = 'public' and tablename = 'pf_bookmarks'`,
+  );
+  cek("F11 v16: 4 policy pf_bookmarks berbasis user_id tetap berlaku", policyBm.rows[0].n === 4, `dapat ${policyBm.rows[0].n}`);
   const ruteBookmark = fs.readFileSync(path.join(DIR_SRC, "app/api/bookmark/route.ts"), "utf8");
+  const halamanPengetahuanF11 = fs.readFileSync(path.join(DIR_SRC, "app/pengetahuan/[slug]/page.tsx"), "utf8");
   cek(
-    "KESENJANGAN TERDOKUMENTASI F11: pengetahuan TIDAK punya mekanisme simpan (/api/bookmark hanya artikel_id; 0 tabel/route simpan pengetahuan)",
-    ruteBookmark.includes("artikel_id") && !fs.readFileSync(path.join(DIR_SRC, "lib/lanjutan.ts"), "utf8").includes("pf_bookmarks_pengetahuan") && !ruteBookmark.includes("pengetahuan"),
-    "lihat laporan Tahap F — butuh desain + migrasi baru (di luar Tahap F)",
+    "F11 pengetahuan punya mekanisme simpan (bookmark diperluas: pengetahuan_id + toggle + GET + tombol Simpan)",
+    ruteBookmark.includes("pengetahuan_id") && ruteBookmark.includes("pf_knowledge_articles") &&
+    ruteBookmark.includes("cekOrigin") &&
+    halamanPengetahuanF11.includes("TombolSimpan") && halamanPengetahuanF11.includes("pengetahuanId"),
+    "/api/bookmark + TombolSimpan di /pengetahuan/[slug]",
   );
 }
 

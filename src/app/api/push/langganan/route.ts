@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiter,
+  cekOrigin,
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
@@ -100,6 +101,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -151,6 +155,9 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(

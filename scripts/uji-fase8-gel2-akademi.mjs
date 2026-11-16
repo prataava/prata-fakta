@@ -404,12 +404,15 @@ const jawabAkademiSrc = bacaRepo("src/app/api/akademi/kuis/jawab/route.ts");
 // soal — ekstraksi lama (hanya validator) crash ReferenceError.
 // Ikut ekstrak dependensinya; asersi lama (jawaban angka default)
 // tetap berlaku karena default jenis = pilihan_ganda.
+// FU2 (16 Nov 2026): validasiJawabanAkademi PINDAH ke
+// lib/akademi/penilaian.ts — ekstraksi validator dari sana
+// (POLA_UUID tetap diekstrak dari route, masih ada di sana).
 const penilaianSrc = bacaRepo("src/lib/akademi/penilaian.ts");
 const potonganJawab = [
   ekstrakKonst(jawabAkademiSrc, "POLA_UUID"),
   ekstrakFungsi(penilaianSrc, "normalisasiIsian"),
   ekstrakFungsi(penilaianSrc, "validasiBentukJawaban"),
-  ekstrakValidator(jawabAkademiSrc, "validasiJawabanAkademi"),
+  ekstrakValidator(penilaianSrc, "validasiJawabanAkademi"),
 ];
 cek("validasiJawabanAkademi dapat diekstrak", potonganJawab.every(Boolean));
 if (potonganJawab.every(Boolean)) {
@@ -430,9 +433,12 @@ if (potonganJawab.every(Boolean)) {
   cek("jawab akademi: tolak body null", v(null).ok === false);
 }
 const progresSrc = bacaRepo("src/app/api/akademi/progres/route.ts");
+// FU2 (16 Nov 2026): validasiProgres PINDAH ke
+// lib/akademi/penilaian.ts — ekstraksi dari sana (progresSrc
+// tetap dipakai untuk pemeriksaan route di bawah).
 const potonganProgres = [
-  ekstrakKonst(progresSrc, "POLA_UUID"),
-  ekstrakValidator(progresSrc, "validasiProgres"),
+  ekstrakKonst(penilaianSrc, "POLA_UUID"),
+  ekstrakValidator(penilaianSrc, "validasiProgres"),
 ];
 cek("validasiProgres dapat diekstrak", potonganProgres.every(Boolean));
 if (potonganProgres.every(Boolean)) {
@@ -461,21 +467,26 @@ if (potonganProgres.every(Boolean)) {
   cek("progres: tolak lesson_id buruk",
     v({ lesson_id: "x", selesai: true }).ok === false);
 }
+// FU2 (16 Nov 2026): validator admin PINDAH ke
+// src/lib/admin/validasi.ts — ekstraksi dari sana. Variabel
+// pengetahuanSrc/kursusSrc TETAP menunjuk route (dipakai lagi
+// untuk pemeriksaan route di bawah).
+const validasiAdminSrc = bacaRepo("src/lib/admin/validasi.ts");
 const pengetahuanSrc = bacaRepo("src/app/api/admin/pengetahuan/route.ts");
-const awalTopik = pengetahuanSrc.indexOf("export const TOPIK_VALID = [");
-const akhirTopik = pengetahuanSrc.indexOf("] as const;", awalTopik);
+const awalTopik = validasiAdminSrc.indexOf("export const TOPIK_VALID = [");
+const akhirTopik = validasiAdminSrc.indexOf("] as const;", awalTopik);
 const konstTopik =
   awalTopik >= 0 && akhirTopik >= 0
-    ? pengetahuanSrc
+    ? validasiAdminSrc
         .slice(awalTopik, akhirTopik + "] as const;".length)
         .replace("export const", "const")
     : null;
 const potonganPengetahuan = [
   konstTopik ? konstTopik.replace("export const", "const") : null,
-  ekstrakKonst(pengetahuanSrc, "POLA_SLUG"),
-  ekstrakKonst(pengetahuanSrc, "POLA_TANGGAL"),
-  ekstrakFungsi(pengetahuanSrc, "stringAtauNull"),
-  ekstrakValidator(pengetahuanSrc, "validasiInputPengetahuan"),
+  ekstrakKonst(validasiAdminSrc, "POLA_SLUG"),
+  ekstrakKonst(validasiAdminSrc, "POLA_TANGGAL"),
+  ekstrakFungsi(validasiAdminSrc, "stringAtauNull"),
+  ekstrakValidator(validasiAdminSrc, "validasiInputPengetahuan"),
 ];
 cek("validasiInputPengetahuan dapat diekstrak", potonganPengetahuan.every(Boolean));
 if (potonganPengetahuan.every(Boolean)) {
@@ -501,9 +512,9 @@ if (potonganPengetahuan.every(Boolean)) {
 }
 const kursusSrc = bacaRepo("src/app/api/admin/akademi/route.ts");
 const potonganKursus = [
-  ekstrakKonst(kursusSrc, "POLA_SLUG"),
-  ekstrakFungsi(kursusSrc, "stringAtauNull"),
-  ekstrakValidator(kursusSrc, "validasiInputKursus"),
+  ekstrakKonst(validasiAdminSrc, "POLA_SLUG"),
+  ekstrakFungsi(validasiAdminSrc, "stringAtauNull"),
+  ekstrakValidator(validasiAdminSrc, "validasiInputKursus"),
 ];
 cek("validasiInputKursus dapat diekstrak", potonganKursus.every(Boolean));
 if (potonganKursus.every(Boolean)) {
@@ -519,7 +530,7 @@ if (potonganKursus.every(Boolean)) {
   cek("kursus: tolak judul kosong",
     v({ slug: "k", judul: "  " }).ok === false);
 }
-const strukturSrc = bacaRepo("src/app/api/admin/akademi/[id]/route.ts");
+const strukturSrc = validasiAdminSrc;
 const potonganStruktur = [
   ekstrakKonst(strukturSrc, "POLA_SLUG"),
   ekstrakKonst(strukturSrc, "POLA_TANGGAL"),

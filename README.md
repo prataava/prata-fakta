@@ -37,10 +37,10 @@ headers, rate limit 4 route, cek nonaktif di route AI, pelindung
 SSRF, `search_path` fungsi SECURITY DEFINER, perbandingan secret
 timing-safe); SEO (sitemap, robots, RSS, JSON-LD, canonical, OG);
 monitoring (`/api/health`, `/admin/sistem`); backup
-(`scripts/backup-pf.mjs`, 36 tabel); QA 25 butir: 21 LOLOS
+(`scripts/backup-pf.mjs`, 62 tabel sesudah v15); QA 25 butir: 21 LOLOS
 (lokal), 4 BLOKIR. Verifikasi: `tsc` EXIT 0, `lint` EXIT 0,
-`node scripts/uji-fase7.mjs` **87/87 LOLOS**, `npm run build`
-EXIT 0 (87/87 halaman). Laporan lengkap: `LAPORAN-AKHIR.md`.
+`node scripts/uji-fase7.mjs` **91/91 LOLOS**, `npm run build`
+EXIT 0 (166/166 halaman). Laporan lengkap: `LAPORAN-AKHIR.md`.
 
 **Fase 8 — Gelombang 2: SELESAI (kode, terverifikasi lokal)**
 (16 Nov 2026). 10 area: Story Tracker, Explain the World,
@@ -79,7 +79,35 @@ error. Tahap 16–17 — readiness + cutover/deploy siap untuk
 persetujuan pemilik. Laporan akhir: `FINAL-PROJECT-COMPLETION.md`
 (28 bagian). Detail: `LAPORAN-FASE-8.md` §14.
 
-**BELUM LIVE:** migrasi v1–v12 belum dijalankan di Supabase
+**Ultimate B1–B2, Tahap C–G, Follow-up 1–6 + Tahap H: SELESAI
+(kode, terverifikasi lokal)** (16 Nov 2026). Audit ulang dari
+nol (94 temuan) → B1: gate verifikasi, dedup Jaccard + deteksi
+sumber basi + retry ingestion, 12 route mutasi fail-closed,
+cek Origin terpusat, HSTS, migrasi v13 (**55 tabel**). B2:
+16 keterbatasan "BISA DIBANGUN" — hapus akun mandiri, Academy
+(penilaian server-side + sertifikat internal), notifikasi +
+push VAPID, analytics + error monitoring DB sendiri, Ask the
+World penjawab draf, terjemahan MyMemory; migrasi v14
+(**61 tabel, RLS 61/61, 119 policy**). Tahap C–G: skor kuis
+harian server-side (trigger v15), UI soal bertipe baru, cabut
+sertifikat, log galat menyeluruh, keamanan ulang, news
+intelligence (retry + source health + fallback + dedup),
+integrasi; migrasi v15 (**62 tabel, RLS 62/62, 120 policy**).
+Follow-up 1–6 + Tahap H: compensating audit editorial (17
+fungsi, T10 residual TERTUTUP), 16 helper keluar dari
+`route.ts` (webpack build lolos), `cekOrigin` di **67/67**
+route mutasi (CSRF lapis kedua lengkap), retry workflow,
+celah F7/F9/F10/F11 ditutup + migrasi v16 (bookmark
+pengetahuan, tanpa tabel baru). QC penuh Tahap H: **35
+baterai, 2.541 asersi terhitung + 5 baterai SEMUA LOLOS,
+0 gagal**; `tsc` 0, `lint` 0, build Turbopack + webpack
+EXIT 0 (166/166 halaman); smoke `next start` 12× 200 +
+8× 404, log bersih dari dump PPR (perbaikan `galatPrerenderPPR`
+di `src/lib/galat.ts`), CSP + nonce unik. Detail:
+`FINAL-PROJECT-COMPLETION.md` §29–§31, `LAPORAN-AKHIR.md`
+§15–§17, `AUDIT-ULTIMATE.md` + addendum B1/B2/Tahap H.
+
+**BELUM LIVE:** migrasi v1–v16 belum dijalankan di Supabase
 produksi dan deploy Vercel masih blokir 403 (akses tim
 `prataava`). Cara deploy langkah demi langkah:
 `DEPLOY.md` + `supabase/CUTOVER.md`.
@@ -92,7 +120,7 @@ cp .env.example .env.local   # isi NEXT_PUBLIC_SUPABASE_URL + ANON_KEY
 npm run dev                  # http://localhost:3000
 npm run build                # build produksi (harus exit 0)
 npm run lint                 # ESLint (harus exit 0)
-node scripts/uji-fase7.mjs   # uji migrasi v1-v7 + keamanan (87 asersi)
+node scripts/uji-fase7.mjs   # uji migrasi v1-v16 + keamanan (91 asersi)
 ```
 
 ## Database

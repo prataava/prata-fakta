@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import {
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responGalatAdmin,
   responRateLimit,
@@ -25,6 +26,9 @@ const lolosRateLimit = buatRateLimiterAdmin();
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const secretEnv = process.env.PF_AI_SECRET;
   const secretHeader = req.headers.get("x-pf-ai-secret");

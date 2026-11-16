@@ -8,6 +8,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -26,6 +27,9 @@ const FIELD_PATCH = ["nama", "deskripsi", "induk_id", "urutan", "aktif"] as cons
 
 export async function PATCH(req: Request, { params }: Params) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -70,6 +74,9 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function DELETE(req: Request, { params }: Params) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

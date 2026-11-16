@@ -629,3 +629,67 @@ Redirect URL hapus akun, bucket `podcast-audio`).
 Pekerjaan berikutnya: Tahap C–H (keamanan uji ulang,
 news intelligence, integrasi 14 area, QC penuh) lalu
 langkah produksi.
+
+## 17. Follow-up 1–6 + Tahap H — QC penuh (16 Nov 2026)
+
+Penyelesaian Ultimate Mandate sesudah Tahap C–G terintegrasi
+(HEAD `c3efa51`). Koordinator + 3 subagen paralel; semua hasil
+subagen diverifikasi independen.
+
+**Follow-up 1–6 — semua selesai:**
+- **FU1 (T10 residual):** 17 fungsi `editorial.ts` kini punya
+  compensating (try/catch inline + 6 metode adapter baru).
+  Baterai baru `uji-followup1.mjs` 70/70; D battery 145/145,
+  T10 residual 0 fungsi — TERTUTUP. Bukan transaksi atomik
+  (risiko yatim bila proses mati di tengah — didokumentasi).
+- **FU2 (helper route.ts):** 16 ekspor nilai (bukan 19) pindah
+  ke lib (`admin/validasi.ts`, `kuis.ts`, `topik.ts` baru +
+  `akademi/penilaian.ts`); webpack build EXIT 0.
+- **FU3 (retry workflow):** tanya-jawab-draf +
+  terbitkan-terjadwal ternyata SUDAH punya `--retry 2` sejak
+  Tahap 13C; 2 asersi baterai 13c yang gagal diperbaiki
+  (retry Tahap E pindah ke dalam engine); retry ditambah ke
+  7 curl podcast-tts + 1 curl retensi. `uji-followup3.mjs`
+  15/15.
+- **FU4 (CSRF per-route):** `cekOrigin` di 56 berkas route;
+  D battery TEMUAN CSRF 58/67 → **0/67** (67/67 route mutasi).
+- **FU5+6 (F7/F9/F10/F11):** label Negara di /data, "Berita
+  terkait" di /pengetahuan/[slug], kandidat negara →
+  `/negara/${kode}`, retrieval pindah ke `lib/tanya/retrieval.ts`,
+  migrasi **v16** (perluas `pf_bookmarks`, tanpa tabel baru);
+  `uji-integrasi14.mjs` 112/112 (dari 97).
+
+**Integrasi (koordinator):** 7 perbaikan baterai basi, semua
+sisi-tes + didokumentasi — fase6 (path STOPWORDS → lib),
+tanya-podcast 72/72, backend P2-11, b2-tanya F1, gel1 T1-sisa
+(asersi baru: kunci HANYA via service role), tahapC C-4
+(52 → 53, situs 500 bookmark baru — sah), fase7 (v1–v16,
+62/62/120; skenario skor ditulis ulang untuk trigger v15;
+CHECK diuji lewat `pg_constraint`).
+
+**Bug nyata Tahap H — banjir log PPR (diperbaiki):** smoke
+`next start` pertama: log 532 baris penuh dump stack trace
+"During prerendering, fetch() rejects..." (/, /cerita, /brief,
+/negara, /podcast) yang diklasifikasi keliru sebagai galat
+database. Perbaikan `src/lib/galat.ts`: `galatPrerenderPPR()`
+(detektor keluarga pesan prerender — fetch()/cookies()/
+headers() — termasuk bentuk objek galat Supabase
+`{ message, details }`, yang ketahuan HANYA sesudah verifikasi
+runtime pertama gagal) → `catatGalatBaca` melewatinya tanpa
+log/tulis `pf_app_errors`. Smoke ulang: log **109 baris**,
+0 dump PPR, 12× 200 + 8× 404, CSP + nonce unik. 9 asersi baru
+di `uji-tahapC-limitasi` §F (total baterai 87/87).
+
+**QC penuh:** 35 baterai, **2.541 asersi terhitung + 5 SEMUA
+LOLOS, 0 gagal**; `tsc` 0, `lint` 0, build Turbopack EXIT 0
+(166/166, BUILD_ID `NM3JoG_bTU4FuDCRI5sV5`) + webpack EXIT 0
+(BUILD_ID `aIgI56ULA_doTWIH7coI8`). Spot-check statis a11y:
+`lang="id"`, viewport meta ada, 1/1 img alt, 10 `@media`
+(640/768/1024). **Visual responsif 320–1920px BELUM DIUJI**
+(tanpa browser) — tidak diklaim.
+
+**Status: BELUM LIVE.** Blokir tidak berubah: migrasi v1–v16
++ deploy Vercel 403 + env/secret/VAPID/Redirect URL/bucket
+menunggu pemilik. Commit menunggu push agen utama (B2, C–G,
+Tahap H — token perlu ditempel ulang). Detail penuh:
+`FINAL-PROJECT-COMPLETION.md` §31.

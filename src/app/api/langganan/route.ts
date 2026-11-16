@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   let email = "";
   try {

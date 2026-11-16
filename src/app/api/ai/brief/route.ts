@@ -4,6 +4,7 @@ import { jalankanBriefHarian } from "@/lib/ai/pipeline";
 import {
   autentikasiPemicuAi,
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
@@ -32,6 +33,9 @@ export async function POST(req: Request) {
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;

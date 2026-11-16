@@ -19,6 +19,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -26,12 +27,12 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { validasiStruktur } from "@/lib/admin/validasi";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
 
 const POLA_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,33 +46,9 @@ function stringAtauNull(v: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
-function validasiReferensi(
-  v: unknown,
-):
-  | { ok: true; data: { judul: string | null; url: string | null }[] }
-  | { ok: false; error: string } {
-  if (!Array.isArray(v) || v.length > 50) {
-    return { ok: false, error: "Referensi harus array maksimal 50 entri." };
-  }
-  const hasil: { judul: string | null; url: string | null }[] = [];
-  for (const r of v as unknown[]) {
-    if (!r || typeof r !== "object" || Array.isArray(r)) {
-      return { ok: false, error: "Entri referensi tidak valid." };
-    }
-    const o = r as Record<string, unknown>;
-    const judul = stringAtauNull(o.judul);
-    const url = stringAtauNull(o.url);
-    if (url && !/^https?:\/\/.+/i.test(url)) {
-      return { ok: false, error: "URL referensi harus diawali http(s)://." };
-    }
-    if (!judul && !url) continue;
-    hasil.push({ judul, url });
-  }
-  return { ok: true, data: hasil };
-}
-
-/** Validasi murni field kursus untuk PATCH (diekspos untuk uji). */
-export function validasiPatchKursus(
+/** Validasi murni field kursus untuk PATCH (hanya dipakai di berkas
+ *  ini — bukan ekspor; Next menolak ekspor non-handler route). */
+function validasiPatchKursus(
   body: Record<string, unknown>,
 ):
   | { ok: true; data: Record<string, unknown> }
@@ -134,210 +111,6 @@ export function validasiPatchKursus(
     data.urutan = body.urutan;
   }
   return { ok: true, data };
-}
-
-export type EntriModul = {
-  id?: string;
-  /** Kunci sementara pilihan klien (modul BARU saja) — dirujuk
-   *  pelajaran baru lewat `modul_kunci` dalam PATCH yang sama. */
-  kunci?: string;
-  judul?: string;
-  deskripsi?: string | null;
-  urutan?: number;
-  hapus?: boolean;
-};
-
-export type EntriPelajaran = {
-  id?: string;
-  module_id?: string;
-  /** Rujuk modul BARU di PATCH yang sama via kunci sementaranya
-   *  (alternatif module_id; salah satu wajib untuk pelajaran baru). */
-  modul_kunci?: string;
-  judul?: string;
-  isi?: string | null;
-  jenis?: string;
-  referensi?: { judul: string | null; url: string | null }[];
-  artikel_id?: string | null;
-  kuis_tanggal?: string | null;
-  urutan?: number;
-  hapus?: boolean;
-};
-
-/** Validasi murni array modul/pelajaran untuk PATCH (diekspos
- *  untuk uji). Mengembalikan entri ternormalisasi. */
-export function validasiStruktur(
-  body: Record<string, unknown>,
-):
-  | { ok: true; modul: EntriModul[]; pelajaran: EntriPelajaran[] }
-  | { ok: false; error: string } {
-  const modul: EntriModul[] = [];
-  const pelajaran: EntriPelajaran[] = [];
-  if (body.modul !== undefined) {
-    if (!Array.isArray(body.modul) || body.modul.length > 50) {
-      return { ok: false, error: "modul harus array maksimal 50 entri." };
-    }
-    for (const m of body.modul as unknown[]) {
-      if (!m || typeof m !== "object" || Array.isArray(m)) {
-        return { ok: false, error: "Entri modul tidak valid." };
-      }
-      const o = m as Record<string, unknown>;
-      const entri: EntriModul = {};
-      if (o.id !== undefined) {
-        if (typeof o.id !== "string" || !POLA_UUID.test(o.id)) {
-          return { ok: false, error: "ID modul tidak valid." };
-        }
-        entri.id = o.id;
-      }
-      if (o.hapus === true) {
-        if (!entri.id) {
-          return { ok: false, error: "Hapus modul butuh id." };
-        }
-        entri.hapus = true;
-        modul.push(entri);
-        continue;
-      }
-      // Kunci sementara (modul baru): dirujuk pelajaran baru
-      // lewat modul_kunci. Hanya huruf/angka/-/_ , maks 40.
-      if (o.kunci !== undefined) {
-        if (
-          typeof o.kunci !== "string" ||
-          !/^[A-Za-z0-9_-]{1,40}$/.test(o.kunci)
-        ) {
-          return { ok: false, error: "Kunci modul tidak valid." };
-        }
-        entri.kunci = o.kunci;
-      }
-      if (entri.id === undefined) {
-        if (typeof o.judul !== "string" || o.judul.trim() === "") {
-          return { ok: false, error: "Judul modul wajib diisi." };
-        }
-      } else if (
-        o.judul !== undefined &&
-        (typeof o.judul !== "string" || o.judul.trim() === "")
-      ) {
-        return { ok: false, error: "Judul modul wajib diisi." };
-      }
-      if (o.judul !== undefined) entri.judul = (o.judul as string).trim();
-      if (o.deskripsi !== undefined) entri.deskripsi = stringAtauNull(o.deskripsi);
-      if (o.urutan !== undefined) {
-        if (
-          typeof o.urutan !== "number" ||
-          !Number.isInteger(o.urutan) ||
-          o.urutan < 0 ||
-          o.urutan > 1000
-        ) {
-          return { ok: false, error: "Urutan modul harus bilangan bulat 0 sampai 1000." };
-        }
-        entri.urutan = o.urutan;
-      }
-      modul.push(entri);
-    }
-  }
-  if (body.pelajaran !== undefined) {
-    if (!Array.isArray(body.pelajaran) || body.pelajaran.length > 200) {
-      return { ok: false, error: "pelajaran harus array maksimal 200 entri." };
-    }
-    for (const p of body.pelajaran as unknown[]) {
-      if (!p || typeof p !== "object" || Array.isArray(p)) {
-        return { ok: false, error: "Entri pelajaran tidak valid." };
-      }
-      const o = p as Record<string, unknown>;
-      const entri: EntriPelajaran = {};
-      if (o.id !== undefined) {
-        if (typeof o.id !== "string" || !POLA_UUID.test(o.id)) {
-          return { ok: false, error: "ID pelajaran tidak valid." };
-        }
-        entri.id = o.id;
-      }
-      if (o.hapus === true) {
-        if (!entri.id) {
-          return { ok: false, error: "Hapus pelajaran butuh id." };
-        }
-        entri.hapus = true;
-        pelajaran.push(entri);
-        continue;
-      }
-      if (o.module_id !== undefined) {
-        if (typeof o.module_id !== "string" || !POLA_UUID.test(o.module_id)) {
-          return { ok: false, error: "module_id pelajaran tidak valid." };
-        }
-        entri.module_id = o.module_id;
-      }
-      // Modul_kunci: rujuk modul BARU di PATCH yang sama.
-      if (o.modul_kunci !== undefined) {
-        if (
-          typeof o.modul_kunci !== "string" ||
-          !/^[A-Za-z0-9_-]{1,40}$/.test(o.modul_kunci)
-        ) {
-          return { ok: false, error: "modul_kunci pelajaran tidak valid." };
-        }
-        entri.modul_kunci = o.modul_kunci;
-      }
-      if (entri.id === undefined) {
-        if (!entri.module_id && !entri.modul_kunci) {
-          return { ok: false, error: "Pelajaran baru wajib punya module_id atau modul_kunci." };
-        }
-        if (typeof o.judul !== "string" || o.judul.trim() === "") {
-          return { ok: false, error: "Judul pelajaran wajib diisi." };
-        }
-      } else if (
-        o.judul !== undefined &&
-        (typeof o.judul !== "string" || o.judul.trim() === "")
-      ) {
-        return { ok: false, error: "Judul pelajaran wajib diisi." };
-      }
-      if (o.judul !== undefined) entri.judul = (o.judul as string).trim();
-      if (o.isi !== undefined) entri.isi = stringAtauNull(o.isi);
-      if (o.jenis !== undefined) {
-        if (o.jenis !== "materi" && o.jenis !== "artikel" && o.jenis !== "kuis") {
-          return { ok: false, error: "Jenis pelajaran tidak valid." };
-        }
-        entri.jenis = o.jenis;
-      }
-      if (o.referensi !== undefined) {
-        const ref = validasiReferensi(o.referensi);
-        if (!ref.ok) return ref;
-        entri.referensi = ref.data;
-      }
-      if (o.artikel_id !== undefined) {
-        if (o.artikel_id === null) {
-          entri.artikel_id = null;
-        } else if (
-          typeof o.artikel_id === "string" &&
-          POLA_UUID.test(o.artikel_id)
-        ) {
-          entri.artikel_id = o.artikel_id;
-        } else {
-          return { ok: false, error: "artikel_id pelajaran tidak valid." };
-        }
-      }
-      if (o.kuis_tanggal !== undefined) {
-        if (o.kuis_tanggal === null) {
-          entri.kuis_tanggal = null;
-        } else if (
-          typeof o.kuis_tanggal === "string" &&
-          POLA_TANGGAL.test(o.kuis_tanggal)
-        ) {
-          entri.kuis_tanggal = o.kuis_tanggal;
-        } else {
-          return { ok: false, error: "kuis_tanggal harus format YYYY-MM-DD." };
-        }
-      }
-      if (o.urutan !== undefined) {
-        if (
-          typeof o.urutan !== "number" ||
-          !Number.isInteger(o.urutan) ||
-          o.urutan < 0 ||
-          o.urutan > 1000
-        ) {
-          return { ok: false, error: "Urutan pelajaran harus bilangan bulat 0 sampai 1000." };
-        }
-        entri.urutan = o.urutan;
-      }
-      pelajaran.push(entri);
-    }
-  }
-  return { ok: true, modul, pelajaran };
 }
 
 async function muatDetail(
@@ -404,6 +177,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -557,6 +333,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

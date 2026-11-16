@@ -782,7 +782,10 @@ cek(
 );
 
 // P2-11: N+1 retrieval + halaman kursus.
-const tanya = bacaRepo("src/app/api/tanya/route.ts");
+// (Follow-up 5/6: cariKandidat + query .in("indikator_id", ids) pindah
+//  dari route /api/tanya ke src/lib/tanya/retrieval.ts — dipakai ulang
+//  route + job draf. Asersi baca retrieval.ts, bukan route.ts.)
+const tanya = bacaRepo("src/lib/tanya/retrieval.ts");
 cek('P2-11: tanya memakai satu query .in("indikator_id", ids)', tanya.includes('.in("indikator_id", ids)'));
 const halamanKursus = bacaRepo("src/app/akademi/[slug]/page.tsx");
 cek("P2-11: halaman kursus memakai Promise.all (satu query per tanggal unik)", halamanKursus.includes("Promise.all"));

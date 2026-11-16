@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiter,
+  cekOrigin,
   buatRateLimiterKeras,
   responRateLimit,
   responRateLimitBelumSiap,
@@ -45,6 +46,9 @@ export async function POST(req: Request) {
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   let body: {
     jenis?: unknown;

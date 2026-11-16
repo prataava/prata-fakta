@@ -766,10 +766,14 @@ if (potonganPenilaian.every(Boolean)) {
    §D. Validator route (ekstraksi sumber)
    ============================================================ */
 const progresSrc = bacaRepo("src/app/api/akademi/progres/route.ts");
+// FU2 (16 Nov 2026): validasiProgres + hitungSkorProgres PINDAH
+// ke src/lib/akademi/penilaian.ts — ekstraksi dari penilaianSrc
+// (sudah dibaca di atas; progresSrc tetap dipakai untuk
+// pemeriksaan route di bawah).
 const potonganProgres = [
-  ekstrakKonst(progresSrc, "POLA_UUID"),
-  ekstrakFungsi(progresSrc, "validasiProgres"),
-  ekstrakFungsiAsync(progresSrc, "hitungSkorProgres"),
+  ekstrakKonst(penilaianSrc, "POLA_UUID"),
+  ekstrakFungsi(penilaianSrc, "validasiProgres"),
+  ekstrakFungsiAsync(penilaianSrc, "hitungSkorProgres"),
 ];
 cek("validasiProgres + hitungSkorProgres dapat diekstrak", potonganProgres.every(Boolean));
 if (potonganProgres.every(Boolean)) {
@@ -807,9 +811,9 @@ cek("progres route: TIDAK ADA lagi passthrough skor klien",
 const jawabSrc = bacaRepo("src/app/api/akademi/kuis/jawab/route.ts");
 const potonganJawab = [
   ekstrakKonst(jawabSrc, "POLA_UUID"),
-  ekstrakFungsi(bacaRepo("src/lib/akademi/penilaian.ts"), "normalisasiIsian"),
-  ekstrakFungsi(bacaRepo("src/lib/akademi/penilaian.ts"), "validasiBentukJawaban"),
-  ekstrakFungsi(jawabSrc, "validasiJawabanAkademi"),
+  ekstrakFungsi(penilaianSrc, "normalisasiIsian"),
+  ekstrakFungsi(penilaianSrc, "validasiBentukJawaban"),
+  ekstrakFungsi(penilaianSrc, "validasiJawabanAkademi"),
 ];
 cek("validasiJawabanAkademi dapat diekstrak", potonganJawab.every(Boolean));
 if (potonganJawab.every(Boolean)) {

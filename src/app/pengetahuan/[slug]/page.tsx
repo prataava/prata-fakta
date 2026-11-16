@@ -7,10 +7,13 @@ import { bacaNonceDariHeaders } from "@/lib/csp";
 import {
   ambilIstilah,
   bagiIsiBerlapis,
+  getArtikelTerkait,
   getExplainer,
   getSeri,
   labelTingkat,
 } from "@/lib/explainer";
+import { createClient } from "@/lib/supabase/server";
+import TombolSimpan from "./TombolSimpan";
 import { urlSitus } from "@/lib/situs";
 
 // Metadata per artikel (judul asli di tab + SEO). notFound() di sini
@@ -102,6 +105,32 @@ export default async function PengetahuanDetail({
     explainer && artikel.seri_slug
       ? (await getSeri(artikel.seri_slug)).filter((a) => a.slug !== slug)
       : [];
+
+  // F9: artikel berita terbit terkait topik artikel ini.
+  // Seksi "Berita terkait" hanya tampil bila ada hasil.
+  const terkait = await getArtikelTerkait(artikel.topik);
+
+  // F11: status bookmark pengetahuan pengguna ini (v16).
+  // Gagal-aman: kolom belum ada / belum login → false.
+  let penggunaMasuk = false;
+  let bookmarkAwal = false;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
+      penggunaMasuk = true;
+      const { data: simpan } = await supabase
+        .from("pf_bookmarks")
+        .select("pengetahuan_id")
+        .eq("user_id", data.user.id)
+        .eq("pengetahuan_id", artikel.id)
+        .maybeSingle();
+      bookmarkAwal = Boolean(simpan);
+    }
+  } catch {
+    penggunaMasuk = false;
+    bookmarkAwal = false;
+  }
 
   // Structured data JSON-LD (Fase 7): Article + BreadcrumbList.
   const urlArtikel = `${urlSitus()}/pengetahuan/${slug}`;
@@ -291,6 +320,30 @@ export default async function PengetahuanDetail({
         </section>
       )}
 
+      {/* F9: berita terbit terkait topik — hanya bila ada hasil. */}
+      {terkait.length > 0 && (
+        <section className="seksi" aria-labelledby="seksi-berita-terkait">
+          <div className="seksi-kepala">
+            <h2 id="seksi-berita-terkait">Berita terkait</h2>
+            <p>Berita terbaru tentang topik yang sama.</p>
+          </div>
+          <div className="grid-berita">
+            {terkait.map((a) => (
+              <Link
+                className="kartu kartu-artikel"
+                href={`/artikel/${a.slug}`}
+                key={a.slug}
+              >
+                <span className="kartu-judul">{a.judul}</span>
+                {a.ringkasan && (
+                  <span className="kartu-teks">{a.ringkasan}</span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Entri referensi "Istilah: ..." ditampilkan di seksi Istilah
           kunci (explainer), bukan digandakan di sini. */}
       {(() => {
@@ -323,6 +376,11 @@ export default async function PengetahuanDetail({
       })()}
 
       <p>
+        <TombolSimpan
+          pengetahuanId={artikel.id}
+          bookmarkAwal={bookmarkAwal}
+          loggedIn={penggunaMasuk}
+        />{" "}
         <Link className="tombol" href="/kuis">
           Ikuti Kuis Harian
         </Link>{" "}

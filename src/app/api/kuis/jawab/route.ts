@@ -3,9 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
+import { validasiJawabanKuis } from "@/lib/kuis";
 import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
@@ -28,34 +30,7 @@ import { catatGalatRoute } from "@/lib/analytics/galat";
 // pf_quiz_questions SUDAH DIHAPUS. Route ini membaca soal TANPA
 // kunci, lalu kunci dari pf_quiz_answers via service role.
 // 503 jujur bila service key belum diatur.
-const POLA_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 const batasi = buatRateLimiterKeras(20);
-
-/** Validasi murni body permintaan (diekspos untuk uji). */
-export function validasiJawabanKuis(
-  body: unknown,
-):
-  | { ok: true; soalId: string; jawaban: number }
-  | { ok: false; error: string } {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, error: "Isi permintaan tidak valid." };
-  }
-  const { soal_id, jawaban } = body as Record<string, unknown>;
-  if (typeof soal_id !== "string" || !POLA_UUID.test(soal_id)) {
-    return { ok: false, error: "soal_id tidak valid." };
-  }
-  if (
-    typeof jawaban !== "number" ||
-    !Number.isInteger(jawaban) ||
-    jawaban < 0 ||
-    jawaban > 4
-  ) {
-    return { ok: false, error: "Jawaban harus bilangan bulat 0 sampai 4." };
-  }
-  return { ok: true, soalId: soal_id, jawaban };
-}
 
 function tanggalWibHariIni(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -77,6 +52,9 @@ export async function POST(req: Request) {
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   let body: unknown;
   try {

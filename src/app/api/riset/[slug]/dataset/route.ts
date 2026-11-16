@@ -20,8 +20,10 @@ const BATAS_MAKS = 10000;
 // Rate limit 10 unduhan/menit/IP (B-S5: sebelumnya tanpa limiter).
 const batasi = buatRateLimiter(10);
 
-/** Ambil ?limit= dari URL: bilangan bulat 1..BATAS_MAKS, default BATAS_BAWAN. */
-export function batasDataset(req: Request): number {
+/** Ambil ?limit= dari URL: bilangan bulat 1..BATAS_MAKS, default BATAS_BAWAN.
+ *  Hanya dipakai di berkas ini — bukan ekspor; Next menolak ekspor
+ *  non-handler route (FU2). */
+function batasDataset(req: Request): number {
   try {
     const mentah = new URL(req.url).searchParams.get("limit");
     if (mentah === null) return BATAS_BAWAN;

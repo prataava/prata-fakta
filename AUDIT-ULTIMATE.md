@@ -705,3 +705,53 @@ tree bersama.
   pencabutan sertifikat manual belum ada UI-nya; push VAPID
   butuh 4 env var deploy; email hapus akun butuh Redirect
   URL `/saya/hapus-akun/konfirmasi` di Supabase Auth.
+
+## ADDENDUM — Follow-up 1–6 + Tahap H (16 Nov 2026, QC penuh)
+
+Penutup audit Ultimate: 6 follow-up dari laporan Tahap C–G
++ QC penuh. Semua klaim di bawah terverifikasi independen
+oleh koordinator (bukan klaim subagen).
+
+**Penutupan temuan audit:**
+- **T10 residual — TERTUTUP (FU1).** 17 fungsi `editorial.ts`
+  kini punya compensating (try/catch inline di tiap
+  `await catat(` + 6 metode adapter baru). Baterai
+  `uji-followup1.mjs` 70/70; D battery 145/145 (0 fungsi tanpa
+  compensating). Sisa jujur: compensating BUKAN transaksi
+  atomik — baris yatim tetap mungkin bila proses mati di
+  antara mutasi-audit; hanya RPC/transaksi DB yang menutupnya.
+- **CSRF lapis kedua — LENGKAP (FU4).** `cekOrigin` di 67/67
+  route mutasi (D battery TEMUAN 58/67 → 0/67). Cek terpusat
+  `proxy.ts` tetap pertahanan utama; tanpa Origin (curl/Actions)
+  tetap lolos by design. Uji CSRF live + flag cookie sesi
+  tetap belum dilakukan (butuh deploy).
+- **F7/F9/F10/F11 — TERTUTUP (FU5+6).** Label Negara /data,
+  "Berita terkait" pengetahuan, kandidat negara →
+  `/negara/${kode}`, migrasi v16 (perluas `pf_bookmarks`).
+- **TS2344 webpack (FU2) — TERTUTUP.** 16 helper keluar dari
+  `route.ts`; webpack build EXIT 0 (BUILD_ID
+  `aIgI56ULA_doTWIH7coI8`).
+- **Retry workflow (FU3) — TERTUTUP.** 2 workflow tersisa
+  ternyata sudah `--retry 2`; retry engine ingestion
+  dibuktikan; +7 curl podcast-tts, +1 curl retensi.
+
+**Temuan baru Tahap H (bukan dari audit): banjir log PPR.**
+Smoke `next start`: log 532 baris penuh dump stack trace
+"During prerendering, fetch() rejects..." yang diklasifikasi
+keliru sebagai galat database + ditulis ke `pf_app_errors`.
+Diperbaiki di `src/lib/galat.ts` (`galatPrerenderPPR` —
+  termasuk bentuk objek galat Supabase). Smoke ulang: log
+  109 baris, 0 dump. 9 asersi baru (tahapC 87/87).
+
+**QC penuh Tahap H:** 35 baterai, 2.541 asersi terhitung + 5
+SEMUA LOLOS, 0 gagal; tsc 0, lint 0, build Turbopack +
+webpack EXIT 0 (166/166, BUILD_ID `NM3JoG_bTU4FuDCRI5sV5`);
+smoke 12× 200 + 8× 404, CSP + nonce unik. Visual responsif
++ klik browser nyata tetap BELUM DIUJI (tanpa browser).
+
+**Status keamanan akhir (kode):** T3/T10/T4/T5/T8/T1 TERTUTUP;
+T6 DIPERSEMPIT (pinning penuh belum terverifikasi dari egress
+langsung); CSP terimplementasi + terverifikasi live lokal;
+CSRF SEBAGIAN (lapis kedua lengkap, uji live belum). Produksi
+tetap BELUM LIVE (migrasi v1–v16 + deploy Vercel 403 menunggu
+pemilik). Detail: `FINAL-PROJECT-COMPLETION.md` §31.

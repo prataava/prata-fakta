@@ -9,6 +9,7 @@ import {
 } from "@/lib/cerita";
 import {
   buatRateLimiter,
+  cekOrigin,
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
@@ -26,6 +27,9 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const { slug } = await params;
   if (!slugCeritaValid(slug)) {
     return NextResponse.json(

@@ -4,7 +4,7 @@
 // tandaiEsaiDinilai hanya mengubah baris yang masih menunggu).
 // Beraudit 'akademi.progres' (penilaian mengubah skor progres).
 import { NextResponse } from "next/server";
-import { autentikasiAdmin, buatRateLimiterAdmin } from "@/lib/admin/guard";
+import { autentikasiAdmin, buatRateLimiterAdmin, cekOrigin } from "@/lib/admin/guard";
 import { catatAuditWajib } from "@/lib/admin/audit";
 import { ipDariRequest } from "@/lib/ai/route-auth";
 import { ROLES } from "@/lib/auth/roles";
@@ -23,6 +23,9 @@ export async function POST(
       { status: 429 },
     );
   }
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.FACT_CHECKER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

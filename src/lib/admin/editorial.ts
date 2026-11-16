@@ -21,6 +21,7 @@ import type {
   KeputusanReview,
   NamaJob,
   StatusVerifikasi,
+  VersiArtikel,
 } from "./types.ts";
 
 export interface Aktor {
@@ -61,14 +62,85 @@ async function catat(
   });
 }
 
+// ---------- Compensating T10 (follow-up 1) ----------
+// Masalah: tiap fungsi di bawah bermutasi DULU lalu `catat(...)`
+// di akhir. Bila insert audit gagal SESUDAH mutasi, respons
+// 500/503 memang jujur, TAPI mutasi tidak di-rollback — baris
+// yatim tanpa jejak audit masih mungkin. Karena tidak ada
+// transaksi/RPC lintas tulis+audit di level aplikasi (butuh
+// migrasi — di luar follow-up ini), tiap fungsi memakai
+// compensating: bila `catat` melempar, state dipulihkan
+// best-effort, lalu galat audit ASLI dilempar ulang.
+// Batasan jujur: compensating BUKAN transaksi atomik —
+// (a) bila proses mati di antara mutasi dan audit, baris yatim
+// tetap mungkin; (b) riwayat versi/review/verifikasi yang ikut
+// terhapus cascade saat artikel dihapus-balik tidak dapat
+// dipulihkan; (c) notifikasi best-effort yang sudah terkirim
+// (terbitkanArtikel) tidak dapat ditarik kembali.
+
+/** Satu langkah pemulihan best-effort: kegagalannya hanya
+ *  console.error, TIDAK PERNAH menutupi galat audit asli. */
+async function cobaPulihkan(
+  label: string,
+  jalankan: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await jalankan();
+  } catch (err) {
+    console.error(
+      `compensating ${label} gagal`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+// Pola compensating tiap fungsi di bawah: pemanggilan `catat(...)`
+// dibungkus try/catch — bila audit melempar sesudah mutasi,
+// tiap langkah pemulihan dijalankan lewat cobaPulihkan
+// (best-effort) lalu galat audit ASLI dilempar ulang.
+// `catat` sendiri TIDAK dibungkus: audit tetap fail-closed,
+// dan deteksi baterai Tahap D (§E, `/\bawait catat\(/`) tetap
+// mengenali tiap fungsi sebagai mengaudit.
+
+/** Patch lengkap untuk mengembalikan artikel ke snapshot `lama`
+ *  (dipakai compensating update/status: perbaruiArtikel,
+ *  terbitkanArtikel, batalkanPublikasi, jadwalkanArtikel).
+ *  status_verifikasi TIDAK ada di ArtikelPatch dan tidak diubah
+ *  fungsi-fungsi itu, jadi tidak perlu dipulihkan di sini. */
+function patchPulihArtikel(lama: Artikel): ArtikelPatch {
+  return {
+    judul: lama.judul,
+    subjudul: lama.subjudul,
+    ringkasan: lama.ringkasan,
+    isi: lama.isi,
+    kategori_slug: lama.kategori_slug,
+    subkategori_slug: lama.subkategori_slug ?? null,
+    isu: lama.isu ?? null,
+    penulis_nama: lama.penulis_nama,
+    sumber_url: lama.sumber_url,
+    gambar_url: lama.gambar_url,
+    estimasi_baca_menit: lama.estimasi_baca_menit,
+    kronologi: lama.kronologi,
+    fakta_penting: lama.fakta_penting,
+    data_pendukung: lama.data_pendukung,
+    mengapa_penting: lama.mengapa_penting,
+    dampak: lama.dampak,
+    belum_diketahui: lama.belum_diketahui,
+    status: lama.status,
+    dijadwalkan_pada: lama.dijadwalkan_pada,
+    diterbitkan_pada: lama.diterbitkan_pada,
+    diterbitkan_oleh: lama.diterbitkan_oleh,
+  };
+}
+
 async function simpanVersiBaru(
   adapter: AdminAdapter,
   artikel: Artikel,
   aktor: Aktor,
   catatan: string,
-): Promise<void> {
+): Promise<VersiArtikel> {
   const terakhir = await adapter.getVersiTerakhir({ artikel_id: artikel.id });
-  await adapter.simpanVersi({
+  return adapter.simpanVersi({
     artikel_id: artikel.id,
     versi: (terakhir?.versi ?? 0) + 1,
     judul: artikel.judul,
@@ -151,12 +223,22 @@ export async function buatArtikel(
     dibuat_oleh: aktor.id,
     catatan: "Draf awal",
   });
-  await catat(adapter, aktor, "artikel.buat", "pf_articles", artikel.id, null, {
-    judul: artikel.judul,
-    slug: artikel.slug,
-    kategori_slug: artikel.kategori_slug,
-    status: "draft",
-  });
+  try {
+    await catat(adapter, aktor, "artikel.buat", "pf_articles", artikel.id, null, {
+      judul: artikel.judul,
+      slug: artikel.slug,
+      kategori_slug: artikel.kategori_slug,
+      status: "draft",
+    });
+  } catch (err) {
+    // Compensating create: hapus-balik artikel yang dibuat
+    // (versi v1 ikut terhapus cascade), lalu lempar ulang
+    // galat audit asli.
+    await cobaPulihkan("hapus-balik artikel baru", () =>
+      adapter.hapusArtikel({ id: artikel.id }),
+    );
+    throw err;
+  }
   return artikel;
 }
 
@@ -190,15 +272,28 @@ export async function perbaruiArtikel(
   delete bersih.catatan_versi;
   const baru = await adapter.perbaruiArtikel({ id, patch: bersih });
   if (!baru) throw new Error("Artikel tidak ditemukan.");
-  await simpanVersiBaru(adapter, baru, aktor, catatanVersi);
-  await catat(adapter, aktor, "artikel.ubah", "pf_articles", id, {
-    judul: lama.judul,
-    status: lama.status,
-  }, {
-    judul: baru.judul,
-    status: baru.status,
-    perubahan: Object.keys(bersih),
-  });
+  const versiBaru = await simpanVersiBaru(adapter, baru, aktor, catatanVersi);
+  try {
+    await catat(adapter, aktor, "artikel.ubah", "pf_articles", id, {
+      judul: lama.judul,
+      status: lama.status,
+    }, {
+      judul: baru.judul,
+      status: baru.status,
+      perubahan: Object.keys(bersih),
+    });
+  } catch (err) {
+    // Compensating update: pulihkan isi lama + hapus-balik
+    // versi baru yang dibuat revisi ini, lalu lempar ulang
+    // galat audit asli.
+    await cobaPulihkan("pulihkan artikel lama", () =>
+      adapter.perbaruiArtikel({ id, patch: patchPulihArtikel(lama) }),
+    );
+    await cobaPulihkan("hapus-balik versi baru", () =>
+      adapter.hapusVersi({ id: versiBaru.id }),
+    );
+    throw err;
+  }
   return baru;
 }
 
@@ -217,11 +312,22 @@ export async function hapusArtikel(
     );
   }
   await adapter.hapusArtikel({ id });
-  await catat(adapter, aktor, "artikel.hapus", "pf_articles", id, {
-    judul: artikel.judul,
-    slug: artikel.slug,
-    status: artikel.status,
-  }, null);
+  try {
+    await catat(adapter, aktor, "artikel.hapus", "pf_articles", id, {
+      judul: artikel.judul,
+      slug: artikel.slug,
+      status: artikel.status,
+    }, null);
+  } catch (err) {
+    // Compensating delete: kembalikan artikel yang terhapus
+    // dengan id aslinya (riwayat versi yang ikut terhapus
+    // cascade TIDAK dapat dipulihkan — lihat catatan di atas),
+    // lalu lempar ulang galat audit asli.
+    await cobaPulihkan("kembalikan artikel terhapus", () =>
+      adapter.pulihkanArtikel({ artikel }),
+    );
+    throw err;
+  }
 }
 
 // ---------- Penerbitan (gate verifikasi) ----------
@@ -395,10 +501,22 @@ export async function terbitkanArtikel(
     throw new Error(
       "Artikel berubah status sesudah dibaca (kemungkinan diterbitkan proses lain) — muat ulang dan coba lagi.",
     );
-  await simpanVersiBaru(adapter, baru, aktor, "Terbit");
-  await catat(adapter, aktor, "artikel.terbit", "pf_articles", id, {
-    status: artikel.status,
-  }, { status: "terbit", diterbitkan_pada: sekarang });
+  const versiBaru = await simpanVersiBaru(adapter, baru, aktor, "Terbit");
+  try {
+    await catat(adapter, aktor, "artikel.terbit", "pf_articles", id, {
+      status: artikel.status,
+    }, { status: "terbit", diterbitkan_pada: sekarang });
+  } catch (err) {
+    // Compensating status: pulihkan status lama + hapus-balik
+    // versi "Terbit", lalu lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan status artikel lama", () =>
+      adapter.perbaruiArtikel({ id, patch: patchPulihArtikel(artikel) }),
+    );
+    await cobaPulihkan("hapus-balik versi baru", () =>
+      adapter.hapusVersi({ id: versiBaru.id }),
+    );
+    throw err;
+  }
   // B2-D (E1): beri tahu pengikut kategori/negara artikel ini.
   // Best-effort — notifikasi TIDAK PERNAH menggagalkan penerbitan.
   try {
@@ -427,9 +545,18 @@ export async function batalkanPublikasi(
   });
   if (!baru) throw new Error("Artikel tidak ditemukan.");
   // diterbitkan_pada SENGAJA dipertahankan sebagai riwayat.
-  await catat(adapter, aktor, "artikel.batal_terbit", "pf_articles", id, {
-    status: "terbit",
-  }, { status: "draft" });
+  try {
+    await catat(adapter, aktor, "artikel.batal_terbit", "pf_articles", id, {
+      status: "terbit",
+    }, { status: "draft" });
+  } catch (err) {
+    // Compensating status: kembalikan status terbit, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan status artikel lama", () =>
+      adapter.perbaruiArtikel({ id, patch: patchPulihArtikel(artikel) }),
+    );
+    throw err;
+  }
   return baru;
 }
 
@@ -479,19 +606,28 @@ export async function jadwalkanArtikel(
     },
   });
   if (!baru) throw new Error("Artikel tidak ditemukan.");
-  await catat(adapter, aktor, "artikel.jadwalkan", "pf_articles", id, {
-    status: artikel.status,
-  }, {
-    status: "terjadwal",
-    dijadwalkan_pada: waktu.toISOString(),
-    ...(overrideKualitas
-      ? {
-          override_kualitas: true,
-          alasan_override: alasanOverride,
-          kegagalan_kualitas: kualitas?.kegagalan ?? [],
-        }
-      : {}),
-  });
+  try {
+    await catat(adapter, aktor, "artikel.jadwalkan", "pf_articles", id, {
+      status: artikel.status,
+    }, {
+      status: "terjadwal",
+      dijadwalkan_pada: waktu.toISOString(),
+      ...(overrideKualitas
+        ? {
+            override_kualitas: true,
+            alasan_override: alasanOverride,
+            kegagalan_kualitas: kualitas?.kegagalan ?? [],
+          }
+        : {}),
+    });
+  } catch (err) {
+    // Compensating status: pulihkan status + jadwal lama, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan status artikel lama", () =>
+      adapter.perbaruiArtikel({ id, patch: patchPulihArtikel(artikel) }),
+    );
+    throw err;
+  }
   return baru;
 }
 
@@ -670,6 +806,13 @@ export async function terbitkanTerjadwal(
       continue;
     }
     try {
+      // Compensating didelegasikan ke terbitkanArtikel: bila
+      // audit di dalamnya gagal, artikel dipulihkan
+      // (compensating) ke status sebelumnya lalu galat dilempar
+      // dan dicatat di sini sebagai dilewati — tidak ada artikel
+      // terbit tanpa audit. catatUpayaGate di bawah tetap
+      // best-effort (penanda backoff, bukan aksi) dan TIDAK
+      // disentuh.
       await terbitkanArtikel(adapter, a.id, aktor);
       hasil.diterbitkan.push({ id: a.id, judul: a.judul });
     } catch (err) {
@@ -711,21 +854,31 @@ export async function putuskanReview(
       `Review hanya untuk artikel draft/terjadwal (status saat ini: '${artikel.status}').`,
     );
   }
-  await adapter.simpanReview({
+  const review = await adapter.simpanReview({
     artikel_id: input.artikel_id,
     reviewer_id: input.reviewer_id,
     keputusan: input.keputusan,
     catatan,
   });
-  await catat(
-    adapter,
-    aktor,
-    `review.${input.keputusan}` as AksiAudit,
-    "pf_articles",
-    input.artikel_id,
-    { status: artikel.status },
-    { keputusan: input.keputusan, catatan },
-  );
+  try {
+    await catat(
+      adapter,
+      aktor,
+      `review.${input.keputusan}` as AksiAudit,
+      "pf_articles",
+      input.artikel_id,
+      { status: artikel.status },
+      { keputusan: input.keputusan, catatan },
+    );
+  } catch (err) {
+    // Compensating create: hapus-balik baris review yang
+    // baru disimpan (review terakhir kembali ke sebelumnya),
+    // lalu lempar ulang galat audit asli.
+    await cobaPulihkan("hapus-balik review baru", () =>
+      adapter.hapusReview({ id: review.id }),
+    );
+    throw err;
+  }
   return { artikel, keputusan: input.keputusan };
 }
 
@@ -741,7 +894,7 @@ export async function ubahStatusVerifikasi(
   const catatan = wajibTeks(input.catatan, "Catatan verifikasi", 2000);
   const artikel = await adapter.getArtikel({ id: input.artikel_id });
   if (!artikel) throw new Error("Artikel tidak ditemukan.");
-  await adapter.simpanVerification({
+  const verifikasiBaru = await adapter.simpanVerification({
     artikel_id: input.artikel_id,
     agen: "fact_checker",
     keputusan: input.keputusan,
@@ -754,9 +907,25 @@ export async function ubahStatusVerifikasi(
     keputusan: input.keputusan,
   });
   if (!baru) throw new Error("Artikel tidak ditemukan.");
-  await catat(adapter, aktor, "verifikasi.ubah", "pf_articles", input.artikel_id, {
-    status_verifikasi: artikel.status_verifikasi,
-  }, { status_verifikasi: input.keputusan, catatan });
+  try {
+    await catat(adapter, aktor, "verifikasi.ubah", "pf_articles", input.artikel_id, {
+      status_verifikasi: artikel.status_verifikasi,
+    }, { status_verifikasi: input.keputusan, catatan });
+  } catch (err) {
+    // Compensating: hapus-balik catatan verifikasi baru +
+    // pulihkan status verifikasi artikel ke nilai sebelumnya,
+    // lalu lempar ulang galat audit asli.
+    await cobaPulihkan("hapus-balik verifikasi baru", () =>
+      adapter.hapusVerifikasi({ id: verifikasiBaru.id }),
+    );
+    await cobaPulihkan("pulihkan status verifikasi lama", () =>
+      adapter.ubahStatusVerifikasiArtikel({
+        id: input.artikel_id,
+        keputusan: artikel.status_verifikasi,
+      }),
+    );
+    throw err;
+  }
   return baru;
 }
 
@@ -803,17 +972,35 @@ export async function tindaklanjutiKoreksi(
       throw new Error("Laporan koreksi ini sudah ditinjau.");
     }
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
-    await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
-      status: koreksi.status,
-    }, { status: "ditinjau", catatan });
+    try {
+      await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
+        status: koreksi.status,
+      }, { status: "ditinjau", catatan });
+    } catch (err) {
+      // Compensating status: pulihkan status koreksi
+      // sebelumnya, lalu lempar ulang galat audit asli.
+      await cobaPulihkan("pulihkan status koreksi lama", () =>
+        adapter.perbaruiKoreksi({ id: koreksi.id, status: koreksi.status }),
+      );
+      throw err;
+    }
     await beriNotifikasiKoreksi(adapter, koreksi, "ditinjau");
     return { status: "ditinjau" };
   }
   if (input.aksi === "tolak") {
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditolak" });
-    await catat(adapter, aktor, "koreksi.tolak", "pf_correction_reports", koreksi.id, {
-      status: koreksi.status,
-    }, { status: "ditolak", catatan });
+    try {
+      await catat(adapter, aktor, "koreksi.tolak", "pf_correction_reports", koreksi.id, {
+        status: koreksi.status,
+      }, { status: "ditolak", catatan });
+    } catch (err) {
+      // Compensating status: pulihkan status koreksi
+      // sebelumnya, lalu lempar ulang galat audit asli.
+      await cobaPulihkan("pulihkan status koreksi lama", () =>
+        adapter.perbaruiKoreksi({ id: koreksi.id, status: koreksi.status }),
+      );
+      throw err;
+    }
     await beriNotifikasiKoreksi(adapter, koreksi, "ditolak");
     return { status: "ditolak" };
   }
@@ -825,9 +1012,18 @@ export async function tindaklanjutiKoreksi(
       "Laporan umum tanpa artikel — diterima untuk ditinjau redaksi, " +
       "tidak ada artikel yang dikoreksi.";
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
-    await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
-      status: koreksi.status,
-    }, { status: "ditinjau", catatan: catatanUmum, catatan_moderator: catatan });
+    try {
+      await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
+        status: koreksi.status,
+      }, { status: "ditinjau", catatan: catatanUmum, catatan_moderator: catatan });
+    } catch (err) {
+      // Compensating status: pulihkan status koreksi
+      // sebelumnya, lalu lempar ulang galat audit asli.
+      await cobaPulihkan("pulihkan status koreksi lama", () =>
+        adapter.perbaruiKoreksi({ id: koreksi.id, status: koreksi.status }),
+      );
+      throw err;
+    }
     await beriNotifikasiKoreksi(adapter, koreksi, "ditinjau");
     return { status: "ditinjau" };
   }
@@ -836,8 +1032,8 @@ export async function tindaklanjutiKoreksi(
   const artikel = await adapter.getArtikel({ id: koreksi.artikel_id });
   if (!artikel) throw new Error("Artikel laporan koreksi tidak ditemukan.");
   await adapter.perbaruiKoreksi({ id: koreksi.id, status: "diperbaiki" });
-  await simpanVersiBaru(adapter, artikel, aktor, `Koreksi: ${catatan}`);
-  await adapter.simpanVerification({
+  const versiBaru = await simpanVersiBaru(adapter, artikel, aktor, `Koreksi: ${catatan}`);
+  const verifikasiBaru = await adapter.simpanVerification({
     artikel_id: artikel.id,
     agen: "editor",
     keputusan: "CORRECTED",
@@ -849,10 +1045,32 @@ export async function tindaklanjutiKoreksi(
     id: artikel.id,
     keputusan: "CORRECTED",
   });
-  await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
-    status: koreksi.status,
-    status_verifikasi: artikel.status_verifikasi,
-  }, { status: "diperbaiki", status_verifikasi: "CORRECTED", catatan });
+  try {
+    await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
+      status: koreksi.status,
+      status_verifikasi: artikel.status_verifikasi,
+    }, { status: "diperbaiki", status_verifikasi: "CORRECTED", catatan });
+  } catch (err) {
+    // Compensating: pulihkan status koreksi + status verifikasi
+    // artikel, hapus-balik catatan verifikasi + versi koreksi,
+    // lalu lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan status koreksi lama", () =>
+      adapter.perbaruiKoreksi({ id: koreksi.id, status: koreksi.status }),
+    );
+    await cobaPulihkan("pulihkan status verifikasi lama", () =>
+      adapter.ubahStatusVerifikasiArtikel({
+        id: artikel.id,
+        keputusan: artikel.status_verifikasi,
+      }),
+    );
+    await cobaPulihkan("hapus-balik verifikasi baru", () =>
+      adapter.hapusVerifikasi({ id: verifikasiBaru.id }),
+    );
+    await cobaPulihkan("hapus-balik versi baru", () =>
+      adapter.hapusVersi({ id: versiBaru.id }),
+    );
+    throw err;
+  }
   await beriNotifikasiKoreksi(adapter, koreksi, "diperbaiki");
   return { status: "diperbaiki" };
 }
@@ -867,9 +1085,18 @@ export async function aturPeranPengguna(
   const sebelum = await adapter.getPengguna({ id: input.user_id });
   if (!sebelum) throw new Error("Pengguna tidak ditemukan.");
   await adapter.setPeranPengguna({ id: input.user_id, roles: input.roles });
-  await catat(adapter, aktor, "pengguna.role", "pf_profiles", input.user_id, {
-    roles: sebelum.roles,
-  }, { roles: input.roles });
+  try {
+    await catat(adapter, aktor, "pengguna.role", "pf_profiles", input.user_id, {
+      roles: sebelum.roles,
+    }, { roles: input.roles });
+  } catch (err) {
+    // Compensating: kembalikan peran sebelumnya, lalu lempar
+    // ulang galat audit asli.
+    await cobaPulihkan("pulihkan peran pengguna lama", () =>
+      adapter.setPeranPengguna({ id: input.user_id, roles: sebelum.roles }),
+    );
+    throw err;
+  }
   return { roles: input.roles };
 }
 
@@ -881,15 +1108,24 @@ export async function setNonaktifPengguna(
   const sebelum = await adapter.getPengguna({ id: input.user_id });
   if (!sebelum) throw new Error("Pengguna tidak ditemukan.");
   await adapter.setNonaktif({ id: input.user_id, nonaktif: input.nonaktif });
-  await catat(
-    adapter,
-    aktor,
-    input.nonaktif ? "pengguna.nonaktif" : "pengguna.aktifkan",
-    "pf_profiles",
-    input.user_id,
-    { nonaktif: sebelum.nonaktif },
-    { nonaktif: input.nonaktif },
-  );
+  try {
+    await catat(
+      adapter,
+      aktor,
+      input.nonaktif ? "pengguna.nonaktif" : "pengguna.aktifkan",
+      "pf_profiles",
+      input.user_id,
+      { nonaktif: sebelum.nonaktif },
+      { nonaktif: input.nonaktif },
+    );
+  } catch (err) {
+    // Compensating: kembalikan flag nonaktif sebelumnya, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan status nonaktif lama", () =>
+      adapter.setNonaktif({ id: input.user_id, nonaktif: sebelum.nonaktif }),
+    );
+    throw err;
+  }
   return { nonaktif: input.nonaktif };
 }
 
@@ -915,13 +1151,31 @@ export async function perbaruiJob(
     patch: input.patch,
   });
   if (!sesudah) throw new Error(`Job '${input.nama}' tidak ditemukan.`);
-  await catat(adapter, aktor, "sistem.job", "pf_scheduled_jobs", sebelum.id, {
-    jadwal_cron: sebelum.jadwal_cron,
-    aktif: sebelum.aktif,
-  }, {
-    jadwal_cron: sesudah.jadwal_cron,
-    aktif: sesudah.aktif,
-  });
+  try {
+    await catat(adapter, aktor, "sistem.job", "pf_scheduled_jobs", sebelum.id, {
+      jadwal_cron: sebelum.jadwal_cron,
+      aktif: sebelum.aktif,
+    }, {
+      jadwal_cron: sesudah.jadwal_cron,
+      aktif: sesudah.aktif,
+    });
+  } catch (err) {
+    // Compensating: pulihkan konfigurasi job sebelumnya, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan job lama", () =>
+      adapter.perbaruiJob({
+        nama: input.nama,
+        patch: {
+          jadwal_cron: sebelum.jadwal_cron,
+          aktif: sebelum.aktif,
+          terakhir_jalan: sebelum.terakhir_jalan,
+          status_terakhir: sebelum.status_terakhir,
+          error_terakhir: sebelum.error_terakhir,
+        },
+      }),
+    );
+    throw err;
+  }
   return { nama: input.nama, ...input.patch };
 }
 
@@ -946,10 +1200,19 @@ export async function buatKategori(
     ? wajibTeks(input.slug, "Slug kategori", 120)
     : buatSlugKategori(nama);
   const kategori = await adapter.buatKategori({ ...input, slug, nama });
-  await catat(adapter, aktor, "sistem.kategori", "pf_categories", kategori.id, null, {
-    slug: kategori.slug,
-    nama: kategori.nama,
-  });
+  try {
+    await catat(adapter, aktor, "sistem.kategori", "pf_categories", kategori.id, null, {
+      slug: kategori.slug,
+      nama: kategori.nama,
+    });
+  } catch (err) {
+    // Compensating create: hapus-balik kategori yang dibuat,
+    // lalu lempar ulang galat audit asli.
+    await cobaPulihkan("hapus-balik kategori baru", () =>
+      adapter.hapusKategori({ id: kategori.id }),
+    );
+    throw err;
+  }
   return { slug: kategori.slug, nama: kategori.nama };
 }
 
@@ -964,10 +1227,28 @@ export async function perbaruiKategori(
   if (patch.nama !== undefined) patch.nama = wajibTeks(patch.nama, "Nama kategori", 120);
   const baru = await adapter.perbaruiKategori({ id: input.id, patch });
   if (!baru) throw new Error("Kategori tidak ditemukan.");
-  await catat(adapter, aktor, "sistem.kategori", "pf_categories", input.id, {
-    nama: lama.nama,
-    aktif: lama.aktif,
-  }, { nama: baru.nama, aktif: baru.aktif });
+  try {
+    await catat(adapter, aktor, "sistem.kategori", "pf_categories", input.id, {
+      nama: lama.nama,
+      aktif: lama.aktif,
+    }, { nama: baru.nama, aktif: baru.aktif });
+  } catch (err) {
+    // Compensating update: pulihkan nilai kategori lama, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan kategori lama", () =>
+      adapter.perbaruiKategori({
+        id: input.id,
+        patch: {
+          nama: lama.nama,
+          deskripsi: lama.deskripsi,
+          induk_id: lama.induk_id,
+          urutan: lama.urutan,
+          aktif: lama.aktif,
+        },
+      }),
+    );
+    throw err;
+  }
   return { slug: baru.slug, nama: baru.nama };
 }
 
@@ -990,10 +1271,19 @@ export async function hapusKategori(
     );
   }
   await adapter.hapusKategori({ id });
-  await catat(adapter, aktor, "sistem.kategori", "pf_categories", id, {
-    slug: kategori.slug,
-    nama: kategori.nama,
-  }, null);
+  try {
+    await catat(adapter, aktor, "sistem.kategori", "pf_categories", id, {
+      slug: kategori.slug,
+      nama: kategori.nama,
+    }, null);
+  } catch (err) {
+    // Compensating delete: kembalikan kategori yang terhapus
+    // dengan id aslinya, lalu lempar ulang galat audit asli.
+    await cobaPulihkan("kembalikan kategori terhapus", () =>
+      adapter.pulihkanKategori({ kategori }),
+    );
+    throw err;
+  }
 }
 
 export async function terbitkanBrief(
@@ -1009,9 +1299,18 @@ export async function terbitkanBrief(
   }
   const baru = await adapter.terbitkanBrief({ id });
   if (!baru) throw new Error("Brief tidak ditemukan.");
-  await catat(adapter, aktor, "brief.terbit", "pf_daily_briefs", id, {
-    status: "draft",
-    tanggal: brief.tanggal,
-  }, { status: "terbit", tanggal: brief.tanggal });
+  try {
+    await catat(adapter, aktor, "brief.terbit", "pf_daily_briefs", id, {
+      status: "draft",
+      tanggal: brief.tanggal,
+    }, { status: "terbit", tanggal: brief.tanggal });
+  } catch (err) {
+    // Compensating status: kembalikan brief ke draft, lalu
+    // lempar ulang galat audit asli.
+    await cobaPulihkan("pulihkan brief ke draft", () =>
+      adapter.pulihkanBrief({ id }),
+    );
+    throw err;
+  }
   return baru;
 }

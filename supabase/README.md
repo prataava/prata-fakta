@@ -1133,6 +1133,43 @@ alter table public.pf_articles drop column if exists isu;
 -- sama, dengan nama pf_audit_logs_aksi_check_v14).
 ```
 
+## Migrasi v16 — Follow-up 5/6: bookmark pengetahuan (16 Nov 2026)
+
+Berkas: `20261116_pf_v16_bookmark_pengetahuan.sql`. Jalankan
+SETELAH v15. **62 tabel** `pf_*` ber-RLS (tetap — v16 tanpa
+tabel baru), **120 policy** (tetap). Isi: kolom baru
+`pf_bookmarks.pengetahuan_id` (FK ke
+`pf_knowledge_articles`, on delete cascade) +
+`artikel_id` dibuat NULLABLE + CHECK tepat-satu-target
+(`pf_bookmarks_satu_target_check`) + UNIQUE
+`(user_id, pengetahuan_id)` + index. RLS/policy/GRANT
+TIDAK BERUBAH: 4 policy berbasis `user_id` tetap berlaku
+untuk kedua jenis bookmark. Keputusan desain: pengetahuan
+TIDAK mendapat tabel simpan baru — `pf_bookmarks`
+diperluas (satu mekanisme simpan, tanpa permukaan
+kebijakan baru). Validasi lokal:
+`scripts/uji-integrasi14.mjs` (PGlite, v1–v16 2×
+idempoten TANPA blanket grant; 0 grant ke PUBLIC; CHECK
+menolak dua target/tanpa target, UNIQUE menolak bookmark
+pengetahuan ganda). Deploy kode follow-up 5/6 wajib
+sebelum/saat v16 (route bookmark menjawab 503 jujur bila
+kolom v16 belum ada).
+
+Rollback v16 (bila v16 gagal total dan harus dibatalkan
+— jalankan hanya bila v16 belum pernah dipakai menyimpan
+pengetahuan):
+
+```sql
+alter table public.pf_bookmarks
+  drop column if exists pengetahuan_id;
+-- CHECK satu-target + UNIQUE + index ikut terhapus
+-- bersama kolom.
+alter table public.pf_bookmarks
+  alter column artikel_id set not null;
+-- set not null HANYA aman bila tidak ada baris dengan
+-- artikel_id null.
+```
+
 ## Uji restore berkala (prosedur — BUKAN klaim sudah diuji)
 
 Restore BELUM PERNAH dijalankan terhadap database produksi;
@@ -1140,7 +1177,7 @@ uji restore HANYA di staging. Prosedur yang harus dijalankan
 berkala (pemilik / agen yang ditunjuk):
 
 1. Buat proyek Supabase staging baru (gratis, kosong).
-2. Jalankan migrasi v1–v13 berurutan di staging (lihat
+2. Jalankan migrasi v1–v16 berurutan di staging (lihat
    `supabase/CUTOVER.md` §3).
 3. Ambil artefak backup terbaru (workflow Backup Harian,
    retensi 7 hari) atau jalankan `scripts/backup-pf.mjs`

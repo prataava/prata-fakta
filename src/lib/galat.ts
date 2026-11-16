@@ -15,6 +15,42 @@
 // yang diketahui — mencatatnya hanya membanjiri log).
 import { catatGalatAplikasi } from "@/lib/analytics/galat";
 
+// Tahap H: penolakan fetch prerender PPR (Next.js 16) BUKAN galat
+// database. Saat shell statis halaman PPR selesai lebih dulu dari
+// fetch dinamisnya, React menolak fetch itu dengan pesan "During
+// prerendering, fetch() rejects when the prerender is complete"
+// dan menanganinya sendiri — halaman tetap 200 dengan empty state.
+// Tanpa detektor ini, setiap kunjungan halaman PPR membanjiri log
+// server + pf_app_errors dengan dump stack trace framework yang
+// diklasifikasi keliru sebagai "galat baca database" (teramati
+// smoke Tahap H: dump di /, /cerita, /brief, /negara, /podcast).
+/** true bila galat adalah penolakan prerender PPR Next.js. */
+export function galatPrerenderPPR(err: unknown): boolean {
+  // Bentuk galat bervariasi menurut jalur: Error biasa (throw
+  // langsung) ATAU objek galat Supabase/PostgREST ({ message,
+  // details, hint, code }) — di runtime, penolakan fetch PPR
+  // sampai sebagai objek (message + details berisi pesan PPR).
+  const pesan =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : err && typeof err === "object"
+          ? [
+              (err as { message?: unknown }).message,
+              (err as { details?: unknown }).details,
+            ]
+              .filter((x): x is string => typeof x === "string")
+              .join(" ")
+          : "";
+  // Keluarga pesan yang sama: "During prerendering, fetch()/cookies()/
+  // headers() rejects when the prerender is complete" — API apa pun.
+  return (
+    pesan.includes("During prerendering,") &&
+    pesan.includes("rejects when the prerender is complete")
+  );
+}
+
 /** true bila galat berarti tabel/database belum tersedia. */
 export function galatTabelBelumAda(err: unknown): boolean {
   const kode =
@@ -42,6 +78,11 @@ export function galatTabelBelumAda(err: unknown): boolean {
  * galat lain (pemanggil WAJIB melempar, bukan menelan).
  */
 export function catatGalatBaca(fungsi: string, err: unknown): boolean {
+  if (galatPrerenderPPR(err)) {
+    // Artefak PPR: bukan galat database — jangan catat ke log
+    // maupun pf_app_errors; pemanggil mengembalikan empty state.
+    return true;
+  }
   if (galatTabelBelumAda(err)) {
     console.error(
       `[baca] ${fungsi}: tabel belum ada (migrasi belum dijalankan) — empty state.`,

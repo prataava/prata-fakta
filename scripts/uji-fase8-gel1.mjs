@@ -1152,11 +1152,17 @@ for (const [relatif, nama] of [
   );
 }
 const jawabSrc = bacaRepo("src/app/api/kuis/jawab/route.ts");
+// (Diperbarui Tahap C-3: route kini memakai createClient() juga —
+//  untuk sesi (auth) + membaca jawaban HARIAN MILIK SENDIRI dari
+//  pf_quiz_daily_answers (policy "baca sendiri", by design). Sifat
+//  keamanan T1-sisa yang diuji bukan lagi "tanpa createClient()",
+//  melainkan: KUNCI (pf_quiz_answers, tabel tanpa policy SELECT)
+//  dibaca HANYA via service role — tepat satu situs .from() dan
+//  situs itu memakai `await service`.)
 cek(
-  "T1-sisa: /api/kuis/jawab membaca kunci via service role",
-  jawabSrc.includes("createServiceClient") &&
-    jawabSrc.includes("service") &&
-    !jawabSrc.includes("createClient()"),
+  "T1-sisa: /api/kuis/jawab membaca kunci HANYA via service role",
+  (jawabSrc.match(/\.from\("pf_quiz_answers"\)/g) ?? []).length === 1 &&
+    /await service\s*\n\s*\.from\("pf_quiz_answers"\)/.test(jawabSrc),
 );
 cek(
   "T1-sisa: getKuisHarian memakai service bila ada",
@@ -1267,8 +1273,9 @@ cek(
     bacaRepo("src/components/HeaderNav.tsx").includes('href: "/laporkan"'),
 );
 cek(
-  "D3: validasiTarget diekspor di /api/topik",
-  bacaRepo("src/app/api/topik/route.ts").includes("export function validasiTarget"),
+  "D3: validasiTarget diekspor di lib/topik.ts (FU2: pindah dari /api/topik)",
+  bacaRepo("src/lib/topik.ts").includes("export function validasiTarget") &&
+    bacaRepo("src/app/api/topik/route.ts").includes("validasiTarget"),
 );
 
 // ---------- Uji fungsi murni: hitungStreakKuis ----------
@@ -1291,7 +1298,9 @@ if (fnGeser && fnStreak) {
 }
 
 // ---------- Uji fungsi murni: validasiTarget ----------
-const topikSrc = bacaRepo("src/app/api/topik/route.ts");
+// FU2 (16 Nov 2026): sumber ekstraksi pindah dari route ke
+// src/lib/topik.ts.
+const topikSrc = bacaRepo("src/lib/topik.ts");
 const fnValidasi = /export function validasiTarget\([\s\S]*?\n\}/.exec(topikSrc)?.[0];
 cek("validasiTarget dapat diekstrak dari sumber", Boolean(fnValidasi));
 if (fnValidasi) {

@@ -9,6 +9,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -16,104 +17,10 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { validasiInputKursus } from "@/lib/admin/validasi";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
-
-const POLA_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-function stringAtauNull(v: unknown): string | null {
-  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
-}
-
-/** Validasi murni input kursus (diekspos untuk uji).
- *  parsial=true untuk PATCH (hanya field yang dikirim divalidasi). */
-export function validasiInputKursus(
-  body: Record<string, unknown>,
-  parsial = false,
-):
-  | {
-      ok: true;
-      data: {
-        slug?: string;
-        judul?: string;
-        deskripsi?: string | null;
-        kategori?: string;
-        tingkat?: string;
-        status?: string;
-        urutan?: number;
-      };
-    }
-  | { ok: false; error: string } {
-  const data: {
-    slug?: string;
-    judul?: string;
-    deskripsi?: string | null;
-    kategori?: string;
-    tingkat?: string;
-    status?: string;
-    urutan?: number;
-  } = {};
-  if (!parsial || body.slug !== undefined) {
-    if (typeof body.slug !== "string" || !POLA_SLUG.test(body.slug)) {
-      return {
-        ok: false,
-        error: "Slug tidak valid (huruf kecil, angka, dan tanda -).",
-      };
-    }
-    data.slug = body.slug;
-  }
-  if (!parsial || body.judul !== undefined) {
-    if (typeof body.judul !== "string" || body.judul.trim() === "") {
-      return { ok: false, error: "Judul wajib diisi." };
-    }
-    if (body.judul.trim().length > 200) {
-      return { ok: false, error: "Judul maksimal 200 karakter." };
-    }
-    data.judul = body.judul.trim();
-  }
-  if (body.deskripsi !== undefined) {
-    data.deskripsi = stringAtauNull(body.deskripsi);
-  }
-  if (body.kategori !== undefined) {
-    if (
-      typeof body.kategori !== "string" ||
-      body.kategori.trim() === "" ||
-      body.kategori.trim().length > 60
-    ) {
-      return { ok: false, error: "Kategori wajib diisi (maksimal 60 karakter)." };
-    }
-    data.kategori = body.kategori.trim();
-  }
-  if (body.tingkat !== undefined) {
-    if (
-      body.tingkat !== "pemula" &&
-      body.tingkat !== "menengah" &&
-      body.tingkat !== "mendalam"
-    ) {
-      return { ok: false, error: "Tingkat tidak valid." };
-    }
-    data.tingkat = body.tingkat;
-  }
-  if (body.status !== undefined) {
-    if (body.status !== "draft" && body.status !== "terbit") {
-      return { ok: false, error: "Status harus draft atau terbit." };
-    }
-    data.status = body.status;
-  }
-  if (body.urutan !== undefined) {
-    if (
-      typeof body.urutan !== "number" ||
-      !Number.isInteger(body.urutan) ||
-      body.urutan < 0 ||
-      body.urutan > 1000
-    ) {
-      return { ok: false, error: "Urutan harus bilangan bulat 0 sampai 1000." };
-    }
-    data.urutan = body.urutan;
-  }
-  return { ok: true, data };
-}
 
 export async function GET(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
@@ -175,6 +82,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 

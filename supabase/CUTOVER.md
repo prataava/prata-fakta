@@ -1,10 +1,12 @@
-# CUTOVER — PRATA FAKTA: Migrasi v1–v12 + Go-Live
+# CUTOVER — PRATA FAKTA: Migrasi v1–v16 + Go-Live
 
 **Dokumen:** prosedur cutover produksi (migrasi database + deploy +
 smoke test + rollback).
 **Repo:** `prataava/prata-fakta`, commit `5d3b17b` (Gelombang 2) +
-Tahap 13 (v11–v12, hash commit menyusul di LAPORAN-FASE-8.md §14),
-147 halaman (build lokal EXIT 0).
+Tahap 13–17 (`dbcada7`) + Ultimate B1 (`ebd4cf7`) + B2 (`f38f7ec`) +
+Tahap C–G (`c3efa51`) + Follow-up 1–6 & Tahap H (commit Tahap H
+menyusul — lihat `FINAL-PROJECT-COMPLETION.md` §31),
+166 halaman build lokal (Turbopack EXIT 0, BUILD_ID `NM3JoG_bTU4FuDCRI5sV5`).
 **Status: BELUM LIVE.** Situs baru dinyatakan live bila SELURUH
 langkah di dokumen ini selesai dan smoke test §6 lolos. Jangan
 mengumumkan URL produksi sebelum itu.
@@ -962,6 +964,74 @@ where table_schema = 'public' and table_name = 'pf_articles'
 | CHECK audit | **v15 (59 aksi)** |
 | Tabel baru | **1 (jawaban kuis harian tersimpan)** |
 | Kolom baru | **`pf_articles.isu`** |
+
+### 3.17 v16 — Follow-up 5/6: bookmark pengetahuan (F11)
+
+- Berkas: `supabase/migrations/20261116_pf_v16_bookmark_pengetahuan.sql`
+- Bergantung pada v1–v15. **Jalankan TEPAT SESUDAH v15.**
+  v16 ADITIF, kecuali `pf_bookmarks.artikel_id` yang
+  dilonggarkan dari NOT NULL menjadi NULLABLE (CHECK
+  satu-target menjaga tiap baris tetap punya tepat satu
+  target) — idempoten (do-block pemeriksa constraint/kolom)
+  dan teruji 2× di PGlite.
+- **PRASYARAT DEPLOY (jendela seperti v15):** kode follow-up
+  5/6 yang memakai kolom baru WAJIB sudah deploy
+  sebelum/saat v16 dijalankan — `/api/bookmark` menerima
+  `pengetahuan_id` dan halaman `/pengetahuan/[slug]`
+  membaca `pf_bookmarks.pengetahuan_id` (tanpa v16: route
+  menjawab 503 jujur "migrasi v16 belum dijalankan";
+  halaman menampilkan tombol Simpan dengan status awal
+  "belum disimpan"). Sebaliknya route menjawab 503 jujur
+  bila kolom v16 belum ada (fail-closed), jadi urutan aman
+  bila ragu: deploy kode dulu, baru v16.
+- Isi: §1 kolom baru `pf_bookmarks.pengetahuan_id` (FK ke
+  `pf_knowledge_articles` on delete cascade) + `artikel_id`
+  NULLABLE + CHECK `pf_bookmarks_satu_target_check` (tepat
+  satu dari `artikel_id` / `pengetahuan_id` terisi) +
+  UNIQUE `(user_id, pengetahuan_id)` + index
+  `pf_bookmarks_pengetahuan_idx`; §2 RLS/policy/GRANT
+  TIDAK BERUBAH (4 policy berbasis `user_id` tetap
+  berlaku; 0 grant baru).
+- Tervalidasi lokal (PGlite,
+  `scripts/uji-integrasi14.mjs`): v1–v16 dijalankan 2×
+  idempoten TANPA blanket grant; 62 tabel, RLS 62/62,
+  0 grant ke PUBLIC; CHECK menolak dua target/tanpa
+  target, UNIQUE menolak bookmark pengetahuan ganda.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 62 (v16 tanpa tabel baru)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 120 (v16 tanpa policy baru)
+
+select column_name, is_nullable from information_schema.columns
+where table_schema = 'public' and table_name = 'pf_bookmarks'
+  and column_name in ('artikel_id', 'pengetahuan_id');
+-- ekspektasi: 2 baris; artikel_id YES, pengetahuan_id YES
+
+select pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.pf_bookmarks'::regclass
+  and conname = 'pf_bookmarks_satu_target_check';
+-- ekspektasi: 1 baris; memuat '(artikel_id IS NULL) <> (pengetahuan_id IS NULL)'
+
+select count(*) from public.pf_bookmarks
+where pengetahuan_id is not null;
+-- ekspektasi: 0 (kolom baru, kosong)
+```
+
+| Pemeriksaan | Ekspektasi sesudah v16 |
+|---|---|
+| Jumlah tabel `pf_*` | **62** |
+| Tabel ber-RLS | **62/62** |
+| Jumlah policy `pf_*` | **120** |
+| CHECK audit | **v15 (59 aksi)** |
+| Tabel baru | **0** |
+| Kolom baru | **`pf_bookmarks.pengetahuan_id`** |
 
 ### 3.15 Bila satu berkas gagal
 

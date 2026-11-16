@@ -8,6 +8,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -16,8 +17,7 @@ import {
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
-import { validasiCeritaInput } from "../route";
-import { isUuid } from "../../event/route";
+import { isUuid, validasiCeritaInput } from "@/lib/admin/validasi";
 
 const lolosRateLimit = buatRateLimiterAdmin();
 
@@ -38,6 +38,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -270,6 +273,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

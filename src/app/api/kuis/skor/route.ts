@@ -3,11 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { catatGalatRoute } from "@/lib/analytics/galat";
+import { hitungSkorDariJawabanTersimpan } from "@/lib/kuis";
 
 // POST /api/kuis/skor — simpan skor kuis harian pengguna login.
 // Body: { tanggal: "YYYY-MM-DD" } — benar/total TIDAK LAGI
@@ -52,58 +54,14 @@ function kemarinWib(tanggal: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Satu jawaban kuis harian tersimpan (dari pf_quiz_daily_answers). */
-export type JawabanHarianTersimpan = {
-  soal_id: string;
-  benar: boolean;
-};
-
-/**
- * Hitung skor harian dari jawaban tersimpan (murni, diekspos
- * untuk uji). Mengembalikan { ok: false } bila jawaban
- * tersimpan belum mencakup SEMUA soal hari itu — skor parsial
- * tidak pernah disimpan (pengguna harus menyelesaikan kuis
- * dulu; main ulang menimpa jawaban tersimpan sebelumnya).
- */
-export function hitungSkorDariJawabanTersimpan(
-  jawabanTersimpan: JawabanHarianTersimpan[],
-  soalHariIni: string[],
-):
-  | { ok: true; benar: number; total: number }
-  | { ok: false; error: string; terjawab: number; total: number } {
-  const total = soalHariIni.length;
-  if (total === 0) {
-    return {
-      ok: false,
-      error: "Belum ada soal kuis untuk tanggal ini.",
-      terjawab: 0,
-      total: 0,
-    };
-  }
-  const idSoal = new Set(soalHariIni);
-  const terjawab = new Set<string>();
-  let benar = 0;
-  for (const j of jawabanTersimpan) {
-    if (!idSoal.has(j.soal_id) || terjawab.has(j.soal_id)) continue;
-    terjawab.add(j.soal_id);
-    if (j.benar) benar += 1;
-  }
-  if (terjawab.size < total) {
-    return {
-      ok: false,
-      error: `Jawaban tersimpan belum lengkap (${terjawab.size} dari ${total} soal) — selesaikan kuis hari ini dulu.`,
-      terjawab: terjawab.size,
-      total,
-    };
-  }
-  return { ok: true, benar, total };
-}
-
 export async function POST(req: Request) {
   const hasilRateLimit = await batasi(req);
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const supabase = await createClient();
   const {

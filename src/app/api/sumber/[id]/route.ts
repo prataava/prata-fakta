@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import {
   buatRateLimiter,
+  cekOrigin,
   ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
@@ -72,6 +73,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const { id } = await params;
   const hasilGuard = await guard(false);
@@ -238,6 +242,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const { id } = await params;
   const hasilGuard = await guard(true);

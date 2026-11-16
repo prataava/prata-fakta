@@ -12,6 +12,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -77,6 +78,9 @@ function responIdTakValid() {
 
 export async function PATCH(req: Request, { params }: Ctx) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   // P0-5 (B-T1): mutasi HANYA editor — lihat catatan di
   // ../route.ts POST (data referensi publik, bukan draf).
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
@@ -191,6 +195,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 export async function DELETE(req: Request, { params }: Ctx) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   // P0-5 (B-T1): hapus HANYA editor — lihat catatan di
   // ../route.ts POST (data referensi publik, bukan draf).
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);

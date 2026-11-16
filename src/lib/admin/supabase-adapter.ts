@@ -203,6 +203,51 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     if (error) this.lempar("hapusArtikel", error);
   }
 
+  // Compensating T10 (follow-up 1): sisipkan kembali artikel
+  // yang terhapus dengan id aslinya. Riwayat versi yang ikut
+  // terhapus cascade TIDAK dipulihkan (lihat editorial.ts).
+  async pulihkanArtikel({
+    artikel,
+  }: {
+    artikel: Artikel;
+  }): Promise<Artikel> {
+    const { data, error } = await this.klien()
+      .from("pf_articles")
+      .insert({
+        id: artikel.id,
+        slug: artikel.slug,
+        judul: artikel.judul,
+        subjudul: artikel.subjudul ?? null,
+        ringkasan: artikel.ringkasan,
+        isi: artikel.isi,
+        kategori_slug: artikel.kategori_slug,
+        subkategori_slug: artikel.subkategori_slug ?? null,
+        status: artikel.status,
+        status_verifikasi: artikel.status_verifikasi,
+        penulis_nama: artikel.penulis_nama ?? null,
+        penulis_id: artikel.penulis_id ?? null,
+        sumber_url: artikel.sumber_url ?? null,
+        gambar_url: artikel.gambar_url ?? null,
+        estimasi_baca_menit: artikel.estimasi_baca_menit ?? null,
+        kronologi: artikel.kronologi ?? [],
+        fakta_penting: artikel.fakta_penting ?? [],
+        data_pendukung: artikel.data_pendukung ?? [],
+        mengapa_penting: artikel.mengapa_penting ?? null,
+        dampak: artikel.dampak ?? null,
+        belum_diketahui: artikel.belum_diketahui ?? null,
+        dijadwalkan_pada: artikel.dijadwalkan_pada ?? null,
+        diterbitkan_pada: artikel.diterbitkan_pada ?? null,
+        diterbitkan_oleh: artikel.diterbitkan_oleh ?? null,
+        dibuat_pada: artikel.dibuat_pada,
+        diperbarui_pada: artikel.diperbarui_pada,
+        isu: artikel.isu ?? null,
+      })
+      .select(KOLOM_ARTIKEL)
+      .single();
+    if (error) this.lempar("pulihkanArtikel", error);
+    return data as unknown as Artikel;
+  }
+
   // ---------- Verifikasi & review ----------
 
   async getVerifikasiTerakhir({
@@ -254,6 +299,15 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     return (data as Review | null) ?? null;
   }
 
+  // Compensating T10: hapus-balik satu baris review.
+  async hapusReview({ id }: { id: string }): Promise<void> {
+    const { error } = await this.klien()
+      .from("pf_editorial_reviews")
+      .delete()
+      .eq("id", id);
+    if (error) this.lempar("hapusReview", error);
+  }
+
   async simpanVerification(
     input: VerificationInput,
   ): Promise<CatatanVerifikasi> {
@@ -274,6 +328,15 @@ export class SupabaseAdminAdapter implements AdminAdapter {
       .single();
     if (error) this.lempar("simpanVerification", error);
     return data as CatatanVerifikasi;
+  }
+
+  // Compensating T10: hapus-balik satu catatan verifikasi.
+  async hapusVerifikasi({ id }: { id: string }): Promise<void> {
+    const { error } = await this.klien()
+      .from("pf_verification_records")
+      .delete()
+      .eq("id", id);
+    if (error) this.lempar("hapusVerifikasi", error);
   }
 
   async ubahStatusVerifikasiArtikel({
@@ -326,6 +389,15 @@ export class SupabaseAdminAdapter implements AdminAdapter {
       .maybeSingle();
     if (error) this.lempar("getVersiTerakhir", error);
     return (data as VersiArtikel | null) ?? null;
+  }
+
+  // Compensating T10: hapus-balik satu baris versi.
+  async hapusVersi({ id }: { id: string }): Promise<void> {
+    const { error } = await this.klien()
+      .from("pf_article_versions")
+      .delete()
+      .eq("id", id);
+    if (error) this.lempar("hapusVersi", error);
   }
 
   // ---------- Audit ----------
@@ -704,6 +776,31 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     if (error) this.lempar("hapusKategori", error);
   }
 
+  // Compensating T10: sisipkan kembali kategori yang terhapus
+  // dengan id aslinya.
+  async pulihkanKategori({
+    kategori,
+  }: {
+    kategori: Kategori;
+  }): Promise<Kategori> {
+    const { data, error } = await this.klien()
+      .from("pf_categories")
+      .insert({
+        id: kategori.id,
+        slug: kategori.slug,
+        nama: kategori.nama,
+        deskripsi: kategori.deskripsi ?? null,
+        induk_id: kategori.induk_id ?? null,
+        urutan: kategori.urutan ?? 0,
+        aktif: kategori.aktif ?? true,
+        dibuat_pada: kategori.dibuat_pada,
+      })
+      .select("id,slug,nama,deskripsi,induk_id,urutan,aktif,dibuat_pada")
+      .single();
+    if (error) this.lempar("pulihkanKategori", error);
+    return data as Kategori;
+  }
+
   // ---------- Brief ----------
 
   async terbitkanBrief({ id }: { id: string }): Promise<BriefAdmin | null> {
@@ -725,6 +822,18 @@ export class SupabaseAdminAdapter implements AdminAdapter {
       .limit(60);
     if (error) this.lempar("listBrief", error);
     return (data as BriefAdmin[]) ?? [];
+  }
+
+  // Compensating T10: kembalikan brief terbit ke draft.
+  async pulihkanBrief({ id }: { id: string }): Promise<BriefAdmin | null> {
+    const { data, error } = await this.klien()
+      .from("pf_daily_briefs")
+      .update({ status: "draft", diterbitkan_pada: null })
+      .eq("id", id)
+      .select("id,tanggal,isi,status,dibuat_pada,diterbitkan_pada")
+      .maybeSingle();
+    if (error) this.lempar("pulihkanBrief", error);
+    return (data as BriefAdmin | null) ?? null;
   }
 
   // ---------- Audit, ringkasan, kesehatan ----------

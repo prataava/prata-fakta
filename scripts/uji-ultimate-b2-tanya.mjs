@@ -355,7 +355,11 @@ const adminGet = bacaRepo("src/app/api/admin/tanya/route.ts");
 cek("F1 admin GET memuat kolom draf", adminGet.includes("jawaban_draf") && adminGet.includes("referensi_draf"));
 const tanyaRoute = bacaRepo("src/app/api/tanya/route.ts");
 cek("F1 GET /api/tanya pengguna TIDAK membocorkan draf", !tanyaRoute.includes("jawaban_draf"));
-cek("F1 cariKandidat diekspor untuk dipakai ulang job draf", tanyaRoute.includes("export async function cariKandidat"));
+// (Follow-up 5/6: cariKandidat pindah dari route /api/tanya ke
+//  src/lib/tanya/retrieval.ts — dipakai ulang route + job draf.)
+const retrievalTanya = bacaRepo("src/lib/tanya/retrieval.ts");
+cek("F1 cariKandidat diekspor untuk dipakai ulang job draf", retrievalTanya.includes("export async function cariKandidat"));
+cek("F1 job draf mengimpor cariKandidat dari lib", bacaRepo("src/app/api/tanya/draf/route.ts").includes('from "@/lib/tanya/retrieval"'));
 const workflow = bacaRepo(".github/workflows/tanya-jawab-draf.yml");
 cek("F1 workflow draf ada + jadwal harian", workflow.includes('cron: "0 1 * * *"'));
 cek("F1 workflow memanggil POST /api/tanya/draf", workflow.includes("/api/tanya/draf"));

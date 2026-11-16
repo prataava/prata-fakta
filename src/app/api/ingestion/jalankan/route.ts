@@ -16,6 +16,7 @@ import {
 import {
   bandingkanSecret,
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
@@ -61,6 +62,9 @@ export async function POST(req: Request) {
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   // --- Autentikasi dua jalur ---
   const secretEnv = process.env.PF_INGESTION_SECRET;

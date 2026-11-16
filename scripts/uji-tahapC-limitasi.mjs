@@ -14,9 +14,10 @@
 //        Tersimpan; klaim klien diabaikan; skor parsial ditolak;
 //        trigger v15 menghitung ulang tulis REST langsung; skor
 //        lama tetap terbaca).
-//   C-4  Log galat menyeluruh (catatGalatRoute di 24 route;
+//   C-4  Log galat menyeluruh (catatGalatRoute di 23 route, 53 situs;
 //        catatGalatBaca -> pf_app_errors; PGRST205 dilewati;
 //        admin + kunjungan sudah tercakup sebelumnya).
+//        (52 -> 53: situs 500 baru di POST /api/bookmark, Follow-up 5/6.)
 //   C-5  Topik isu menghasilkan notifikasi (kolom isu; pencocokan
 //        ilike; dedup; fallback pre-v15).
 //   C-6  Bukti dokumen: TTS server tetap belum bisa (MODEL_CARD
@@ -254,7 +255,11 @@ console.log("\n§A. Migrasi v15");
    ============================================================ */
 console.log("\n§B. C-3 skor kuis harian (server)");
 const skorSrc = bacaRepo("src/app/api/kuis/skor/route.ts");
-const fnHitung = ekstrakFungsi(skorSrc, "hitungSkorDariJawabanTersimpan");
+// FU2 (16 Nov 2026): hitungSkorDariJawabanTersimpan PINDAH ke
+// src/lib/kuis.ts — ekstraksi dari sana (skorSrc tetap dipakai
+// untuk pemeriksaan route di bawah).
+const kuisSrc = bacaRepo("src/lib/kuis.ts");
+const fnHitung = ekstrakFungsi(kuisSrc, "hitungSkorDariJawabanTersimpan");
 cek("C-3: hitungSkorDariJawabanTersimpan dapat diekstrak", Boolean(fnHitung));
 let hitungSkor = null;
 if (fnHitung) {
@@ -621,8 +626,8 @@ const ROUTE_WIRE = [
   }
   cek("C-4: 23 route target ter-wire (dengan situs 500)",
     ROUTE_WIRE.length === 23);
-  cek("C-4: total 52 panggilan catatGalatRoute di route target",
-    totalSitus === 52, `dihitung ${totalSitus}`);
+  cek("C-4: total 53 panggilan catatGalatRoute di route target",
+    totalSitus === 53, `dihitung ${totalSitus}`);
   cek("C-4: setiap return 500 didahului catatGalatRoute (tepat sebelum return)",
     tanpaLog.length === 0, tanpaLog.join("; "));
 }
@@ -640,6 +645,39 @@ cek("C-4: admin guard + kunjungan sudah tercakup (tidak diduplikasi)",
 cek("C-4: tidak ada banjir — galat tabel-belum-ada dilewati di kedua helper",
   bacaRepo("src/lib/galat.ts").includes("galatTabelBelumAda") &&
   galatSrc.includes("Could not find the table"));
+// Tahap H: artefak PPR Next.js 16 — penolakan fetch prerender bukan
+// galat database; catatGalatBaca wajib melewatinya tanpa log/error.
+const libGalatSrc = bacaRepo("src/lib/galat.ts");
+{
+  const mulaiCatat = libGalatSrc.indexOf("export function catatGalatBaca");
+  const badanCatat = libGalatSrc.slice(mulaiCatat);
+  cek("C-4: galatPrerenderPPR ada + diperiksa catatGalatBaca SEBELUM tabel-belum-ada",
+    libGalatSrc.includes("export function galatPrerenderPPR") &&
+      libGalatSrc.includes("During prerendering,") &&
+      libGalatSrc.includes("rejects when the prerender is complete") &&
+      badanCatat.indexOf("galatPrerenderPPR(err)") < badanCatat.indexOf("galatTabelBelumAda(err)") &&
+      badanCatat.indexOf("galatPrerenderPPR(err)") >= 0);
+  const fnPpr = ekstrakFungsi(libGalatSrc, "galatPrerenderPPR");
+  cek("C-4: galatPrerenderPPR dapat diekstrak", Boolean(fnPpr));
+  if (fnPpr) {
+    const deteksi = new Function(
+      `${transpileKeJs(fnPpr)}\nreturn galatPrerenderPPR;`,
+    )();
+    const errPpr = new Error(
+      "During prerendering, fetch() rejects when the prerender is complete. This occurred at route \"/\".",
+    );
+    cek("C-4: galatPrerenderPPR true untuk galat prerender PPR", deteksi(errPpr) === true);
+    cek("C-4: galatPrerenderPPR true untuk varian cookies() PPR",
+      deteksi(new Error("During prerendering, `cookies()` rejects when the prerender is complete. This occurred at route \"/tanya\".")) === true);
+    cek("C-4: galatPrerenderPPR false untuk galat database biasa", deteksi(new Error("connection refused")) === false);
+    cek("C-4: galatPrerenderPPR true untuk string pesan PPR", deteksi("During prerendering, fetch() rejects when the prerender is complete.") === true);
+    cek("C-4: galatPrerenderPPR true untuk objek galat Supabase (message+details)",
+      deteksi({ message: "Error: During prerendering, fetch() rejects when the prerender is complete.", details: "Error: During prerendering, fetch() rejects when the prerender is complete.\n    at fetch (chunks/ssr/x.js:1:1)", hint: "", code: "" }) === true);
+    cek("C-4: galatPrerenderPPR false untuk objek galat Supabase biasa",
+      deteksi({ message: "Could not find the table 'public.pf_articles' in the schema cache", details: null, hint: null, code: "PGRST205" }) === false);
+    cek("C-4: galatPrerenderPPR false untuk null/undefined", deteksi(null) === false && deteksi(undefined) === false);
+  }
+}
 
 /* ============================================================
    §G. C-6: bukti dokumen (TTS + esai otomatis tetap belum bisa)

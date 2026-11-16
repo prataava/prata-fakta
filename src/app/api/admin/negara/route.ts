@@ -10,6 +10,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -64,6 +65,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   // P0-5 (B-T1, Audit Ultimate): mutasi profil negara + fakta
   // HANYA editor (GET tetap semua staf). Alasan: negara/fakta
   // adalah data referensi PUBLIK yang langsung tampil (bukan

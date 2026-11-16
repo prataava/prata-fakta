@@ -382,3 +382,116 @@ export function buatKodeVerifikasi(): string {
   for (const b of acak) kode += ALFABET_KODE[b % ALFABET_KODE.length];
   return kode;
 }
+
+/* ============================================================
+   Validator route Academy — PINDAHAN FU2 (16 Nov 2026).
+   Semula diekspor dari route.ts (api/akademi/kuis/jawab,
+   api/akademi/progres) — Next.js (webpack) menolak ekspor
+   non-handler dari route.ts (TS2344). Perilaku dipindah MENTAH
+   (tanpa refactor isi). POLA_UUID privat di sini karena
+   validasiJawabanAkademi membutuhkannya; route jawab tetap
+   punya salinannya sendiri (POST di sana memakai langsung).
+   ============================================================ */
+
+const POLA_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validasi murni body permintaan (diekspos untuk uji). Parameter
+ * kedua adalah jenis soal menurut DATABASE (otoritas) — bila
+ * tidak diisi, default 'pilihan_ganda' (kompatibel dengan baterai
+ * lama yang hanya menguji jawaban angka). Bentuk jawaban yang
+ * tidak cocok dengan jenis soal ditolak.
+ * Semula di src/app/api/akademi/kuis/jawab/route.ts.
+ */
+export function validasiJawabanAkademi(
+  body: unknown,
+  jenisSoal: JenisSoalKuis = "pilihan_ganda",
+):
+  | {
+      ok: true;
+      lessonId: string;
+      soalId: string;
+      jawaban: number | number[] | string;
+    }
+  | { ok: false; error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "Isi permintaan tidak valid." };
+  }
+  const { lesson_id, soal_id, jawaban } = body as Record<string, unknown>;
+  if (typeof lesson_id !== "string" || !POLA_UUID.test(lesson_id)) {
+    return { ok: false, error: "lesson_id tidak valid." };
+  }
+  if (typeof soal_id !== "string" || !POLA_UUID.test(soal_id)) {
+    return { ok: false, error: "soal_id tidak valid." };
+  }
+  const bentuk = validasiBentukJawaban(jenisSoal, jawaban);
+  if (!bentuk.ok) return { ok: false, error: bentuk.error };
+  const j = bentuk.jawaban;
+  // validasiBentukJawaban memetakan boolean benar/salah ke 0/1,
+  // jadi boolean/null tidak pernah lolos sampai sini — pemeriksaan
+  // ini hanya penyempitan tipe untuk TypeScript.
+  if (j === null || typeof j === "boolean") {
+    return { ok: false, error: "Jawaban tidak valid." };
+  }
+  return { ok: true, lessonId: lesson_id, soalId: soal_id, jawaban: j };
+}
+
+/** Validasi murni body permintaan (diekspos untuk uji).
+ *  Semula di src/app/api/akademi/progres/route.ts. */
+export function validasiProgres(
+  body: unknown,
+):
+  | {
+      ok: true;
+      lessonId: string;
+      selesai: boolean;
+    }
+  | { ok: false; error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "Isi permintaan tidak valid." };
+  }
+  const { lesson_id, selesai, skor } = body as Record<string, unknown>;
+  if (typeof lesson_id !== "string" || !POLA_UUID.test(lesson_id)) {
+    return { ok: false, error: "lesson_id tidak valid." };
+  }
+  if (typeof selesai !== "boolean") {
+    return { ok: false, error: "selesai harus boolean." };
+  }
+  // Skor dari klien TIDAK PERNAH diterima lagi (I-4): skor
+  // dihitung server dari jawaban tersimpan. `skor: null` atau
+  // tidak ada kunci skor masih diterima (kompatibel dengan klien
+  // lama yang mengirim null); angka apa pun ditolak tegas.
+  if (skor !== undefined && skor !== null) {
+    return {
+      ok: false,
+      error:
+        "Skor dihitung server dari jawaban kuis tersimpan — skor dari klien tidak diterima.",
+    };
+  }
+  return { ok: true, lessonId: lesson_id, selesai };
+}
+
+/**
+ * Hitung skor server-side satu pelajaran kuis dari jawaban
+ * tersimpan (diekspos untuk uji): jumlah jawaban benar.
+ * `ambilJawaban` mengembalikan null bila tabel jawaban belum ada
+ * (PGRST205) agar pemanggil bisa menjawab 503 jujur; melempar
+ * bila baca gagal karena galat lain.
+ * Semula di src/app/api/akademi/progres/route.ts.
+ */
+export async function hitungSkorProgres(
+  ambilJawaban: (
+    userId: string,
+    lessonId: string,
+  ) => Promise<{ benar: boolean | null }[] | null>,
+  userId: string,
+  lessonId: string,
+): Promise<{ skor: number; jumlahJawaban: number } | null> {
+  const daftar = await ambilJawaban(userId, lessonId);
+  if (daftar === null) return null;
+  return {
+    skor: daftar.filter((r) => r.benar === true).length,
+    jumlahJawaban: daftar.length,
+  };
+}

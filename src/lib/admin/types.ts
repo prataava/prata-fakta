@@ -475,13 +475,23 @@ export interface AdminAdapter {
     harapkanStatus?: string;
   }): Promise<Artikel | null>;
   hapusArtikel(input: { id: string }): Promise<void>;
+  /** Sisipkan kembali artikel yang terhapus dengan id ASLI
+   *  (compensating T10 hapusArtikel). Riwayat versi yang ikut
+   *  terhapus cascade TIDAK dipulihkan oleh metode ini. */
+  pulihkanArtikel(input: { artikel: Artikel }): Promise<Artikel>;
 
   getVerifikasiTerakhir(input: {
     artikel_id: string;
   }): Promise<CatatanVerifikasi | null>;
   simpanReview(input: ReviewInput): Promise<Review>;
+  /** Hapus satu baris review (compensating T10: hapus-balik
+   *  review yang baru disimpan bila auditnya gagal). */
+  hapusReview(input: { id: string }): Promise<void>;
   getReviewTerakhir(input: { artikel_id: string }): Promise<Review | null>;
   simpanVerification(input: VerificationInput): Promise<CatatanVerifikasi>;
+  /** Hapus satu catatan verifikasi (compensating T10:
+   *  hapus-balik catatan yang baru disimpan bila audit gagal). */
+  hapusVerifikasi(input: { id: string }): Promise<void>;
   ubahStatusVerifikasiArtikel(input: {
     id: string;
     keputusan: StatusVerifikasi;
@@ -491,6 +501,9 @@ export interface AdminAdapter {
   getVersiTerakhir(input: {
     artikel_id: string;
   }): Promise<VersiArtikel | null>;
+  /** Hapus satu baris versi (compensating T10: hapus-balik
+   *  versi yang dibuat revisi yang auditnya gagal). */
+  hapusVersi(input: { id: string }): Promise<void>;
 
   catatAudit(input: AuditInput): Promise<void>;
 
@@ -520,8 +533,14 @@ export interface AdminAdapter {
     patch: KategoriPatch;
   }): Promise<Kategori | null>;
   hapusKategori(input: { id: string }): Promise<void>;
+  /** Sisipkan kembali kategori yang terhapus dengan id ASLI
+   *  (compensating T10 hapusKategori). */
+  pulihkanKategori(input: { kategori: Kategori }): Promise<Kategori>;
 
   terbitkanBrief(input: { id: string }): Promise<BriefAdmin | null>;
+  /** Kembalikan brief terbit ke draft (compensating T10
+   *  terbitkanBrief: status draft + diterbitkan_pada null). */
+  pulihkanBrief(input: { id: string }): Promise<BriefAdmin | null>;
   listBrief(): Promise<BriefAdmin[]>;
 
   listAudit(filter: FilterAudit): Promise<HasilListAudit>;

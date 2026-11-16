@@ -12,6 +12,10 @@
 # Jadwal: tiap tanggal 1 pukul 03.30 UTC (≈10.30 WIB) + manual dispatch.
 # Concurrency: satu run pada satu waktu (cancel-in-progress false).
 # Job gagal bila secret belum diisi atau RPC menjawab bukan HTTP 200.
+# Retry (FU3, 16 Nov 2026 — perluasan F8): curl memakai
+# --retry 2 --retry-delay 10. Aman: RPC pf_bersihkan_data_lama
+# idempoten (menghapus baris yang sudah dihapus = no-op); kegagalan
+# sementara (jaringan/HTTP 408/429/5xx) dicoba ulang 2x.
 
 name: Retensi 90 Hari PRATA FAKTA
 
@@ -37,7 +41,7 @@ jobs:
         run: |
           test -n "$PF_SUPABASE_URL" || { echo "PF_SUPABASE_URL belum diisi"; exit 1; }
           test -n "$PF_SERVICE_ROLE_KEY" || { echo "PF_SERVICE_ROLE_KEY belum diisi"; exit 1; }
-          RESP=$(curl -sS -w "\n%{http_code}" -X POST "$PF_SUPABASE_URL/rest/v1/rpc/pf_bersihkan_data_lama" \
+          RESP=$(curl -sS --retry 2 --retry-delay 10 -w "\n%{http_code}" -X POST "$PF_SUPABASE_URL/rest/v1/rpc/pf_bersihkan_data_lama" \
             -H "apikey: $PF_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $PF_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \

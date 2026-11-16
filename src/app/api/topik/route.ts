@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { KATEGORI_UTAMA } from "@/lib/categories";
+import { negaraAda, validasiTarget } from "@/lib/topik";
 import {
   buatRateLimiter,
+  cekOrigin,
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
@@ -16,8 +17,6 @@ const batasi = buatRateLimiter(30);
 // DELETE /api/topik { id } atau { tipe, target } → berhenti mengikuti
 // Wajib login (401 bila tidak). 503 jujur bila tabel
 // pf_followed_topics belum ada (migrasi v6 belum dijalankan).
-const TIPE_VALID = ["kategori", "negara", "isu"] as const;
-
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,56 +46,6 @@ function respon503() {
     },
     { status: 503 },
   );
-}
-
-/** Validasi target topik (D3, Fase 8 Gelombang 1 — diekspos untuk uji).
- *  kategori wajib slug taksonomi yang dikenal; negara/isu wajib
- *  huruf, spasi, tanda hubung, dan apostrof saja (tanpa angka,
- *  URL, atau simbol — typo seperti "Ind0nesia" atau tautan
- *  tertolak di API). Validasi penuh negara terhadap tabel
- *  pf_countries ada di negaraAda() (Gelombang 2) dan dipakai
- *  POST — validasiTarget murni tetap seperti sebelumnya. */
-export function validasiTarget(
-  tipe: string,
-  target: string,
-): string | null {
-  if (!TIPE_VALID.includes(tipe as (typeof TIPE_VALID)[number])) {
-    return "Tipe topik tidak valid (kategori, negara, atau isu).";
-  }
-  if (!target || target.length > 120) {
-    return "Target topik wajib diisi (maksimal 120 karakter).";
-  }
-  if (tipe === "kategori") {
-    const dikenal = KATEGORI_UTAMA.some((k) => k.slug === target);
-    if (!dikenal) return "Kategori tidak dikenal.";
-  } else if (!/^[\p{L}\p{M}][\p{L}\p{M} '\-’]*$/u.test(target)) {
-    return "Target topik hanya boleh berisi huruf, spasi, dan tanda hubung.";
-  }
-  return null;
-}
-
-/**
- * Apakah target negara ada di pf_countries (Gelombang 2, Area 11)?
- * Cocok dengan nama (case-insensitive) ATAU kode ISO-2
- * (case-insensitive). Fail-OPEN bila tabel belum ada / query
- * gagal (migrasi v10 belum dijalankan): alur follow lama tetap
- * jalan seperti sebelum Gelombang 2. Dipakai HANYA di POST
- * (mengikuti topik); DELETE tidak divalidasi agar berhenti
- * mengikuti negara yang profilnya dihapus tetap bisa.
- */
-export async function negaraAda(target: string): Promise<boolean> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_countries")
-      .select("id")
-      .or(`nama.ilike.${target},kode.eq.${target.toUpperCase()}`)
-      .limit(1);
-    if (error) return true;
-    return (data ?? []).length > 0;
-  } catch {
-    return true;
-  }
 }
 
 export async function GET(req: Request) {
@@ -130,6 +79,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -190,6 +142,9 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(

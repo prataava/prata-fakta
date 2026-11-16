@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import {
   buatRateLimiter,
+  cekOrigin,
   ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
@@ -51,6 +52,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await batasiPost(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   // Hanya super_admin/editor.
   const supabase = await createClient();

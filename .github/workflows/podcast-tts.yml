@@ -26,6 +26,14 @@
 #   4. MODEL_CARD suara yang dipilih dicetak ke log run sebagai
 #      bukti verifikasi.
 #
+# RETRY (FU3, 16 Nov 2026 — perluasan F8): SEMUA curl di workflow
+# ini memakai --retry 2 --retry-delay 10. Aman karena tiap
+# panggilan idempoten: GET baca episode/katalog/model (md5
+# memverifikasi model sesudah unduh), POST unggah MP3 dengan
+# x-upsert:true, PATCH episode dengan nilai yang sama. Kegagalan
+# sementara (jaringan/HTTP 408/429/5xx) dicoba ulang 2x sebelum
+# job gagal.
+#
 # ALTERNATIF LOKAL (bila Actions tidak dipakai): editor menjalankan
 # langkah yang sama di mesin sendiri — pip install piper-tts==1.8.0,
 # unduh .onnx + .onnx.json suara dari Hugging Face, generate WAV,
@@ -141,7 +149,7 @@ jobs:
         run: |
           test -n "$SUPABASE_URL" || { echo "::error::Secret PF_SUPABASE_URL belum diisi."; exit 1; }
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "::error::Secret PF_SERVICE_ROLE_KEY belum diisi."; exit 1; }
-          kode=$(curl -s -o episode.json -w "%{http_code}" \
+          kode=$(curl -s --retry 2 --retry-delay 10 -o episode.json -w "%{http_code}" \
             "$SUPABASE_URL/rest/v1/pf_podcast_episodes?slug=eq.${{ inputs.episode_slug }}&select=id,slug,judul,status,teks_naskah" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -168,7 +176,7 @@ jobs:
 
       - name: Validasi suara + unduh model
         run: |
-          curl -sL --max-time 120 "$VOICES_JSON_URL" -o voices.json
+          curl -sL --retry 2 --retry-delay 10 --max-time 120 "$VOICES_JSON_URL" -o voices.json
           python3 - <<'EOF'
           import json, os
           suara = os.environ["SUARA"]
@@ -186,10 +194,10 @@ jobs:
           print(f"suara: {suara} — {info['language']['name_native']} ({info['quality']}, {info['num_speakers']} penutur)")
           EOF
           echo "--- MODEL_CARD suara ${{ inputs.suara }} (bukti verifikasi lisensi, dibaca editor sebelum dispatch) ---"
-          curl -sL --max-time 60 "$MODEL_BASE_URL/$(dirname "$(cat suara_onnx.txt)")/MODEL_CARD" || echo "(MODEL_CARD tidak bisa diunduh — verifikasi manual editor tetap berlaku)"
+          curl -sL --retry 2 --retry-delay 10 --max-time 60 "$MODEL_BASE_URL/$(dirname "$(cat suara_onnx.txt)")/MODEL_CARD" || echo "(MODEL_CARD tidak bisa diunduh — verifikasi manual editor tetap berlaku)"
           echo "--- unduh model ---"
-          curl -sL --max-time 600 "$MODEL_BASE_URL/$(cat suara_onnx.txt)" -o suara.onnx
-          curl -sL --max-time 60 "$MODEL_BASE_URL/$(cat suara_json.txt)" -o suara.onnx.json
+          curl -sL --retry 2 --retry-delay 10 --max-time 600 "$MODEL_BASE_URL/$(cat suara_onnx.txt)" -o suara.onnx
+          curl -sL --retry 2 --retry-delay 10 --max-time 60 "$MODEL_BASE_URL/$(cat suara_json.txt)" -o suara.onnx.json
           test "$(md5sum suara.onnx | cut -d' ' -f1)" = "$(cat suara_md5.txt)" || { echo "::error::md5 suara.onnx tidak cocok dengan voices.json — unduhan rusak/diganti."; exit 1; }
           ls -la suara.onnx suara.onnx.json
         env:
@@ -207,7 +215,7 @@ jobs:
 
       - name: Unggah MP3 ke Storage (bucket podcast-audio)
         run: |
-          kode=$(curl -s -o unggah.json -w "%{http_code}" \
+          kode=$(curl -s --retry 2 --retry-delay 10 -o unggah.json -w "%{http_code}" \
             -X POST "$SUPABASE_URL/storage/v1/object/podcast-audio/${{ inputs.episode_slug }}.mp3" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -232,7 +240,7 @@ jobs:
             "tts_suara": "${{ inputs.suara }}",
           }, open("patch.json", "w"))
           EOF
-          kode=$(curl -s -o patch_res.json -w "%{http_code}" \
+          kode=$(curl -s --retry 2 --retry-delay 10 -o patch_res.json -w "%{http_code}" \
             -X PATCH "$SUPABASE_URL/rest/v1/pf_podcast_episodes?id=eq.$ep_id" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \

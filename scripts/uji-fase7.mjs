@@ -96,12 +96,13 @@ if (ok) ok = await jalankan("v6", baca("20261116_pf_v6_advanced.sql"));
 if (ok) ok = await jalankan("v7 putaran 1", baca("20261116_pf_v7_quiz_scores.sql"));
 if (ok) ok = await jalankan("v7 putaran 2 (idempotensi)", baca("20261116_pf_v7_quiz_scores.sql"));
 // v8 (Fase 8 Gelombang 1) + v9–v14 diterapkan di sini agar baterai
-// ini menguji skrip backup terhadap skema repo saat ini (61 tabel):
-// backup-pf.mjs mendaftar 61 tabel pasca-v14, jadi DB uji harus
-// v1–v14 — bukan v1–v8 — supaya perbandingan daftar = DB jujur.
+// ini menguji skrip backup terhadap skema repo saat ini (62 tabel):
+// backup-pf.mjs mendaftar 62 tabel pasca-v15, jadi DB uji harus
+// v1–v16 — bukan v1–v8 — supaya perbandingan daftar = DB jujur.
 // (Diperbarui Gelombang B1: v9 GRANT, v10 16 tabel, v11 limiter,
 //  v12 seed 5 job, v13 pf_quiz_answers + GRANT service_role;
-//  Gelombang B2: v14 +6 tabel.)
+//  Gelombang B2: v14 +6 tabel; Tahap C: v15 pf_quiz_daily_answers;
+//  Follow-up 5/6: v16 bookmark pengetahuan — tanpa tabel baru.)
 if (ok) ok = await jalankan("v8 putaran 1", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v8 putaran 2 (idempotensi)", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v9", baca("20261116_pf_v9_grants.sql"));
@@ -110,6 +111,8 @@ if (ok) ok = await jalankan("v11", baca("20261116_pf_v11_rate_limit_audit.sql"))
 if (ok) ok = await jalankan("v12", baca("20261116_pf_v12_seed_jobs.sql"));
 if (ok) ok = await jalankan("v13", baca("20261116_pf_v13_ultimate.sql"));
 if (ok) ok = await jalankan("v14", baca("20261116_pf_v14_gelombang_b2.sql"));
+if (ok) ok = await jalankan("v15", baca("20261116_pf_v15_tahap_c.sql"));
+if (ok) ok = await jalankan("v16", baca("20261116_pf_v16_bookmark_pengetahuan.sql"));
 if (!ok) {
   console.log("HASIL: MIGRASI GAGAL");
   process.exit(1);
@@ -119,24 +122,22 @@ const hitung = async (sql, params = []) =>
   Number((await db.query(sql, params)).rows[0].n);
 
 cek(
-  "tabel pf_* = 61",
+  "tabel pf_* = 62",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%'`,
-  )) === 61,
-  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences) + 16 (v10) + 1 (v11: pf_rate_limits) + 1 (v13: pf_quiz_answers) + 6 (v14)",
+  )) === 62,
+  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences) + 16 (v10) + 1 (v11: pf_rate_limits) + 1 (v13: pf_quiz_answers) + 6 (v14) + 1 (v15: pf_quiz_daily_answers)",
 );
-cek(
-  "RLS 61/61",
-  (await hitung(
-    `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
-  )) === 61,
+const rlsAktif = await hitung(
+  `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
 );
+cek("RLS 62/62", rlsAktif === 62, `${rlsAktif} aktif`);
 cek(
-  "policy total = 119",
+  "policy total = 120",
   (await hitung(
     `select count(*) n from pg_policies where schemaname='public' and tablename like 'pf_%'`,
-  )) === 119,
-  "79 (v1-v8) + 27 (v10) + 1 (v13: arsip Q&A publik) + 12 (v14)",
+  )) === 120,
+  "79 (v1-v8) + 27 (v10) + 1 (v13: arsip Q&A publik) + 12 (v14) + 1 (v15: pf_quiz_daily_answers baca sendiri)",
 );
 cek(
   "policy pf_quiz_scores = 4",
@@ -185,15 +186,44 @@ await harusBerhasil(
   [U1],
 );
 
+// (Diperbarui Follow-up Tahap H: trigger v15 (Tahap C-3) menghitung
+//  ulang benar/total pf_quiz_scores dari jawaban tersimpan — skor
+//  tanpa soal ditolak, skor palsu dikoreksi. Skenario ini men-seed
+//  5 soal HARI_INI + jawaban tersimpan u1 (4 benar, 1 salah) sebelum
+//  menguji insert/upsert — pola yang sama seperti baterai Tahap C.)
+const soalIdsHariIni = [];
+for (let i = 1; i <= 5; i++) {
+  const q = (
+    await db.query(
+      `insert into public.pf_quiz_questions (tanggal, pertanyaan, opsi, jenis)
+       values ($1, $2, '["a","b","c","d"]'::jsonb, 'pilihan_ganda') returning id`,
+      [HARI_INI, `Soal ${i}?`],
+    )
+  ).rows[0].id;
+  soalIdsHariIni.push(q);
+}
+for (let i = 0; i < 5; i++) {
+  await db.query(
+    `insert into public.pf_quiz_daily_answers (user_id, soal_id, tanggal, jawaban, benar)
+     values ($1, $2, $3, 0, $4)`,
+    [U1, soalIdsHariIni[i], HARI_INI, i < 4],
+  );
+}
+
 const skor1 = (
   await harusBerhasil(
     "insert skor u1 hari ini (4/5)",
     `insert into public.pf_quiz_scores (user_id, tanggal, benar, total)
-     values ($1, $2, 4, 5) returning id, dibuat_pada, diperbarui_pada`,
+     values ($1, $2, 4, 5) returning id, benar, total, dibuat_pada, diperbarui_pada`,
     [U1, HARI_INI],
   )
 )?.rows[0];
 cek("skor tersimpan mengembalikan id", typeof skor1?.id === "string");
+cek(
+  "skor tersimpan = hitungan trigger v15 (4/5)",
+  skor1?.benar === 4 && skor1?.total === 5,
+  `tersimpan ${skor1?.benar}/${skor1?.total}`,
+);
 
 await harusGagal(
   "duplikat (user, tanggal) ditolak tanpa upsert",
@@ -201,6 +231,13 @@ await harusGagal(
   [U1, HARI_INI],
 );
 
+// Jawaban ke-5 dikoreksi jadi benar dulu — baru upsert boleh jadi 5/5
+// (trigger menghitung ulang dari jawaban tersimpan, bukan dari body).
+await harusBerhasil(
+  "koreksi jawaban ke-5 jadi benar",
+  `update public.pf_quiz_daily_answers set benar = true where user_id = $1 and soal_id = $2 and tanggal = $3`,
+  [U1, soalIdsHariIni[4], HARI_INI],
+);
 const upsert = (
   await harusBerhasil(
     "upsert main ulang hari yang sama (5/5)",
@@ -223,29 +260,36 @@ cek(
   )) === 1,
 );
 
-await harusGagal(
-  "benar 6 ditolak (check 0..5)",
-  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-15', 6, 5)`,
-  [U1],
+// CHECK benar/total TIDAK lagi bisa diuji lewat penolakan insert:
+// trigger v15 menimpa benar/total SEBELUM CHECK dievaluasi (tanggal
+// bersoal -> dikoreksi ke nilai sah; tanggal tanpa soal -> ditolak
+// trigger, bukan CHECK). Keberadaan definisi CHECK diuji lewat
+// katalog pg_constraint — nilai di luar rentang tetap tidak bisa
+// tersimpan lewat jalur mana pun, karena trigger selalu menulis
+// nilai hasil hitungan (0..jumlah soal).
+const cekDefinisi = await db.query(
+  `select pg_get_constraintdef(oid) as def from pg_constraint
+   where conrelid = 'public.pf_quiz_scores'::regclass and contype = 'c'`,
+);
+const definisiCek = cekDefinisi.rows.map((r) => r.def).join(" ");
+cek(
+  "CHECK benar 0..5 ada di skema",
+  definisiCek.includes("benar >= 0") && definisiCek.includes("benar <= 5"),
+  definisiCek,
+);
+cek(
+  "CHECK total 1..10 ada di skema",
+  definisiCek.includes("total >= 1") && definisiCek.includes("total <= 10"),
+  definisiCek,
+);
+cek(
+  "CHECK benar <= total ada di skema",
+  definisiCek.includes("benar <= total"),
+  definisiCek,
 );
 await harusGagal(
-  "benar -1 ditolak",
-  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-15', -1, 5)`,
-  [U1],
-);
-await harusGagal(
-  "benar 4 total 3 ditolak (benar <= total)",
-  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-15', 4, 3)`,
-  [U1],
-);
-await harusGagal(
-  "total 0 ditolak",
-  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-15', 0, 0)`,
-  [U1],
-);
-await harusGagal(
-  "total 11 ditolak",
-  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-15', 5, 11)`,
+  "skor tanggal tanpa soal ditolak trigger v15",
+  `insert into public.pf_quiz_scores (user_id, tanggal, benar, total) values ($1, '2026-11-20', 5, 5)`,
   [U1],
 );
 await harusGagal(
@@ -325,11 +369,11 @@ cek(
   bacaRepo("src/components/peta/PetaDuniaLazy.tsx").includes("leaflet/dist/leaflet.css"),
 );
 
-// Skrip backup mencakup semua 61 tabel (pasca-v14).
+// Skrip backup mencakup semua 62 tabel (pasca-v15; v16 tanpa tabel baru).
 const backup = bacaRepo("scripts/backup-pf.mjs");
 const daftarTabel = [...backup.matchAll(/"(pf_[a-z_]+)"/g)].map((m) => m[1]);
 const unikTabel = [...new Set(daftarTabel)];
-cek("backup: 61 tabel unik", unikTabel.length === 61, `${unikTabel.length} ditemukan`);
+cek("backup: 62 tabel unik", unikTabel.length === 62, `${unikTabel.length} ditemukan`);
 const tabelDb = (
   await db.query(
     `select tablename from pg_tables where schemaname='public' and tablename like 'pf_%'`,
@@ -381,7 +425,11 @@ cek(
 // T1: kunci kuis tidak lagi dikirim ke klien.
 cek("T1: route /api/kuis/jawab ada", fs.existsSync(`${DIR_REPO}/src/app/api/kuis/jawab/route.ts`));
 const jawabSrc = bacaRepo("src/app/api/kuis/jawab/route.ts");
-cek("T1: route jawab memvalidasi jawaban 0..4", jawabSrc.includes("jawaban > 4") && jawabSrc.includes("validasiJawabanKuis"));
+// FU2 (16 Nov 2026): validasiJawabanKuis pindah ke src/lib/kuis.ts
+// (route.ts dilarang mengekspor non-handler) — route tetap
+// memanggilnya, batas 0..4 kini diperiksa dari lib.
+const kuisSrc = bacaRepo("src/lib/kuis.ts");
+cek("T1: route jawab memvalidasi jawaban 0..4", kuisSrc.includes("jawaban > 4") && jawabSrc.includes("validasiJawabanKuis"));
 cek("T1: route jawab membatasi tanggal hari ini/kemarin", jawabSrc.includes("kemarinWib"));
 const kuisKlien = bacaRepo("src/components/lanjutan/KuisHarian.tsx");
 cek("T1: KuisHarian memakai /api/kuis/jawab", kuisKlien.includes("/api/kuis/jawab"));
@@ -396,9 +444,10 @@ cek(
 );
 
 // T1 (lanjutan): uji fungsi murni validasiJawabanKuis via ekstraksi
-// sumber (pola uji Fase 6 — fungsi diekspor agar bisa diuji).
-const polaUuid = /const POLA_UUID =\n  \/.*\/i;/.exec(jawabSrc)?.[0];
-const fnValidasi = /export function validasiJawabanKuis\([\s\S]*?\n\}/.exec(jawabSrc)?.[0];
+// sumber (pola uji Fase 6 — fungsi diekspos di lib agar bisa diuji;
+// FU2: sumber ekstraksi pindah dari route ke src/lib/kuis.ts).
+const polaUuid = /const POLA_UUID =\n  \/.*\/i;/.exec(kuisSrc)?.[0];
+const fnValidasi = /export function validasiJawabanKuis\([\s\S]*?\n\}/.exec(kuisSrc)?.[0];
 cek("T1: validasiJawabanKuis dapat diekstrak dari sumber", Boolean(polaUuid && fnValidasi));
 if (polaUuid && fnValidasi) {
   const validasi = new Function(

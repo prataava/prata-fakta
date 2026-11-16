@@ -167,6 +167,49 @@ export async function getSeri(
   }
 }
 
+/** Artikel berita terbit terkait satu topik explainer (F9,
+ *  follow-up 5): judul/ringkasan mengandung topik (ilike),
+ *  terbaru dulu, maks 5. [] bila topik kosong / tidak ada yang
+ *  cocok / tabel belum ada — pemanggil tidak menampilkan seksi
+ *  "Berita terkait" bila kosong (tanpa angka palsu). */
+export type ArtikelTerkaitBerita = {
+  slug: string;
+  judul: string;
+  ringkasan: string | null;
+};
+
+export async function getArtikelTerkait(
+  topik: string | null | undefined,
+): Promise<ArtikelTerkaitBerita[]> {
+  if (!topik) return [];
+  try {
+    const supabase = await createClient();
+    const pola = `%${topik.replace(/[%_]/g, "")}%`;
+    const { data, error } = await supabase
+      .from("pf_articles")
+      .select("slug, judul, ringkasan")
+      .eq("status", "terbit")
+      .or(`judul.ilike.${pola},ringkasan.ilike.${pola}`)
+      .order("diterbitkan_pada", { ascending: false, nullsFirst: false })
+      .order("judul", { ascending: true })
+      .limit(5);
+    if (error) {
+      if (catatGalatBaca("getArtikelTerkait", error)) return [];
+      throw new GalatBaca("getArtikelTerkait", error);
+    }
+    if (!data) return [];
+    return (data as unknown as Record<string, unknown>[]).map((r) => ({
+      slug: String(r.slug),
+      judul: String(r.judul ?? ""),
+      ringkasan: (r.ringkasan as string | null) ?? null,
+    }));
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelTerkait", err)) return [];
+    throw new GalatBaca("getArtikelTerkait", err);
+  }
+}
+
 /* ============================================================
    Fungsi murni — format explainer berlapis.
    Diekspor agar bisa diuji tanpa database (pola

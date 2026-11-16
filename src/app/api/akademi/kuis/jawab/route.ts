@@ -32,14 +32,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import {
   jenisSoalKuisDari,
   nilaiJawaban,
-  validasiBentukJawaban,
-  type JenisSoalKuis,
+  validasiJawabanAkademi,
   type KunciSoal,
 } from "@/lib/akademi/penilaian";
 import { catatGalatRoute } from "@/lib/analytics/galat";
@@ -49,51 +49,14 @@ const POLA_UUID =
 
 const lolosRateLimit = buatRateLimiterKeras(20);
 
-/**
- * Validasi murni body permintaan (diekspos untuk uji). Parameter
- * kedua adalah jenis soal menurut DATABASE (otoritas) — bila
- * tidak diisi, default 'pilihan_ganda' (kompatibel dengan baterai
- * lama yang hanya menguji jawaban angka). Bentuk jawaban yang
- * tidak cocok dengan jenis soal ditolak.
- */
-export function validasiJawabanAkademi(
-  body: unknown,
-  jenisSoal: JenisSoalKuis = "pilihan_ganda",
-):
-  | {
-      ok: true;
-      lessonId: string;
-      soalId: string;
-      jawaban: number | number[] | string;
-    }
-  | { ok: false; error: string } {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, error: "Isi permintaan tidak valid." };
-  }
-  const { lesson_id, soal_id, jawaban } = body as Record<string, unknown>;
-  if (typeof lesson_id !== "string" || !POLA_UUID.test(lesson_id)) {
-    return { ok: false, error: "lesson_id tidak valid." };
-  }
-  if (typeof soal_id !== "string" || !POLA_UUID.test(soal_id)) {
-    return { ok: false, error: "soal_id tidak valid." };
-  }
-  const bentuk = validasiBentukJawaban(jenisSoal, jawaban);
-  if (!bentuk.ok) return { ok: false, error: bentuk.error };
-  const j = bentuk.jawaban;
-  // validasiBentukJawaban memetakan boolean benar/salah ke 0/1,
-  // jadi boolean/null tidak pernah lolos sampai sini — pemeriksaan
-  // ini hanya penyempitan tipe untuk TypeScript.
-  if (j === null || typeof j === "boolean") {
-    return { ok: false, error: "Jawaban tidak valid." };
-  }
-  return { ok: true, lessonId: lesson_id, soalId: soal_id, jawaban: j };
-}
-
 export async function POST(req: Request) {
   const hasilRateLimit = await lolosRateLimit(req);
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   let body: unknown;
   try {

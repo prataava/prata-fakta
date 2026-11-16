@@ -23,79 +23,24 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiterKeras,
+  cekOrigin,
   responRateLimit,
   responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { catatGalatRoute } from "@/lib/analytics/galat";
-
-const POLA_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { hitungSkorProgres, validasiProgres } from "@/lib/akademi/penilaian";
 
 const lolosRateLimit = buatRateLimiterKeras(20);
-
-/** Validasi murni body permintaan (diekspos untuk uji). */
-export function validasiProgres(
-  body: unknown,
-):
-  | {
-      ok: true;
-      lessonId: string;
-      selesai: boolean;
-    }
-  | { ok: false; error: string } {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, error: "Isi permintaan tidak valid." };
-  }
-  const { lesson_id, selesai, skor } = body as Record<string, unknown>;
-  if (typeof lesson_id !== "string" || !POLA_UUID.test(lesson_id)) {
-    return { ok: false, error: "lesson_id tidak valid." };
-  }
-  if (typeof selesai !== "boolean") {
-    return { ok: false, error: "selesai harus boolean." };
-  }
-  // Skor dari klien TIDAK PERNAH diterima lagi (I-4): skor
-  // dihitung server dari jawaban tersimpan. `skor: null` atau
-  // tidak ada kunci skor masih diterima (kompatibel dengan klien
-  // lama yang mengirim null); angka apa pun ditolak tegas.
-  if (skor !== undefined && skor !== null) {
-    return {
-      ok: false,
-      error:
-        "Skor dihitung server dari jawaban kuis tersimpan — skor dari klien tidak diterima.",
-    };
-  }
-  return { ok: true, lessonId: lesson_id, selesai };
-}
-
-/**
- * Hitung skor server-side satu pelajaran kuis dari jawaban
- * tersimpan (diekspos untuk uji): jumlah jawaban benar.
- * `ambilJawaban` mengembalikan null bila tabel jawaban belum ada
- * (PGRST205) agar pemanggil bisa menjawab 503 jujur; melempar
- * bila baca gagal karena galat lain.
- */
-export async function hitungSkorProgres(
-  ambilJawaban: (
-    userId: string,
-    lessonId: string,
-  ) => Promise<{ benar: boolean | null }[] | null>,
-  userId: string,
-  lessonId: string,
-): Promise<{ skor: number; jumlahJawaban: number } | null> {
-  const daftar = await ambilJawaban(userId, lessonId);
-  if (daftar === null) return null;
-  return {
-    skor: daftar.filter((r) => r.benar === true).length,
-    jumlahJawaban: daftar.length,
-  };
-}
 
 export async function POST(req: Request) {
   const hasilRateLimit = await lolosRateLimit(req);
   if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
     return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
   if (!hasilRateLimit.lolos) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   const supabase = await createClient();
   const {

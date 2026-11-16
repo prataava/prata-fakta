@@ -300,7 +300,11 @@ export default async function Data({
                   {ind.frekuensi_update && (
                     <span className="kartu-meta">
                       Frekuensi pembaruan: {ind.frekuensi_update}
-                      {ind.negara_kode ? ` · Negara: ${ind.negara_kode}` : ""}
+                    </span>
+                  )}
+                  {ind.negara_kode && (
+                    <span className="kartu-meta">
+                      Negara: {ind.negara_kode}
                     </span>
                   )}
                   {ind.ringkasan_tren && (

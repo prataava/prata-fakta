@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { cobaServiceClient } from "@/lib/supabase/service";
-import { buatRateLimiter, responRateLimit } from "@/lib/ai/route-auth";
+import { buatRateLimiter, cekOrigin, responRateLimit } from "@/lib/ai/route-auth";
 import {
   catatKunjungan,
   normalisasiPath,
@@ -20,6 +20,9 @@ const batasi = buatRateLimiter(120);
 
 export async function POST(req: Request) {
   if (!(await batasi(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   let body: unknown;
   try {
     body = await req.json();

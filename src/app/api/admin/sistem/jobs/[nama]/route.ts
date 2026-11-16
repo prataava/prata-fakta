@@ -10,6 +10,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -75,6 +76,9 @@ function namaValid(nama: string): nama is NamaJob {
 
 export async function PATCH(req: Request, { params }: Params) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { nama } = await params;
@@ -134,6 +138,9 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function POST(req: Request, { params }: Params) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { nama } = await params;

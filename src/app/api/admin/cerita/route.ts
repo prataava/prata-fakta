@@ -9,6 +9,7 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
-import { slugCeritaValid } from "@/lib/cerita";
+import { validasiCeritaInput } from "@/lib/admin/validasi";
 import { buatSlug } from "@/lib/ai/slug";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -24,64 +25,6 @@ const lolosRateLimit = buatRateLimiterAdmin();
 
 const KOLOM_CERITA =
   "id, slug, judul, ringkasan, status, status_perkembangan, dibuat_pada, diperbarui_pada";
-
-const STATUS_VALID = ["draft", "terbit"] as const;
-const PERKEMBANGAN_VALID = ["berkembang", "selesai"] as const;
-
-/** Validasi kolom cerita (dipakai POST + PATCH). */
-export function validasiCeritaInput(
-  body: Record<string, unknown>,
-): { galat: string | null; patch: Record<string, unknown> } {
-  const patch: Record<string, unknown> = {};
-  if (body.judul !== undefined) {
-    const judul =
-      typeof body.judul === "string" ? body.judul.trim() : "";
-    if (!judul || judul.length > 200) {
-      return { galat: "Judul cerita wajib diisi (maksimal 200 karakter).", patch: {} };
-    }
-    patch.judul = judul;
-  }
-  if (body.slug !== undefined) {
-    const slug =
-      typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "";
-    if (slug && !slugCeritaValid(slug)) {
-      return {
-        galat: "Slug hanya boleh huruf kecil, angka, dan tanda hubung.",
-        patch: {},
-      };
-    }
-    if (slug) patch.slug = slug;
-  }
-  if (body.ringkasan !== undefined) {
-    const ringkasan =
-      typeof body.ringkasan === "string" ? body.ringkasan.trim() : "";
-    patch.ringkasan = ringkasan === "" ? null : ringkasan.slice(0, 2000);
-  }
-  if (body.status !== undefined) {
-    if (
-      typeof body.status !== "string" ||
-      !(STATUS_VALID as readonly string[]).includes(body.status)
-    ) {
-      return { galat: "Status cerita tidak valid (draft atau terbit).", patch: {} };
-    }
-    patch.status = body.status;
-  }
-  if (body.status_perkembangan !== undefined) {
-    if (
-      typeof body.status_perkembangan !== "string" ||
-      !(PERKEMBANGAN_VALID as readonly string[]).includes(
-        body.status_perkembangan,
-      )
-    ) {
-      return {
-        galat: "Status perkembangan tidak valid (berkembang atau selesai).",
-        patch: {},
-      };
-    }
-    patch.status_perkembangan = body.status_perkembangan;
-  }
-  return { galat: null, patch };
-}
 
 export async function GET(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
@@ -167,6 +110,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 

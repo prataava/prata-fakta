@@ -83,12 +83,14 @@ function bersihkanTipe(s) {
     .replace(/: boolean/g, "");
 }
 
-const teksTanya = fs.readFileSync(`${DIR_SRC}app/api/tanya/route.ts`, "utf8");
+const teksTanya = fs.readFileSync(`${DIR_SRC}lib/tanya/retrieval.ts`, "utf8");
 // STOPWORDS adalah literal Set([...]) tanpa kurung kurawal — ambil
 // dengan regex yang berhenti tepat di `]);`, BUKAN pencocokan
 // kurung (yang akan melompat ke badan fungsi berikutnya).
+// (Follow-up 5/6: STOPWORDS + kataKunci pindah dari route /api/tanya
+//  ke src/lib/tanya/retrieval.ts — dipakai ulang route + job draf.)
 const mStop = teksTanya.match(/const STOPWORDS = new Set\(\[[\s\S]*?\]\);/);
-if (!mStop) throw new Error("STOPWORDS tidak ketemu di route /api/tanya");
+if (!mStop) throw new Error("STOPWORDS tidak ketemu di lib/tanya/retrieval.ts");
 const srcStopwords = mStop[0];
 const srcKataKunci = ekstrak(teksTanya, /export function kataKunci\(/);
 const kataKunci = new Function(
