@@ -51,7 +51,6 @@ import { parseRss } from "../src/lib/ingestion/rss.ts";
 import {
   cobaUlang,
   GalatSementara,
-  percobaanGalat,
 } from "../src/lib/ingestion/retry.ts";
 import { jalankanPipelineEditorial } from "../src/lib/ai/pipeline.ts";
 import { cariKalimatKutipan, polaPencarianInti } from "../src/lib/ai/research.ts";
