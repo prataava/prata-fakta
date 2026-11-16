@@ -65,6 +65,12 @@ export type PfIndikatorNegara = {
   tanggal_nilai_terakhir: string | null;
 };
 
+export type PfCeritaNegara = {
+  slug: string;
+  judul: string;
+  status_perkembangan: string;
+};
+
 export type ProfilNegara = {
   negara: PfNegara;
   /** true bila baris negara punya sumber — baru bila ini true
@@ -77,6 +83,17 @@ export type ProfilNegara = {
   berita: PfArtikelRingkas[];
   events: PfEventNegara[];
   indikator: PfIndikatorNegara[];
+  /** Cerita TERBIT yang memuat peristiwa di negara ini
+   *  (Tahap F — tautan story ↔ negara). pf_stories TIDAK
+   *  punya kolom negara_kode sendiri, jadi tautan diturunkan
+   *  dari peristiwa yang dimuat cerita itu
+   *  (pf_story_events -> pf_events.negara_kode); cerita yang
+   *  peristiwa-peristiwanya di negara lain tidak masuk.
+   *  Hanya cerita terbit; draf tidak pernah bocor. [] bila
+   *  tidak ada. Dibatasi peristiwa yang dibaca getNegara
+   *  (20 terbaru) — cerita yang hanya memuat peristiwa lama
+   *  di luar batas itu tidak tampil di sini. */
+  cerita: PfCeritaNegara[];
 };
 
 const KOLOM_NEGARA =
@@ -335,8 +352,9 @@ export async function getNegaraDenganBerita(): Promise<PfNegara[]> {
 
 /**
  * Profil lengkap satu negara: identitas + fakta + berita terbit
- * terbaru + event + indikator. null bila kode tak ada / tabel
- * belum ada. Berita HANYA yang terbit; draf tidak pernah bocor.
+ * terbaru + event + indikator + cerita terbit yang memuat
+ * peristiwa di negara ini (Tahap F). null bila kode tak ada /
+ * tabel belum ada. Berita HANYA yang terbit; draf tidak pernah bocor.
  */
 export async function getNegara(kode: string): Promise<ProfilNegara | null> {
   const kodeNormal = normalisasiKode(kode);
@@ -474,6 +492,54 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
       });
     }
 
+    // Cerita TERBIT yang memuat peristiwa di negara ini
+    // (Tahap F — tautan story ↔ negara). pf_stories tidak punya
+    // negara_kode: tautan diturunkan dari pf_story_events ->
+    // pf_events.negara_kode. Hanya cerita terbit (join inner +
+    // filter status) — tautan ke cerita draf TIDAK bocor.
+    // Galat di sini tidak menggagalkan profil: seksi cerita
+    // tampil kosong, seksi lain tetap tampil.
+    let cerita: PfCeritaNegara[] = [];
+    if (events.length > 0) {
+      try {
+        const { data: tautanCerita, error: errCerita } = await supabase
+          .from("pf_story_events")
+          .select("pf_stories!inner(slug, judul, status, status_perkembangan)")
+          .in(
+            "event_id",
+            events.map((e) => e.id),
+          )
+          .eq("pf_stories.status", "terbit");
+        if (errCerita) {
+          catatGalatBaca("getNegara.cerita", errCerita);
+        } else if (tautanCerita) {
+          const perSlug = new Map<string, PfCeritaNegara>();
+          for (const t of tautanCerita as unknown as Record<
+            string,
+            unknown
+          >[]) {
+            const s = t.pf_stories as Record<string, unknown> | null;
+            if (!s || typeof s.slug !== "string" || !s.slug) continue;
+            if (!perSlug.has(s.slug)) {
+              perSlug.set(s.slug, {
+                slug: s.slug,
+                judul: typeof s.judul === "string" ? s.judul : s.slug,
+                status_perkembangan:
+                  typeof s.status_perkembangan === "string"
+                    ? s.status_perkembangan
+                    : "",
+              });
+            }
+          }
+          cerita = [...perSlug.values()].sort((a, b) =>
+            a.judul.localeCompare(b.judul, "id"),
+          );
+        }
+      } catch (err) {
+        catatGalatBaca("getNegara.cerita", err);
+      }
+    }
+
     return {
       negara,
       angkaTersedia: punyaSumber(negara.sumber),
@@ -482,6 +548,7 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
       berita,
       events,
       indikator,
+      cerita,
     };
   } catch (err) {
     if (err instanceof GalatBaca) throw err;
