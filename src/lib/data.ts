@@ -711,6 +711,16 @@ export async function getJejakFakta(
   const kosong: JejakFakta = { artikelId, klaim: [], verifikasi: [], tersedia: false };
   try {
     const supabase = await createClient();
+    // Defense-in-depth (F-A1-1): cek status='terbit' di aplikasi,
+    // jangan hanya mengandalkan RLS v8 — sama seperti
+    // getPerbandinganSumber. Artikel draf/tak ada -> kosong.
+    const { data: artikel, error: errArtikel } = await supabase
+      .from("pf_articles")
+      .select("id")
+      .eq("id", artikelId)
+      .eq("status", "terbit")
+      .maybeSingle();
+    if (errArtikel || !artikel) return kosong;
     const { data: klaim, error: errKlaim } = await supabase
       .from("pf_claims")
       .select("id, teks, jenis, status, dibuat_pada")
