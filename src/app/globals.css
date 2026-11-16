@@ -81,7 +81,13 @@ html[data-theme="dark"] {
 html,
 body {
   max-width: 100vw;
-  overflow-x: hidden;
+  /* overflow-x: clip (BUKAN hidden): clip menyembunyikan luapan
+   * horizontal sama seperti hidden, TAPI tidak membuat body jadi
+   * scroll container — jadi `position: sticky` pada header tetap
+   * berfungsi. Dengan `hidden`, header sticky tidak pernah
+   * menempel (terbukti CDP V3 Fase 5: header ikut tergulir).
+   * clip didukung Chrome 90+, Safari 16+, Firefox 81+. */
+  overflow-x: clip;
 }
 
 /* ---------- sr-only (F-S7) ---------- */
@@ -339,6 +345,25 @@ main.konten {
   box-shadow: 0 8px 24px rgba(2, 6, 16, 0.08);
 }
 
+/* V3 Fase 5 — header mengambang (desktop ≥768px): bar kaca bulat
+ * yang melayang 12px dari tepi atas, selebar kolom konten
+ * (var(--maxw)) dan terpusat; saat digulir tetap menempel 12px
+ * dari atas. HP (<768px) tetap bar penuh ringkas seperti semula
+ * (logo, ikon cari, tema, profil) — tanpa pil mengambang yang
+ * memakan lebar layar. Sticky + margin in-flow = tanpa layout
+ * shift, konten tidak tertutup, tidak bentrok dengan dock bawah. */
+@media (min-width: 768px) {
+  .header {
+    top: 12px;
+    width: calc(100% - 24px);
+    max-width: var(--maxw);
+    margin: 12px auto 0;
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    box-shadow: 0 12px 32px rgba(2, 6, 16, 0.14);
+  }
+}
+
 .header-atas {
   display: flex;
   align-items: center;
@@ -483,38 +508,169 @@ main.konten {
   margin-left: auto;
 }
 
-.nav-kategori {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 0 0 10px;
-}
-
-.nav-kategori::-webkit-scrollbar {
+/* ---------- Navigasi utama (V3 Fase 3) ---------- */
+/* Baris 2 header desktop: tepat 8 pintu inti. Disembunyikan di HP
+ * (<768px) — navigasi HP lewat dock bawah + /jelajahi (Lainnya). */
+.nav-utama {
   display: none;
 }
 
-.nav-kategori a {
+@media (min-width: 768px) {
+  .nav-utama {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 0 10px;
+  }
+}
+
+.nav-tautan,
+.nav-pemicu {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex-shrink: 0;
-  padding: 8px 14px;
+  padding: 8px 13px;
   border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 600;
+  font-family: inherit; /* button wajib font eksplisit (UA stylesheet) */
   color: var(--ink-2);
+  background: transparent;
   border: 1px solid transparent;
+  cursor: pointer;
   transition: background 200ms ease, color 200ms ease, box-shadow 200ms ease;
+  white-space: nowrap;
 }
 
-.nav-kategori a:hover {
+.nav-tautan:hover,
+.nav-pemicu:hover {
   color: var(--ink);
   background: var(--surface-2);
 }
 
-.nav-kategori a.aktif {
+.nav-tautan.aktif,
+.nav-pemicu.aktif {
   color: var(--accent-ink);
   background: var(--accent);
   box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.nav-tautan:focus-visible,
+.nav-pemicu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.nav-chevron {
+  transition: transform 180ms ease;
+}
+
+.nav-pemicu[data-state="open"] .nav-chevron {
+  transform: rotate(180deg);
+}
+
+/* Panel dropdown (portal Radix — di luar header, tidak terpotong). */
+.menu-panel {
+  z-index: 100;
+  min-width: 300px;
+  max-width: min(92vw, 340px);
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: 0 16px 40px rgba(2, 6, 16, 0.22);
+}
+
+/* Kategori: panel lebar 2 kolom (11 entri: Semua + 10 kategori). */
+.menu-panel-lebar {
+  min-width: 320px;
+  max-width: min(92vw, 620px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.menu-panel[data-state="open"] {
+  animation: menu-masuk 180ms ease;
+}
+
+@keyframes menu-masuk {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-panel[data-state="open"] {
+    animation: none;
+  }
+
+  .nav-chevron {
+    transition: none;
+  }
+}
+
+.menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item[data-highlighted] {
+  background: var(--surface-2);
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.menu-item-ikon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.menu-item-teks {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.menu-item-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.menu-item-deskripsi {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ---------- Pencarian ---------- */
@@ -732,6 +888,31 @@ main.konten {
   .grid-kategori {
     grid-template-columns: repeat(5, 1fr);
   }
+}
+
+/* Strip "Jelajahi lebih jauh" (V3 Fase 9): 4 kartu navigasi —
+ * 2 kolom di HP, 4 kolom di desktop. */
+.grid-strip {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .grid-strip {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.strip-ikon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* ---------- Kartu ---------- */
