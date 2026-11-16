@@ -271,7 +271,14 @@ console.log("\n--- (G) CSP ---");
   const prod = buatHeaderCsp("NONCE-UJI-123");
   const skripProd = prod.split(";").map((s) => s.trim()).find((s) => s.startsWith("script-src")) ?? "";
   cek("CSP produksi: script-src berisi nonce", skripProd.includes("'nonce-NONCE-UJI-123'"), skripProd);
-  cek("CSP produksi: script-src berisi 'strict-dynamic'", skripProd.includes("'strict-dynamic'"));
+  // TANPA 'strict-dynamic' (dicabut 16 Nov 2026, pasca-live): dengan
+  // strict-dynamic, 'self' diabaikan dan 12 chunk <script src>
+  // dari shell statis prerender (tanpa nonce) diblokir CSP —
+  // hidrasi mati di seluruh situs (saklar tema + tanggal hero +
+  // menu "…" tidak bereaksi). Chunk same-origin kini diizinkan
+  // 'self'; skrip inline tetap terkunci nonce/hash.
+  cek("CSP produksi: script-src TANPA 'strict-dynamic'", !skripProd.includes("'strict-dynamic'"));
+  cek("CSP produksi: script-src berisi 'self' (izinkan chunk same-origin)", /(^|\s)'self'(\s|;|$)/.test(skripProd));
   cek("CSP produksi: script-src TANPA unsafe-inline", !skripProd.includes("unsafe-inline"));
   cek("CSP produksi: TANPA unsafe-eval di mana pun", !prod.includes("unsafe-eval"));
   for (const d of [

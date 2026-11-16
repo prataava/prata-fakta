@@ -925,7 +925,12 @@ console.log("\n== §F. CSP (unit: header + hash tema) ==");
   const headerProd = csp.buatHeaderCsp("NONCE-UJI-123", { isDev: false, supabaseOrigin: "https://xyz.supabase.co" });
   const headerDev = csp.buatHeaderCsp("NONCE-UJI-123", { isDev: true });
   cek("CSP: header produksi memuat nonce per-request", headerProd.includes("'nonce-NONCE-UJI-123'"));
-  cek("CSP: header produksi memuat 'strict-dynamic'", headerProd.includes("'strict-dynamic'"));
+  // TANPA 'strict-dynamic' (dicabut 16 Nov 2026, pasca-live): dengan
+  // strict-dynamic, 'self' diabaikan dan chunk <script src> dari
+  // shell statis prerender (tanpa nonce) diblokir CSP — hidrasi
+  // mati di seluruh situs. Chunk same-origin diizinkan 'self'.
+  cek("CSP: header produksi TANPA 'strict-dynamic'", !headerProd.includes("'strict-dynamic'"));
+  cek("CSP: script-src produksi memuat 'self'", /script-src[^;]*'self'/.test(headerProd));
   cek("CSP: script-src produksi TANPA 'unsafe-inline'", !/script-src[^;]*'unsafe-inline'/.test(headerProd));
   cek("CSP: script-src produksi TANPA 'unsafe-eval'", !/script-src[^;]*'unsafe-eval'/.test(headerProd));
   cek("CSP: header dev MEMUAT 'unsafe-eval' (React dev, terdokumentasi)", /script-src[^;]*'unsafe-eval'/.test(headerDev));

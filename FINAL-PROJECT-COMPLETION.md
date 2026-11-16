@@ -1233,7 +1233,12 @@ jujur; `/api/health` 200 `{"ok":false,"status":"degraded",
 "db":"belum_tersedia"}` (jujur, pra-migrasi); CSP hadir di /
 dan 404, nonce unik per request, script-src nonce +
 strict-dynamic + hash tema, tanpa unsafe-inline/unsafe-eval;
-log 109 baris, 0 dump PPR (§31.3). Catatan: /artikel (indeks)
+log 109 baris, 0 dump PPR (§31.3). **KOREKSI 16 Nov 2026
+(pasca-live): klaim nonce pada 12 skrip framework SALAH —
+HTML live: 24 inline ber-nonce, 12 chunk TANPA nonce;
+'strict-dynamic' memblokir chunk → hidrasi mati (tema/tanggal/
+menu tidak bereaksi). 'strict-dynamic' DICABUT; lihat
+LAPORAN-FASE-8 dan komentar `src/lib/csp.ts`.** Catatan: /artikel (indeks)
 404 BY DESIGN — `src/app/artikel/` hanya berisi `[slug]`,
 tanpa `page.tsx`; /profil 307 (redirect login, wajar).
 

@@ -81,10 +81,21 @@ export function buatHeaderCsp(nonce: string, opsi: OpsiHeaderCsp = {}): string {
     "script-src",
     "'self'",
     `'nonce-${nonce}'`,
-    "'strict-dynamic'",
-    // Skrip tema anti-kedip diizinkan lewat hash (isinya statis) —
-    // lihat HASH_SKRIP_TEMA. Tanpa ini, skrip tema butuh nonce dan
-    // root layout harus membaca headers() → build gagal (§ atas).
+    // TANPA 'strict-dynamic' (dicabut 16 Nov 2026, pasca-live):
+    // 'strict-dynamic' membuat 'self' DIABAIKAN untuk script-src,
+    // sehingga skrip chunk Next.js HARUS membawa nonce. Namun chunk
+    // <script src="/_next/static/..."> berasal dari shell statis
+    // hasil prerender (cacheComponents) — tidak bisa membawa nonce
+    // per-request. BUKTI LIVE 16 Nov 21.32 WIB: HTML beranda memuat
+    // 36 <script>, 24 inline ber-nonce, 12 chunk TANPA nonce —
+    // CSP memblokir ke-12 chunk itu, hidrasi mati di seluruh situs:
+    // saklar tema tidak bereaksi, tanggal hero macet di
+    // "memuat tanggal…", menu "…" tidak membuka. Tanpa
+    // strict-dynamic, chunk same-origin diizinkan 'self', skrip
+    // inline tetap terkunci nonce/hash (tema lewat hash di bawah).
+    // Mengembalikan strict-dynamic butuh SEMUA halaman dinamis —
+    // bertentangan dengan cacheComponents — JANGAN tanpa menguji
+    // hidrasi live (toggle + tanggal + menu) sesudahnya.
     HASH_SKRIP_TEMA,
     ...(opsi.isDev ? ["'unsafe-eval'"] : []),
   ].join(" ");

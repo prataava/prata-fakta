@@ -2097,7 +2097,17 @@ strict-dynamic + hash tema, tanpa unsafe-inline/unsafe-eval.
 Skrip tema di HTML terverifikasi sha256-nya sama persis
 dengan hash di header CSP. Satu-satunya `<script>` tanpa
 nonce = skrip tema (diizinkan hash, disengaja); 12 skrip
-framework bawa nonce. `/api/health`: 200, `{"ok":false,
+framework bawa nonce.
+**KOREKSI 16 Nov 2026 (pasca-live): klaim "12 skrip framework
+bawa nonce" SALAH — HTML live beranda memuat 36 `<script>`:
+24 inline ber-nonce, 12 chunk `/_next/static/...` TANPA nonce
+(shell statis prerender tidak bisa membawa nonce per-request).
+Dengan 'strict-dynamic', 'self' diabaikan dan CSP memblokir
+ke-12 chunk itu → hidrasi mati di seluruh situs (saklar tema,
+tanggal hero, menu "…" tidak bereaksi; terverifikasi browser
+2×). 'strict-dynamic' DICABUT dari `src/lib/csp.ts` (chunk
+same-origin diizinkan 'self'; inline tetap nonce/hash) —
+lihat komentar di berkas itu; asersi tes diperbarui. `/api/health`: 200, `{"ok":false,
 "status":"degraded","db":"belum_tersedia"}` — jujur (migrasi
 belum dijalankan di produksi). Log server: **0 baris
 "error"**; satu peringatan fail-open rate limit (`PGRST202
