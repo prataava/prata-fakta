@@ -14,7 +14,7 @@
 //   - kategori_slug via klasifikasi kata kunci deterministik ke
 //     kategori utama v1; fallback terdokumentasi (lihat
 //     klasifikasikanKategori).
-import { buatSlug } from "./slug.ts";
+import { buatSlugArtikel } from "./slug.ts";
 import type { KlaimTerekstrak } from "./research.ts";
 import type {
   KategoriSlug,
@@ -182,7 +182,9 @@ export function susunDrafArtikel(input: MasukanDraf): SimpanArtikelInput {
   ].join("\n\n");
 
   return {
-    slug: buatSlug(item.judul),
+    // Slug per item (Tahap E): judul identik dari dua outlet harus
+    // tetap menghasilkan slug berbeda (lihat buatSlugArtikel).
+    slug: buatSlugArtikel(item.judul, item.id),
     judul: item.judul,
     subjudul: klaim[0].teks.slice(0, 200),
     ringkasan,
