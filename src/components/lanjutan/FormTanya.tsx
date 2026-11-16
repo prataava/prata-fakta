@@ -11,7 +11,7 @@ export default function FormTanya() {
   const [pesan, setPesan] = useState("");
   const [jawaban, setJawaban] = useState<string | null>(null);
   const [statusJawaban, setStatusJawaban] = useState<string | null>(null);
-  const [referensi, setReferensi] = useState<{ judul: string; url: string }[]>([]);
+  const [referensi, setReferensi] = useState<{ judul: string; url: string | null }[]>([]);
 
   async function kirim(e: FormEvent) {
     e.preventDefault();
@@ -32,7 +32,7 @@ export default function FormTanya() {
         error?: string;
         jawaban?: string;
         status?: string;
-        referensi?: { judul: string; url: string }[];
+        referensi?: { judul: string; url: string | null }[];
       };
       if (!res.ok || !data.ok) {
         setStatus("error");
@@ -93,8 +93,8 @@ export default function FormTanya() {
               <strong>Referensi:</strong>
               <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
                 {referensi.map((r) => (
-                  <li key={r.url}>
-                    <a href={r.url}>{r.judul}</a>
+                  <li key={r.url ?? r.judul}>
+                    {r.url ? <a href={r.url}>{r.judul}</a> : r.judul}
                   </li>
                 ))}
               </ul>

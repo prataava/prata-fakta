@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
-import { getIndikator, getPoinIndikator, type PfPoinIndikator } from "@/lib/lanjutan";
+import GrafikInteraktif from "@/components/data/GrafikInteraktif";
+import PerbandinganPeriode from "@/components/data/PerbandinganPeriode";
+import { getPoinIndikator, type PfPoinIndikator } from "@/lib/lanjutan";
+import { createClient } from "@/lib/supabase/server";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import type { CakupanIndikator, PfIndikatorReality } from "@/lib/reality";
 
 export const metadata: Metadata = {
   title: "Pusat Data",
   description:
-    "Pusat data PRATA FAKTA: indikator nasional dan global dari sumber resmi, lengkap dengan grafik tren dan tabel poin data.",
+    "Pusat data PRATA FAKTA: indikator nasional dan global dari sumber resmi, lengkap dengan grafik interaktif, perbandingan periode, dan tabel poin data.",
 };
 
 // Halaman data membaca data per request (pola cacheComponents untuk
@@ -21,6 +26,11 @@ const KATEGORI_DATA = [
   { slug: "ekonomi", nama: "Ekonomi" },
   { slug: "energi", nama: "Energi" },
   { slug: "lingkungan", nama: "Lingkungan" },
+] as const;
+
+const CAKUPAN_DATA = [
+  { slug: "indonesia", nama: "Indonesia" },
+  { slug: "dunia", nama: "Dunia" },
 ] as const;
 
 function formatTanggal(tanggal: string | null): string {
@@ -41,66 +51,82 @@ function formatNilai(nilai: number): string {
   );
 }
 
-/** Grafik garis SVG buatan tangan (tanpa library chart). */
-function GrafikGaris({ poin, label }: { poin: PfPoinIndikator[]; label: string }) {
-  if (poin.length < 2) {
-    return (
-      <p style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
-        Grafik membutuhkan minimal 2 poin data; indikator ini baru punya{" "}
-        {poin.length} poin.
-      </p>
-    );
+const KOLOM_INDIKATOR_REALITY =
+  "id, nama, slug, kategori, satuan, sumber_nama, sumber_url, metodologi, tanggal_pembaruan, ringkasan_tren, cakupan, frekuensi_update, negara_kode";
+
+function keAngka(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
   }
-  const lebar = 560;
-  const tinggi = 180;
-  const padKiri = 8;
-  const padKanan = 8;
-  const padAtas = 12;
-  const padBawah = 24;
-  const nilai = poin.map((p) => p.nilai);
-  const min = Math.min(...nilai);
-  const maks = Math.max(...nilai);
-  const rentang = maks - min || 1;
-  const x = (i: number) =>
-    padKiri + (i * (lebar - padKiri - padKanan)) / (poin.length - 1);
-  const y = (v: number) =>
-    padAtas + (1 - (v - min) / rentang) * (tinggi - padAtas - padBawah);
-  const d = poin
-    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.nilai).toFixed(1)}`)
-    .join(" ");
-  const pertama = poin[0];
-  const terakhir = poin[poin.length - 1];
-  return (
-    <figure style={{ margin: 0 }}>
-      <svg
-        viewBox={`0 0 ${lebar} ${tinggi}`}
-        width="100%"
-        role="img"
-        aria-label={`Grafik tren ${label}: ${formatNilai(pertama.nilai)} pada ${pertama.tanggal} menjadi ${formatNilai(terakhir.nilai)} pada ${terakhir.tanggal}`}
-      >
-        <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" />
-        {poin.map((p, i) => (
-          <circle key={`${p.tanggal}-${i}`} cx={x(i)} cy={y(p.nilai)} r="3" fill="var(--accent)">
-            <title>
-              {p.tanggal}: {formatNilai(p.nilai)}
-            </title>
-          </circle>
-        ))}
-        <text x={padKiri} y={tinggi - 6} fontSize="11" fill="var(--muted)">
-          {pertama.tanggal}
-        </text>
-        <text
-          x={lebar - padKanan}
-          y={tinggi - 6}
-          fontSize="11"
-          fill="var(--muted)"
-          textAnchor="end"
-        >
-          {terakhir.tanggal}
-        </text>
-      </svg>
-    </figure>
-  );
+  return null;
+}
+
+/**
+ * Semua indikator + nilai terakhir masing-masing, lengkap dengan
+ * kolom v10 (cakupan/frekuensi_update/negara_kode). Tinggal di
+ * halaman server ini (bukan lib/reality.ts) karena lib itu diimpor
+ * komponen klien dan tidak boleh merujuk next/headers.
+ * Bentuk dasarnya SAMA dengan getIndikator di lib/lanjutan
+ * (PfIndikator) + tiga kolom tambahan — halaman lain yang memakai
+ * getIndikator tidak berubah. [] bila tabel belum ada.
+ */
+async function getIndikatorReality(): Promise<PfIndikatorReality[]> {
+  try {
+    const supabase = cobaServiceClient() ?? (await createClient());
+    const { data, error } = await supabase
+      .from("pf_data_indicators")
+      .select(KOLOM_INDIKATOR_REALITY)
+      .order("nama", { ascending: true });
+    if (error || !data) return [];
+
+    const hasil: PfIndikatorReality[] = [];
+    for (const r of data as unknown as Record<string, unknown>[]) {
+      let nilai_terakhir: number | null = null;
+      let tanggal_nilai_terakhir: string | null = null;
+      try {
+        const { data: poin, error: errPoin } = await supabase
+          .from("pf_data_points")
+          .select("tanggal, nilai")
+          .eq("indikator_id", String(r.id))
+          .order("tanggal", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!errPoin && poin) {
+          nilai_terakhir = keAngka(
+            (poin as Record<string, unknown>).nilai,
+          );
+          tanggal_nilai_terakhir =
+            ((poin as Record<string, unknown>).tanggal as string | null) ??
+            null;
+        }
+      } catch {
+        // Poin gagal dibaca: indikator tetap tampil tanpa nilai.
+      }
+      hasil.push({
+        id: String(r.id),
+        nama: String(r.nama ?? ""),
+        slug: String(r.slug ?? ""),
+        kategori: String(r.kategori ?? ""),
+        satuan: (r.satuan as string | null) ?? null,
+        sumber_nama: (r.sumber_nama as string | null) ?? null,
+        sumber_url: (r.sumber_url as string | null) ?? null,
+        metodologi: (r.metodologi as string | null) ?? null,
+        tanggal_pembaruan: (r.tanggal_pembaruan as string | null) ?? null,
+        ringkasan_tren: (r.ringkasan_tren as string | null) ?? null,
+        nilai_terakhir,
+        tanggal_nilai_terakhir,
+        cakupan:
+          r.cakupan === "dunia" ? "dunia" : ("indonesia" as CakupanIndikator),
+        frekuensi_update: (r.frekuensi_update as string | null) ?? null,
+        negara_kode: (r.negara_kode as string | null) ?? null,
+      });
+    }
+    return hasil;
+  } catch {
+    return [];
+  }
 }
 
 export default async function Data({
@@ -114,15 +140,43 @@ export default async function Data({
   const kategoriValid = KATEGORI_DATA.some((k) => k.slug === kategoriParam)
     ? kategoriParam
     : undefined;
-  const indikator = await getIndikator(kategoriValid);
+  const cakupanParam =
+    typeof sp.cakupan === "string" ? sp.cakupan : undefined;
+  const cakupanValid = CAKUPAN_DATA.some((k) => k.slug === cakupanParam)
+    ? cakupanParam
+    : undefined;
+
+  // Semua indikator (untuk kartu tema Indonesia vs Dunia yang
+  // angkanya nyata), lalu filter tampilan di kode.
+  const semuaIndikator = await getIndikatorReality();
+  const jumlahIndonesia = semuaIndikator.filter(
+    (i) => i.cakupan === "indonesia",
+  ).length;
+  const jumlahDunia = semuaIndikator.filter(
+    (i) => i.cakupan === "dunia",
+  ).length;
+  const indikator = semuaIndikator.filter(
+    (i) =>
+      (!kategoriValid || i.kategori === kategoriValid) &&
+      (!cakupanValid || i.cakupan === cakupanValid),
+  );
 
   // Poin deret waktu per indikator (untuk grafik + tabel).
   const poinPerIndikator = new Map<string, PfPoinIndikator[]>();
   await Promise.all(
     indikator.map(async (ind) => {
-      poinPerIndikator.set(ind.slug, await getPoinIndikator(ind.slug, 60));
+      poinPerIndikator.set(ind.slug, await getPoinIndikator(ind.slug, 120));
     }),
   );
+
+  // Pertahankan filter lain saat mengganti satu filter.
+  const tautanFilter = (kategori?: string, cakupan?: string) => {
+    const params = new URLSearchParams();
+    if (kategori) params.set("kategori", kategori);
+    if (cakupan) params.set("cakupan", cakupan);
+    const qs = params.toString();
+    return qs ? `/data?${qs}` : "/data";
+  };
 
   return (
     <div className="wadah">
@@ -132,14 +186,67 @@ export default async function Data({
         <p>
           Indikator nasional dan global dari sumber resmi. Setiap angka
           disertai sumber, satuan, metodologi, dan tanggal pembaruan — tanpa
-          angka karangan.
+          angka karangan. Arahkan kursor ke grafik untuk melihat nilai per
+          tanggal, dan bandingkan dua tahun pada tiap indikator.
         </p>
       </section>
+
+      <section className="seksi" aria-labelledby="judul-tema">
+        <div className="seksi-kepala">
+          <h2 id="judul-tema">Tema</h2>
+        </div>
+        <div className="grid-berita">
+          <Link
+            className="kartu kartu-artikel"
+            href={tautanFilter(kategoriValid, "indonesia")}
+          >
+            <span className="kartu-kategori">Cakupan</span>
+            <span className="kartu-judul">Indonesia</span>
+            <span className="kartu-teks">
+              {jumlahIndonesia === 0
+                ? "Belum ada indikator bercakupan Indonesia."
+                : `${jumlahIndonesia} indikator nasional dari sumber resmi.`}
+            </span>
+            <span className="kartu-meta">Lihat indikator Indonesia →</span>
+          </Link>
+          <Link
+            className="kartu kartu-artikel"
+            href={tautanFilter(kategoriValid, "dunia")}
+          >
+            <span className="kartu-kategori">Cakupan</span>
+            <span className="kartu-judul">Dunia</span>
+            <span className="kartu-teks">
+              {jumlahDunia === 0
+                ? "Belum ada indikator bercakupan dunia."
+                : `${jumlahDunia} indikator global dari sumber resmi.`}
+            </span>
+            <span className="kartu-meta">Lihat indikator dunia →</span>
+          </Link>
+        </div>
+      </section>
+
+      <div className="chip-baris" role="group" aria-label="Filter cakupan data">
+        <Link
+          className={`chip${!cakupanValid ? " aktif" : ""}`}
+          href={tautanFilter(kategoriValid)}
+        >
+          Semua cakupan
+        </Link>
+        {CAKUPAN_DATA.map((k) => (
+          <Link
+            key={k.slug}
+            className={`chip${cakupanValid === k.slug ? " aktif" : ""}`}
+            href={tautanFilter(kategoriValid, k.slug)}
+          >
+            {k.nama}
+          </Link>
+        ))}
+      </div>
 
       <div className="chip-baris" role="group" aria-label="Filter kategori data">
         <Link
           className={`chip${!kategoriValid ? " aktif" : ""}`}
-          href="/data"
+          href={tautanFilter(undefined, cakupanValid)}
         >
           Semua kategori
         </Link>
@@ -147,7 +254,7 @@ export default async function Data({
           <Link
             key={k.slug}
             className={`chip${kategoriValid === k.slug ? " aktif" : ""}`}
-            href={`/data?kategori=${k.slug}`}
+            href={tautanFilter(k.slug, cakupanValid)}
           >
             {k.nama}
           </Link>
@@ -158,7 +265,18 @@ export default async function Data({
         <section className="seksi">
           <EmptyState
             judul="Belum ada indikator resmi yang terdaftar."
-            pesan="Pusat data akan terisi begitu redaksi mendaftarkan indikator dari sumber resmi beserta poin datanya."
+            pesan={
+              kategoriValid || cakupanValid
+                ? "Belum ada indikator untuk filter ini. Coba filter lain atau lihat semua indikator."
+                : "Pusat data akan terisi begitu redaksi mendaftarkan indikator dari sumber resmi beserta poin datanya."
+            }
+            aksi={
+              kategoriValid || cakupanValid ? (
+                <Link className="tombol" href="/data">
+                  Lihat semua indikator
+                </Link>
+              ) : undefined
+            }
           />
         </section>
       ) : (
@@ -171,6 +289,7 @@ export default async function Data({
                   <span className="kartu-kategori">
                     {KATEGORI_DATA.find((k) => k.slug === ind.kategori)?.nama ??
                       ind.kategori}
+                    {` · ${ind.cakupan === "dunia" ? "Dunia" : "Indonesia"}`}
                   </span>
                   <span className="kartu-judul">{ind.nama}</span>
                   <span className="kartu-meta">
@@ -178,10 +297,28 @@ export default async function Data({
                       ? `Nilai terakhir: ${formatNilai(ind.nilai_terakhir)}${ind.satuan ? ` ${ind.satuan}` : ""}${ind.tanggal_nilai_terakhir ? ` · ${formatTanggal(ind.tanggal_nilai_terakhir)}` : ""}`
                       : "Belum ada poin data."}
                   </span>
+                  {ind.frekuensi_update && (
+                    <span className="kartu-meta">
+                      Frekuensi pembaruan: {ind.frekuensi_update}
+                      {ind.negara_kode ? ` · Negara: ${ind.negara_kode}` : ""}
+                    </span>
+                  )}
                   {ind.ringkasan_tren && (
                     <span className="kartu-teks">{ind.ringkasan_tren}</span>
                   )}
-                  <GrafikGaris poin={poin} label={ind.nama} />
+                  <GrafikInteraktif
+                    poin={poin}
+                    label={ind.nama}
+                    satuan={ind.satuan}
+                  />
+                  <h3 style={{ fontSize: "1rem", margin: "12px 0 4px" }}>
+                    Perbandingan periode
+                  </h3>
+                  <PerbandinganPeriode
+                    poin={poin}
+                    satuan={ind.satuan}
+                    nama={ind.nama}
+                  />
                   {ind.metodologi && (
                     <span className="kartu-teks">
                       <strong>Metodologi:</strong> {ind.metodologi}

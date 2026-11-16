@@ -1164,10 +1164,17 @@ cek(
 );
 
 // ---------- Pemeriksaan statis: desain G1/G2/G3 ----------
+// G1 (diperbarui Gelombang 2, 16 Nov 2026): grafik /data pindah dari
+// page.tsx ke src/components/data/GrafikInteraktif.tsx (Reality
+// Check) — token accent kini dipakai di komponen itu, bukan di
+// halaman. Asersi mengikuti kode: halaman tanpa token lama --aksen,
+// komponen grafik memakai var(--accent).
 cek(
-  "G1: data/page.tsx memakai var(--accent) tanpa fallback hex",
+  "G1: grafik /data memakai var(--accent) tanpa token lama --aksen",
   !bacaRepo("src/app/data/page.tsx").includes("--aksen") &&
-    bacaRepo("src/app/data/page.tsx").includes('var(--accent)'),
+    bacaRepo("src/components/data/GrafikInteraktif.tsx").includes(
+      "var(--accent)",
+    ),
 );
 cek(
   "G1: PembacaSuara.module.css memakai --border/--surface",

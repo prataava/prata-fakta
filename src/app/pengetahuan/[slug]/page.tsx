@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
-import { getPengetahuanLengkap } from "@/lib/lanjutan";
+import {
+  ambilIstilah,
+  bagiIsiBerlapis,
+  getExplainer,
+  getSeri,
+  labelTingkat,
+} from "@/lib/explainer";
 import { urlSitus } from "@/lib/situs";
 
 // Metadata per artikel (judul asli di tab + SEO). notFound() di sini
@@ -17,7 +23,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const artikel = await getPengetahuanLengkap(slug);
+  const artikel = await getExplainer(slug);
   if (!artikel) notFound();
   const url = `${urlSitus()}/pengetahuan/${slug}`;
   return {
@@ -81,8 +87,19 @@ export default async function PengetahuanDetail({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const artikel = await getPengetahuanLengkap(slug);
+  const artikel = await getExplainer(slug);
   if (!artikel) notFound();
+
+  // Format explainer berlapis (Area 4): hanya bila jenis='explainer'.
+  // Semua seksi turunan dihitung dari data yang ada; yang tidak ada
+  // di data tidak ditampilkan (lihat src/lib/explainer.ts).
+  const explainer = artikel.jenis === "explainer";
+  const lapis = explainer ? bagiIsiBerlapis(artikel.isi) : null;
+  const istilah = explainer ? ambilIstilah(artikel.referensi) : [];
+  const seri =
+    explainer && artikel.seri_slug
+      ? (await getSeri(artikel.seri_slug)).filter((a) => a.slug !== slug)
+      : [];
 
   // Structured data JSON-LD (Fase 7): Article + BreadcrumbList.
   const urlArtikel = `${urlSitus()}/pengetahuan/${slug}`;
@@ -147,15 +164,84 @@ export default async function PengetahuanDetail({
         <span className="kartu-kategori">
           {LABEL_TOPIK[artikel.topik] ?? artikel.topik}
         </span>
+        {explainer && (
+          <span className="kartu-kategori">Explainer</span>
+        )}
         <h1>{artikel.judul}</h1>
         <p className="kartu-meta">
           {artikel.penulis_nama ?? "Redaksi PRATA FAKTA"}
           {artikel.harian_tanggal
             ? ` · Fakta ${formatTanggal(artikel.harian_tanggal)}`
             : ""}
+          {explainer && (
+            <>
+              {` · Tingkat ${labelTingkat(artikel.tingkat)}`}
+              {artikel.estimasi_baca_menit
+                ? ` · ±${artikel.estimasi_baca_menit} menit baca`
+                : ""}
+            </>
+          )}
         </p>
         {artikel.ringkasan && <p><strong>{artikel.ringkasan}</strong></p>}
-        {artikel.isi ? (
+        {explainer && lapis ? (
+          <>
+            {lapis.ringkas.length > 0 && (
+              <section aria-labelledby="seksi-ringkas">
+                <h2 id="seksi-ringkas">Secara singkat</h2>
+                {lapis.ringkas.map((par, i) => (
+                  <p key={i}>{par}</p>
+                ))}
+              </section>
+            )}
+            {lapis.mengapaPenting && (
+              <section aria-labelledby="seksi-mengapa-penting">
+                <h2 id="seksi-mengapa-penting">Mengapa penting</h2>
+                <p>{lapis.mengapaPenting}</p>
+              </section>
+            )}
+            {lapis.mendalam.length > 0 && (
+              <section aria-labelledby="seksi-mendalam">
+                <h2 id="seksi-mendalam">Lebih mendalam</h2>
+                {lapis.mendalam.map((par, i) => (
+                  <p key={i}>{par}</p>
+                ))}
+              </section>
+            )}
+            {lapis.kronologi.length > 0 && (
+              <section aria-labelledby="seksi-linimasa">
+                <h2 id="seksi-linimasa">Linimasa</h2>
+                <ul>
+                  {lapis.kronologi.map((k, i) => (
+                    <li key={i}>
+                      <strong>{k.tanggal}</strong> — {k.peristiwa}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {istilah.length > 0 && (
+              <section aria-labelledby="seksi-istilah">
+                <h2 id="seksi-istilah">Istilah kunci</h2>
+                <ul>
+                  {istilah.map((t, i) => (
+                    <li key={i}>
+                      <strong>{t.istilah}</strong>
+                      {t.definisi ? ` — ${t.definisi}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {lapis.ringkas.length === 0 &&
+              lapis.mendalam.length === 0 &&
+              !lapis.mengapaPenting && (
+                <EmptyState
+                  judul="Isi explainer belum tersedia."
+                  pesan="Explainer ini sudah terbit tetapi isinya belum tersimpan."
+                />
+              )}
+          </>
+        ) : artikel.isi ? (
           artikel.isi.split(/\n{2,}/).map((par, i) => (
             <p key={i}>{par}</p>
           ))
@@ -167,27 +253,66 @@ export default async function PengetahuanDetail({
         )}
       </article>
 
-      {artikel.referensi.length > 0 && (
-        <section className="seksi" aria-labelledby="seksi-referensi">
+      {seri.length > 0 && (
+        <section className="seksi" aria-labelledby="seksi-seri">
           <div className="seksi-kepala">
-            <h2 id="seksi-referensi">Referensi</h2>
-            <p>Periksa sendiri sumber artikel ini.</p>
+            <h2 id="seksi-seri">Dalam seri ini</h2>
+            <p>Artikel lain dari seri yang sama.</p>
           </div>
-          <ul>
-            {artikel.referensi.map((r, i) => (
-              <li key={`${r.url ?? r.judul ?? i}-${i}`}>
-                {r.url ? (
-                  <a href={r.url} target="_blank" rel="noopener noreferrer">
-                    {r.judul ?? r.url}
-                  </a>
-                ) : (
-                  (r.judul ?? "Referensi")
+          <div className="grid-berita">
+            {seri.map((a) => (
+              <Link
+                className="kartu kartu-artikel"
+                href={`/pengetahuan/${a.slug}`}
+                key={a.id}
+              >
+                <span className="kartu-kategori">
+                  {LABEL_TOPIK[a.topik] ?? a.topik}
+                </span>
+                <span className="kartu-judul">{a.judul}</span>
+                {a.ringkasan && (
+                  <span className="kartu-teks">{a.ringkasan}</span>
                 )}
-              </li>
+                <span className="kartu-meta">
+                  {a.jenis === "explainer" ? "Explainer" : "Artikel"}
+                  {` · Tingkat ${labelTingkat(a.tingkat)}`}
+                </span>
+              </Link>
             ))}
-          </ul>
+          </div>
         </section>
       )}
+
+      {/* Entri referensi "Istilah: ..." ditampilkan di seksi Istilah
+          kunci (explainer), bukan digandakan di sini. */}
+      {(() => {
+        const referensiTampil = explainer
+          ? artikel.referensi.filter(
+              (r) => !/^istilah:\s*/i.test((r.judul ?? "").trim()),
+            )
+          : artikel.referensi;
+        return referensiTampil.length > 0 ? (
+          <section className="seksi" aria-labelledby="seksi-referensi">
+            <div className="seksi-kepala">
+              <h2 id="seksi-referensi">Referensi</h2>
+              <p>Periksa sendiri sumber artikel ini.</p>
+            </div>
+            <ul>
+              {referensiTampil.map((r, i) => (
+                <li key={`${r.url ?? r.judul ?? i}-${i}`}>
+                  {r.url ? (
+                    <a href={r.url} target="_blank" rel="noopener noreferrer">
+                      {r.judul ?? r.url}
+                    </a>
+                  ) : (
+                    (r.judul ?? "Referensi")
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null;
+      })()}
 
       <p>
         <Link className="tombol" href="/kuis">

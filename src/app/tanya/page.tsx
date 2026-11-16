@@ -44,6 +44,7 @@ function KartuPertanyaan({ p }: { p: PfPertanyaan }) {
     <article className="kartu">
       <span className="kartu-kategori">
         {LABEL_STATUS[p.status] ?? p.status}
+        {p.kategori ? ` · ${p.kategori}` : ""}
       </span>
       <span className="kartu-judul">{p.pertanyaan}</span>
       {p.jawaban && <span className="kartu-teks">{p.jawaban}</span>}
@@ -84,9 +85,16 @@ export default async function Tanya() {
         <h1 id="judul-tanya">Tanya PRATA FAKTA</h1>
         <p>
           Tanyakan apa pun tentang berita dan pengetahuan. Jawaban hanya
-          diambil dari artikel dan pengetahuan yang sudah ada di PRATA FAKTA —
-          tidak pernah dikarang. Bila belum ada data yang bisa menjawab,
-          pertanyaan Anda masuk antrean untuk dijawab editor/Muse.
+          diambil dari artikel, pengetahuan, data, peristiwa, dan profil
+          negara yang sudah ada di PRATA FAKTA — tidak pernah dikarang.
+          Bila belum ada data yang bisa menjawab, pertanyaan Anda masuk
+          antrean untuk dijawab Muse/editor. Dijawab Muse/editor —
+          tanpa jawaban otomatis instan.
+        </p>
+        <p>
+          <Link className="tombol" href="/tanya/arsip">
+            Lihat arsip tanya jawab
+          </Link>
         </p>
         <p>
           <strong>

@@ -893,3 +893,50 @@ koordinator (detail penuh: `LAPORAN-FASE-8.md` §12.9).
 **Keputusan Gelombang 2: LAYAK DIMULAI (di kode,
 terverifikasi lokal).** Produksi tetap terblokir
 (migrasi v1–v9 + Vercel 403 butuh otorisasi pemilik).
+
+### 9.6 Gelombang 2A — Story Tracker, Explain the World, Reality Check, Ask the World (16 Nov 2026 ±07.30–08.15 WIB)
+
+Keempat area prioritas selesai + terverifikasi lokal (detail
+penuh: `LAPORAN-FASE-8.md` §13.2, §13.4–§13.6).
+
+| Area | Verdik baru |
+|---|---|
+| Story Tracker | **LAYAK** — halaman detail + kronologi + ikuti + admin; `sumber_independen` hanya bila rantai salinan terverifikasi via RPC `pf_akar_salinan` (v9); bila rantai tak tersedia, jumlah disembunyikan dengan penjelasan. Baterai 66/66 (bersama Historical Archive). Catatan: filter timeline dari 100 event terbaru; celah RLS tautan draf ditutup di lapisan aplikasi; tanpa auto-merge judul mirip; notifikasi push belum ada |
+| Explain the World | **LAYAK** — explainer berlapis di atas `pf_knowledge_articles` + kolom v10 (jenis/tingkat/estimasi/seri); referensi per artikel; editor admin. Baterai 106/106 (bersama Academy). Catatan: teori/dugaan tidak diubah jadi fakta; isi tetap butuh review redaksi |
+| Reality Check | **LAYAK** — grafik interaktif `/data` (hover, rentang, YoY); tiap grafik wajib nama + nilai + satuan + negara + periode + sumber + tanggal pengambilan + metodologi bila tersedia; empty state jujur bila data belum ada (tanpa angka dummy). Baterai 71/71 (bersama Research). Catatan: impor sumber resmi (BPS/BI/World Bank) masih manual |
+| Ask the World | **LAYAK** — korpus diperluas (artikel+pengetahuan+indikator+event+negara); jawaban menunjukkan sumber; tanpa referensi → `tidak_ada_data` (mengakui keterbatasan, bukan `menunggu`); arsip Q&A publik + vote 1/IP/hari. Baterai 72/72 (bersama Podcast). Catatan: retrieval deterministik dari korpus (bukan LLM generatif) — sesuai mandat Muse-only + tanpa endpoint AI fiktif; arsip dibaca via service role (anon SELECT `pf_questions` = 0 baris di RLS — utang policy arsip publik) |
+
+**Audit Gelombang 2A (Tahap 6):** regression penuh 971/971
+lolos (fase5/6/7, gel1, remediasi, editorial, migrasi,
+cerita, akademi, riset, negara, tanya-podcast, admin);
+uji-ingestion flaky eksternal (2× 1 KEGAGALAN, 1× SEMUA
+LOLOS — GDELT); tsc/lint/build EXIT 0 (147/147); smoke
+test `next start` 9× 200, 7× 404, log 0 error. **Satu bug
+integrasi ditemukan + diperbaiki di tahap ini:** 4 rute
+slug baru mengembalikan HTTP 200 untuk slug tak ada (utang
+pola Fase 6/7) — diperbaiki di `src/proxy.ts`, terverifikasi
+404 sesudahnya. Audit keamanan ulang (§13.5): T3/T10/DNS
+rebinding/CSP tetap TERBUKA (dengan bukti kode) — masuk
+Tahap 13, bukan ditutup diam-diam.
+
+### 9.7 Gelombang 2B — Academy, Podcast, Research, Country Profile, Historical Archive, Admin Control Center (16 Nov 2026 ±07.30–08.15 WIB)
+
+Keenam area sisanya selesai + terverifikasi lokal (detail
+penuh: `LAPORAN-FASE-8.md` §13.3–§13.6).
+
+| Area | Verdik baru |
+|---|---|
+| PRATA Academy | **LAYAK** — kursus/modul/pelajaran/progres per akun; kuis server-side, kunci TIDAK PERNAH ke klien; rate limit 20/mnt terbukti 429. Baterai 106/106. Catatan: sertifikat TIDAK dibangun (sistem penilaian belum mendukung — benar tidak diklaim); audit admin best-effort, menyimpang dari fail-closed Fase 7 (utang Tahap 13) |
+| PRATA Podcast | **LAYAK SEBAGIAN** — pemutar TTS browser (SpeechSynthesis) + playlist + riwayat + kecepatan + halaman episode + admin. Baterai 72/72. **BELUM BISA: file audio MP3 server + RSS enclosure** (tidak ada layanan TTS server gratis tanpa key); riwayat TTS hanya saat bacaan selesai |
+| PRATA Research | **LAYAK** — pusat dokumen/laporan (metadata + tautan sumber, tanpa salin isi berhak cipta); filter topik/penulis/institusi/tahun; dataset CSV titik nyata; POST selalu draft. Baterai 71/71. Catatan: tautan dataset via konvensi slug (tanpa FK — butuh v11 bila mau eksplisit) |
+| Country Profile | **LAYAK** — profil per negara (ISO-2); angka bersumber 3 lapis; validasi topik negara (400 bila tanpa profil); GDELT topik jadi parameter. Baterai 77/77. Catatan: angka tanpa sumber dipisah ke daftar "Fakta tanpa sumber tercatat", tidak dirender sebagai fakta |
+| Historical Archive | **LAYAK** — arsip di atas `pf_events` + kolom v10 (era/penting/negara_kode); "hari ini dalam sejarah"; tanggal peristiwa vs publikasi vs dokumentasi dibedakan. Baterai 66/66. Catatan: tanpa halaman detail `[slug]` peristiwa; tanpa narasi AI tanpa referensi |
+| Advanced Admin Control Center | **LAYAK SEBAGIAN** — nav admin 19 tautan; `/admin/kendali` (flags, pemicu manual 5 job, ekspor audit CSV); 10 halaman monitoring dari data nyata. Baterai 83/83. **BELUM BISA: Traffic Analytics** ("belum tersedia", tanpa angka palsu). Catatan: F6/F7 sebagian; **F2/F3/F4/F5/F8/F12 BELUM diperbaiki**; flag belum ditegakkan di route — masuk Tahap 13 |
+
+**Keputusan Gelombang 2: SELESAI DI KODE, terverifikasi
+lokal (10/10 area dibangun; 8 berfungsi penuh, 2 berfungsi
+sebagian dengan batas jujur).** Produksi tetap terblokir
+(migrasi v1–v10 + Vercel 403 butuh otorisasi pemilik).
+Tahap 13–17 (keamanan + scheduler, integrasi 14 area,
+audit menyeluruh, production readiness, deployment/cutover)
+dikerjakan sesudah commit Gelombang 2 ini.

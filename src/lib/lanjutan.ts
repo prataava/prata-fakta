@@ -107,6 +107,10 @@ export type PfPertanyaan = {
   jawaban: string | null;
   referensi: PfReferensi[];
   status: string;
+  // Kolom v10 (Fase 8 Gelombang 2): kategori + publik + membantu.
+  kategori: string | null;
+  publik: boolean;
+  membantu: number;
   dibuat_pada: string | null;
   dijawab_pada: string | null;
 };
@@ -638,7 +642,7 @@ export async function getPertanyaanSaya(
     const { data, error } = await supabase
       .from("pf_questions")
       .select(
-        "id, user_id, pertanyaan, jawaban, referensi, status, dibuat_pada, dijawab_pada",
+        "id, user_id, pertanyaan, jawaban, referensi, status, kategori, publik, membantu, dibuat_pada, dijawab_pada",
       )
       .eq("user_id", userId)
       .order("dibuat_pada", { ascending: false })
@@ -651,6 +655,9 @@ export async function getPertanyaanSaya(
       jawaban: (r.jawaban as string | null) ?? null,
       referensi: keReferensi(r.referensi),
       status: String(r.status ?? ""),
+      kategori: (r.kategori as string | null) ?? null,
+      publik: r.publik === true,
+      membantu: typeof r.membantu === "number" ? r.membantu : 0,
       dibuat_pada: (r.dibuat_pada as string | null) ?? null,
       dijawab_pada: (r.dijawab_pada as string | null) ?? null,
     }));
@@ -659,15 +666,18 @@ export async function getPertanyaanSaya(
   }
 }
 
-/** Jumlah pertanyaan berstatus 'menunggu' (hitungan nyata untuk
- *  tampilan antrean di /tanya). */
+/** Jumlah pertanyaan berstatus 'menunggu' ATAU 'tidak_ada_data'
+ *  (hitungan nyata untuk tampilan antrean di /tanya). Sejak
+ *  Gelombang 2, retrieval tanpa referensi menyimpan
+ *  'tidak_ada_data' — keduanya sama-sama menunggu jawaban/
+ *  keputusan editor. */
 export async function getJumlahPertanyaanMenunggu(): Promise<number> {
   try {
     const supabase = await createClient();
     const { count, error } = await supabase
       .from("pf_questions")
       .select("id", { count: "exact", head: true })
-      .eq("status", "menunggu");
+      .in("status", ["menunggu", "tidak_ada_data"]);
     if (error || count === null) return 0;
     return count;
   } catch {

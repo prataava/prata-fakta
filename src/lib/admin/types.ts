@@ -30,6 +30,12 @@ export type KeputusanReview = "setuju" | "tolak" | "kembalikan";
 
 export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 
+// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v9
+// (migrasi v9 §6, 47 aksi). Sebelum Gelombang 2 tipe ini hanya 19
+// anggota sementara CHECK sudah 47 — route baru menulis audit via
+// insert service-client langsung karena tipenya tak memuat aksi
+// mereka. Jangan tambah aksi di sini tanpa menambahkannya dulu ke
+// CHECK lewat migrasi baru (insert aksi di luar CHECK gagal 23514).
 export type AksiAudit =
   | "artikel.buat"
   | "artikel.ubah"
@@ -49,7 +55,35 @@ export type AksiAudit =
   | "pengguna.aktifkan"
   | "sistem.job"
   | "sistem.kategori"
-  | "brief.terbit";
+  | "brief.terbit"
+  | "cerita.buat"
+  | "cerita.ubah"
+  | "cerita.hapus"
+  | "pengetahuan.buat"
+  | "pengetahuan.ubah"
+  | "pengetahuan.hapus"
+  | "event.buat"
+  | "event.ubah"
+  | "event.hapus"
+  | "data.indikator"
+  | "data.titik"
+  | "riset.buat"
+  | "riset.ubah"
+  | "riset.hapus"
+  | "negara.buat"
+  | "negara.ubah"
+  | "tanya.jawab"
+  | "akademi.kursus"
+  | "akademi.modul"
+  | "akademi.progres"
+  | "podcast.episode"
+  | "podcast.terbit"
+  | "sistem.flag"
+  | "sistem.pengumuman"
+  | "kuis.buat"
+  | "kuis.ubah"
+  | "preferensi.ubah"
+  | "ekspor.data";
 
 export type NamaJob = "ingestion" | "editorial" | "brief";
 

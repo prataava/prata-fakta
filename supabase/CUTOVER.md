@@ -1,9 +1,11 @@
-# CUTOVER — PRATA FAKTA: Migrasi v1–v9 + Go-Live
+# CUTOVER — PRATA FAKTA: Migrasi v1–v10 + Go-Live
 
 **Dokumen:** prosedur cutover produksi (migrasi database + deploy +
 smoke test + rollback).
-**Repo:** `prataava/prata-fakta`, commit `f1e68d6` (Fase 8 Gelombang 1),
-94 rute (46 halaman + 46 route API + `/sitemap.xml` + `/robots.txt`).
+**Repo:** `prataava/prata-fakta`, commit `f1e68d6` (Fase 8 Gelombang 1)
++ perubahan Gelombang 2 (v10, belum di-commit saat dokumen ini
+diperbarui — hash commit menyusul di LAPORAN-FASE-8.md §13),
+147 halaman (build lokal EXIT 0).
 **Status: BELUM LIVE.** Situs baru dinyatakan live bila SELURUH
 langkah di dokumen ini selesai dan smoke test §6 lolos. Jangan
 mengumumkan URL produksi sebelum itu.
@@ -18,7 +20,7 @@ mengumumkan URL produksi sebelum itu.
   langsung di Dashboard Vercel / GitHub / `.env.local`, atau
   diserahkan ke Muse lewat Secure Vault bila Muse yang diminta
   menjalankan langkahnya.
-- Semua migrasi v1–v9 IDEMPOTEN (aman dijalankan ulang). Satu
+- Semua migrasi v1–v10 IDEMPOTEN (aman dijalankan ulang). Satu
   berkas gagal → perbaiki penyebabnya, lalu ULANGI berkas itu.
   JANGAN lanjut ke berkas berikutnya sebelum berkas saat ini lolos
   verifikasi.
@@ -37,6 +39,7 @@ Urutan ini TIDAK boleh dibalik. Alasannya ada di tiap tahap.
 | 4 | Deploy kode ke Vercel (§5) — **WAJIB sebelum v8** | Dashboard Vercel |
 | 3B | Migrasi **v8** + verifikasi (§3) | SQL Editor |
 | 3C | Migrasi **v9** (GRANT eksplisit + RPC) + verifikasi (§3) | SQL Editor |
+| 3D | Migrasi **v10** (Gelombang 2, 16 tabel baru + GRANT) + verifikasi (§3) | SQL Editor |
 | 5 | Validasi fungsi database (§4) | SQL Editor |
 | 6 | Smoke test produksi (§6) | Browser + curl |
 | 7 | Aktifkan scheduler GitHub Actions (§7) | GitHub repo |
@@ -284,7 +287,7 @@ pernah meng-commit berkas backup.
 
 ---
 
-## 3. Penerapan migrasi v1–v9 BERURUTAN
+## 3. Penerapan migrasi v1–v10 BERURUTAN
 
 **Tempat:** Supabase Dashboard → proyek `prata` → SQL Editor →
 New query.
@@ -588,7 +591,55 @@ select proname from pg_proc where proname = 'pf_akar_salinan';
 | GRANT tabel anon/authenticated | **> 0** (sebelum v9: 0) |
 | `pf_akar_salinan` | ada (1 fungsi) |
 
-### 3.10 Bila satu berkas gagal
+### 3.10 v10 — Gelombang 2 (16 tabel baru + perluasan kolom)
+
+- Berkas: `supabase/migrations/20261116_pf_v10_wave2.sql`
+- Bergantung pada v1–v9. **Jalankan TEPAT SESUDAH v9.**
+  v10 ADITIF (hanya `CREATE TABLE IF NOT EXISTS` + `ADD COLUMN
+  IF NOT EXISTS` + GRANT/policy baru) — tidak mengubah tabel
+  atau policy lama. GRANT eksplisit sudah di dalam berkas
+  sejak awal (pelajaran F4 — jangan ulangi tanpa grant).
+- Tabel baru (16): `pf_stories`, `pf_story_events`,
+  `pf_story_articles`, `pf_story_followers`, `pf_courses`,
+  `pf_course_modules`, `pf_course_lessons`, `pf_course_progress`,
+  `pf_podcast_episodes`, `pf_podcast_history`,
+  `pf_podcast_playlist_items`, `pf_research_reports`,
+  `pf_documents`, `pf_countries`, `pf_country_facts`,
+  `pf_system_settings`.
+- Perluasan kolom (14): `pf_knowledge_articles` (jenis, tingkat,
+  estimasi_menit, seri); `pf_data_indicators` (cakupan,
+  frekuensi, negara_kode); `pf_questions` (publik, kategori,
+  membantu); `pf_events` (era, penting, negara_kode);
+  `pf_articles` (negara_kode).
+- Tervalidasi lokal (PGlite, `scripts/uji-fase8-gel2-migrasi.mjs`
+  28/28): v1–v10 dijalankan 2× idempoten TANPA blanket grant.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 53
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 106
+
+select count(*) from information_schema.table_privileges
+where table_schema = 'public' and table_name like 'pf_%'
+  and grantee in ('anon','authenticated');
+-- ekspektasi: > 0 dan bertambah dibanding sesudah v9
+```
+
+| Pemeriksaan | Ekspektasi sesudah v10 |
+|---|---|
+| Jumlah tabel `pf_*` | **53** (37 + 16 baru) |
+| Tabel ber-RLS | **53/53** |
+| Jumlah policy `pf_*` | **106** (79 + 27 baru) |
+| GRANT tabel anon/authenticated | **> 0** (bertambah) |
+| Baris di 16 tabel baru | **0** (tanpa seed operasional) |
+
+### 3.11 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
 2. Baca pesan error SQL Editor sampai habis. Penyebab paling
@@ -1028,6 +1079,7 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §5: deploy berhasil (opsi A / B / C) + env vars terisi
 - [ ] §3B: v8 + verifikasi (37 tabel, 79 policy, uji negatif T5/T1 lolos)
 - [ ] §3C: v9 + verifikasi (37 tabel, 79 policy, GRANT tabel > 0, kunci kuis false/false, `pf_akar_salinan` ada)
+- [ ] §3D: v10 + verifikasi (53 tabel, 53/53 RLS, 106 policy, 16 tabel baru 0 baris)
 - [ ] §4: fungsi + trigger tervalidasi
 - [ ] §6: smoke test halaman + API lolos
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import {
   getSemuaEvent,
   getTimelineEvent,
   type PfEvent,
 } from "@/lib/lanjutan";
+import { getEventIdDalamCerita } from "@/lib/cerita";
 
 export const metadata: Metadata = {
   title: "Timeline Peristiwa",
@@ -82,8 +84,31 @@ async function KartuEvent({ event }: { event: PfEvent }) {
   );
 }
 
-export default async function Timeline() {
-  const { events } = await getSemuaEvent();
+export default async function Timeline({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  // Filter cerita (Story Tracker, Fase 8 Gel. 2): ?cerita=<slug>
+  // hanya menampilkan event dalam cerita terbit itu.
+  const ceritaSlug =
+    typeof sp.cerita === "string" && sp.cerita.trim() !== ""
+      ? sp.cerita.trim()
+      : undefined;
+  const { events: semuaEvent } = await getSemuaEvent();
+  let events = semuaEvent;
+  let ceritaTidakDitemukan = false;
+  if (ceritaSlug) {
+    const ids = await getEventIdDalamCerita(ceritaSlug);
+    if (ids === null) {
+      ceritaTidakDitemukan = true;
+      events = [];
+    } else {
+      const himpunan = new Set(ids);
+      events = semuaEvent.filter((e) => himpunan.has(e.id));
+    }
+  }
 
   return (
     <div className="wadah">
@@ -94,13 +119,50 @@ export default async function Timeline() {
           Peristiwa terbaru beserta perkembangan waktunya — setiap entri
           disertai waktu, sumber, dan catatan perubahan bila ada.
         </p>
+        {ceritaSlug && (
+          <p>
+            <Link className="tombol" href={`/cerita/${ceritaSlug}`}>
+              ← Kembali ke cerita
+            </Link>{" "}
+            <Link className="tombol tombol-hantu" href="/timeline">
+              Semua peristiwa
+            </Link>
+          </p>
+        )}
       </section>
 
-      {events.length === 0 ? (
+      {ceritaTidakDitemukan ? (
         <section className="seksi">
           <EmptyState
-            judul="Belum ada peristiwa yang tercatat."
-            pesan="Timeline akan terisi begitu redaksi mencatat peristiwa beserta kronologinya."
+            judul="Cerita tidak ditemukan."
+            pesan="Cerita yang diminta tidak ada atau belum diterbitkan, sehingga tidak ada peristiwa yang bisa ditampilkan untuk filter ini."
+            aksi={
+              <Link className="tombol" href="/timeline">
+                Lihat semua peristiwa
+              </Link>
+            }
+          />
+        </section>
+      ) : events.length === 0 ? (
+        <section className="seksi">
+          <EmptyState
+            judul={
+              ceritaSlug
+                ? "Belum ada peristiwa dalam cerita ini."
+                : "Belum ada peristiwa yang tercatat."
+            }
+            pesan={
+              ceritaSlug
+                ? "Redaksi belum menautkan peristiwa ke cerita ini."
+                : "Timeline akan terisi begitu redaksi mencatat peristiwa beserta kronologinya."
+            }
+            aksi={
+              ceritaSlug ? (
+                <Link className="tombol" href={`/cerita/${ceritaSlug}`}>
+                  Kembali ke cerita
+                </Link>
+              ) : undefined
+            }
           />
         </section>
       ) : (

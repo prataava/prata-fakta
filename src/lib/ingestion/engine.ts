@@ -110,6 +110,10 @@ export interface OpsiIngestion {
   hanyaSumberId?: string;
   // Timeout per feed RSS (ms). GDELT memakai timeout sendiri (30 dtk).
   timeoutMs?: number;
+  // Topik GDELT untuk sumber jenis "api" (Gelombang 2: dulu
+  // hardcoded "Indonesia" di bawah — utang audit §5.11).
+  // Default tetap "Indonesia" agar perilaku lama tidak berubah.
+  topikGdelt?: string;
 }
 
 const PANJANG_JUDUL_MINIMAL = 5;
@@ -166,7 +170,8 @@ async function prosesSatuSumber(
   try {
     if (sumber.jenis === "api") {
       // Satu-satunya sumber API saat ini: GDELT DOC API.
-      const gdelt = await fetchGdelt("Indonesia", {
+      // Topik dari opsi (default "Indonesia" — perilaku lama).
+      const gdelt = await fetchGdelt(opsi.topikGdelt ?? "Indonesia", {
         maxRecords: 25,
         timeoutMs: 30000,
         fetchFn: opsi.fetchFn,

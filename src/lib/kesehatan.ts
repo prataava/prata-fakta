@@ -1,6 +1,11 @@
 // Pemeriksaan kesehatan sistem (dipakai /api/health dan halaman
 // /admin/sistem). TIDAK mengembalikan data sensitif — hanya status
 // koneksi database, latensi, dan waktu pemeriksaan.
+// Kesehatan WAJIB dihitung saat request (bukan prerender): waktu +
+// latensi berubah tiap render. `await connection()` menandai fungsi
+// ini dinamis (Next.js 16 cacheComponents) — tanpa ini build gagal
+// di /admin/api-sehat dengan "unstable value Date.now() while
+// prerendering" (Gelombang 2, 16 Nov 2026).
 // Status db:
 //   "ok"               — tabel pf_categories bisa dibaca.
 //   "belum_tersedia"   — Supabase menjawab tetapi tabel pf_* belum
@@ -8,6 +13,8 @@
 //   "belum_dikonfigurasi" — env Supabase belum diatur.
 //   "gagal"            — jaringan/HTTP lain (angka status dicatat
 //                        di detail, bukan isi respons).
+
+import { connection } from "next/server";
 
 export type StatusDb =
   | "ok"
@@ -23,6 +30,8 @@ export type HasilKesehatan = {
 };
 
 export async function periksaKesehatan(): Promise<HasilKesehatan> {
+  // Tandai dinamis: jangan prerender (lihat komentar di atas).
+  await connection();
   const mulai = Date.now();
   const waktu = new Date().toISOString();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

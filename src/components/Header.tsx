@@ -34,10 +34,16 @@ export default function Header() {
           <Link href="/brief">Daily Brief</Link>
           <Link href="/peta">Peta</Link>
           <Link href="/data">Data</Link>
+          <Link href="/riset">Riset</Link>
           <Link href="/timeline">Timeline</Link>
+          <Link href="/cerita">Cerita</Link>
+          <Link href="/sejarah">Sejarah</Link>
           <Link href="/pengetahuan">Pengetahuan</Link>
+          <Link href="/akademi">Akademi</Link>
+          <Link href="/negara">Negara</Link>
           <Link href="/kuis">Kuis</Link>
           <Link href="/tanya">Tanya</Link>
+          <Link href="/podcast">Podcast</Link>
           <Link href="/rutin">Rutin</Link>
           <Link href="/feed-saya">Feed Saya</Link>
           <Link href="/saya">Saya</Link>

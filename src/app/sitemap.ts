@@ -21,10 +21,17 @@ const HALAMAN_STATIS: Array<{
   { path: "/cari", frekuensi: "weekly", prioritas: 0.5 },
   { path: "/pengetahuan", frekuensi: "weekly", prioritas: 0.8 },
   { path: "/data", frekuensi: "weekly", prioritas: 0.8 },
+  { path: "/riset", frekuensi: "weekly", prioritas: 0.7 },
   { path: "/peta", frekuensi: "weekly", prioritas: 0.7 },
   { path: "/timeline", frekuensi: "weekly", prioritas: 0.7 },
+  { path: "/cerita", frekuensi: "daily", prioritas: 0.7 },
+  { path: "/sejarah", frekuensi: "weekly", prioritas: 0.6 },
+  { path: "/akademi", frekuensi: "weekly", prioritas: 0.7 },
+  { path: "/negara", frekuensi: "weekly", prioritas: 0.7 },
   { path: "/kuis", frekuensi: "daily", prioritas: 0.6 },
   { path: "/tanya", frekuensi: "weekly", prioritas: 0.6 },
+  { path: "/tanya/arsip", frekuensi: "weekly", prioritas: 0.5 },
+  { path: "/podcast", frekuensi: "weekly", prioritas: 0.6 },
   { path: "/laporkan", frekuensi: "monthly", prioritas: 0.5 },
   { path: "/rutin", frekuensi: "weekly", prioritas: 0.6 },
   { path: "/rutin/pagi", frekuensi: "daily", prioritas: 0.6 },
@@ -120,6 +127,72 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "monthly",
       priority: 0.6,
     });
+  }
+
+  // Gelombang 2: cerita, kursus, laporan riset, episode podcast
+  // (semua memakai kolom slug + status terbit, pola sama).
+  const petaDinamis: Array<{ tabel: string; awalan: string }> = [
+    { tabel: "pf_stories", awalan: "/cerita" },
+    { tabel: "pf_courses", awalan: "/akademi" },
+    { tabel: "pf_research_reports", awalan: "/riset" },
+    { tabel: "pf_podcast_episodes", awalan: "/podcast" },
+  ];
+  for (const { tabel, awalan } of petaDinamis) {
+    const baris = await ambilSlugTerbit(tabel);
+    for (const b of baris) {
+      entri.push({
+        url: `${dasar}${awalan}/${b.slug}`,
+        lastModified: b.diperbarui_pada
+          ? new Date(b.diperbarui_pada)
+          : sekarang,
+        changeFrequency: "weekly",
+        priority: 0.6,
+      });
+    }
+  }
+
+  // Negara memakai kolom kode (bukan slug) dan tidak punya kolom
+  // status — semua baris publik, jadi tanpa filter status.
+  const urlNegara = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonNegara = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (urlNegara && anonNegara) {
+    try {
+      const resNegara = await fetch(
+        `${urlNegara}/rest/v1/pf_countries?select=kode,diperbarui_pada&order=nama.asc&limit=500`,
+        {
+          headers: {
+            apikey: anonNegara,
+            Authorization: `Bearer ${anonNegara}`,
+          },
+          cache: "no-store",
+        },
+      );
+      if (resNegara.ok) {
+        const barisNegara = (await resNegara.json()) as unknown[];
+        if (Array.isArray(barisNegara)) {
+          for (const b of barisNegara) {
+            if (
+              b &&
+              typeof b === "object" &&
+              typeof (b as { kode?: unknown }).kode === "string"
+            ) {
+              const kode = (b as { kode: string }).kode;
+              const diubah = (b as { diperbarui_pada?: unknown })
+                .diperbarui_pada;
+              entri.push({
+                url: `${dasar}/negara/${kode}`,
+                lastModified:
+                  typeof diubah === "string" ? new Date(diubah) : sekarang,
+                changeFrequency: "monthly",
+                priority: 0.6,
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Negara tidak masuk sitemap bila DB belum tersedia.
+    }
   }
 
   return entri;

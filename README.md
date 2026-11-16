@@ -42,7 +42,23 @@ monitoring (`/api/health`, `/admin/sistem`); backup
 `node scripts/uji-fase7.mjs` **87/87 LOLOS**, `npm run build`
 EXIT 0 (87/87 halaman). Laporan lengkap: `LAPORAN-AKHIR.md`.
 
-**BELUM LIVE:** migrasi v1–v7 belum dijalankan di Supabase
+**Fase 8 — Gelombang 2: SELESAI (kode, terverifikasi lokal)**
+(16 Nov 2026). 10 area: Story Tracker, Explain the World,
+Reality Check, Ask the World, PRATA Academy, PRATA Podcast,
+PRATA Research, Country Profile, Historical Archive,
+Advanced Admin Control Center. Migrasi v10 (16 tabel baru;
+53 tabel, RLS 53/53, 106 policy). Verifikasi: `tsc` EXIT 0,
+`lint` EXIT 0 (0 warning), `npm run build` EXIT 0 (147/147
+halaman), 15 baterai (971/971 asersi lolos; uji-ingestion
+flaky eksternal), smoke test `next start` 9× 200 + 7× 404,
+log 0 error. Batas jujur: file audio MP3 + RSS enclosure
+podcast BELUM BISA (tanpa layanan TTS server gratis);
+Traffic Analytics BELUM BISA (tanpa analitik terkonfigurasi);
+T3/T10/DNS rebinding/CSP masih TERBUKA (Tahap 13).
+Detail: `LAPORAN-FASE-8.md` §13, `AUDIT-EXPANSION.md`
+§9.6–§9.7.
+
+**BELUM LIVE:** migrasi v1–v10 belum dijalankan di Supabase
 produksi dan deploy Vercel masih blokir 403 (akses tim
 `prataava`). Cara deploy langkah demi langkah:
 `LAPORAN-AKHIR.md` §11.

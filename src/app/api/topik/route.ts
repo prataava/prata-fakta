@@ -52,8 +52,9 @@ function respon503() {
  *  kategori wajib slug taksonomi yang dikenal; negara/isu wajib
  *  huruf, spasi, tanda hubung, dan apostrof saja (tanpa angka,
  *  URL, atau simbol — typo seperti "Ind0nesia" atau tautan
- *  tertolak di API). Validasi penuh terhadap tabel pf_countries
- *  ditunda ke Gelombang 2 (tabel belum ada). */
+ *  tertolak di API). Validasi penuh negara terhadap tabel
+ *  pf_countries ada di negaraAda() (Gelombang 2) dan dipakai
+ *  POST — validasiTarget murni tetap seperti sebelumnya. */
 export function validasiTarget(
   tipe: string,
   target: string,
@@ -71,6 +72,30 @@ export function validasiTarget(
     return "Target topik hanya boleh berisi huruf, spasi, dan tanda hubung.";
   }
   return null;
+}
+
+/**
+ * Apakah target negara ada di pf_countries (Gelombang 2, Area 11)?
+ * Cocok dengan nama (case-insensitive) ATAU kode ISO-2
+ * (case-insensitive). Fail-OPEN bila tabel belum ada / query
+ * gagal (migrasi v10 belum dijalankan): alur follow lama tetap
+ * jalan seperti sebelum Gelombang 2. Dipakai HANYA di POST
+ * (mengikuti topik); DELETE tidak divalidasi agar berhenti
+ * mengikuti negara yang profilnya dihapus tetap bisa.
+ */
+export async function negaraAda(target: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("pf_countries")
+      .select("id")
+      .or(`nama.ilike.${target},kode.eq.${target.toUpperCase()}`)
+      .limit(1);
+    if (error) return true;
+    return (data ?? []).length > 0;
+  } catch {
+    return true;
+  }
 }
 
 export async function GET(req: Request) {
@@ -121,6 +146,17 @@ export async function POST(req: Request) {
   const galat = validasiTarget(tipe, target);
   if (galat) {
     return NextResponse.json({ ok: false, error: galat }, { status: 400 });
+  }
+  // Gelombang 2 (Area 11): topik negara wajib merujuk profil
+  // negara yang benar-benar ada di pf_countries.
+  if (tipe === "negara" && !(await negaraAda(target))) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Negara "${target}" belum ada profilnya di PRATA FAKTA. Ikuti negara yang sudah punya profil di /negara.`,
+      },
+      { status: 400 },
+    );
   }
 
   const supabase = await createClient();

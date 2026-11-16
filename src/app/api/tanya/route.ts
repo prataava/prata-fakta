@@ -4,12 +4,18 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 // POST /api/tanya — tanya jawab berbasis data yang sudah ada.
 // Body: { pertanyaan }
-// Jawaban EKSTRAKTIF saja: kata kunci pertanyaan dicari di artikel
-// terbit (pf_articles) dan artikel pengetahuan terbit
-// (pf_knowledge_articles). Bila ada yang cocok, jawaban = ringkasan
-// artikel terbaik + daftar referensi yang bisa dibuka. Bila tidak
-// ada, pertanyaan disimpan berstatus 'menunggu' dan dijawab jujur
-// bahwa belum ada data yang bisa menjawab — TIDAK PERNAH mengarang.
+// Jawaban EKSTRAKTIF saja: kata kunci pertanyaan dicari di korpus
+// PRATA FAKTA — artikel terbit (pf_articles), artikel pengetahuan
+// terbit (pf_knowledge_articles), indikator data
+// (pf_data_indicators + nilai terakhir pf_data_points), peristiwa
+// (pf_events), dan profil negara (pf_countries, nama + fakta
+// kunci). Setiap klaim jawaban WAJIB menunjuk referensinya; bila
+// tidak ada referensi yang cocok, pertanyaan disimpan berstatus
+// 'tidak_ada_data' dan dijawab jujur bahwa belum ada data yang
+// bisa menjawab — TIDAK PERNAH mengarang. Antrean editor
+// (/admin/tanya) mencakup 'menunggu' DAN 'tidak_ada_data'.
+// Pertanyaan disimpan dengan kategori (klasifikasi kata kunci)
+// + publik=false (default; staf yang menandai publik).
 // Boleh anonim; bila login, pertanyaan tercatat di akun pengguna.
 // Rate limit 5 request/menit/IP (pola /api/laporan).
 // GET /api/tanya → daftar pertanyaan saya (wajib login, 401 bila tidak).
@@ -55,20 +61,65 @@ export function kataKunci(pertanyaan: string): string[] {
   return [...new Set(token)].slice(0, 6);
 }
 
+// Klasifikasi kategori pertanyaan dari kata kunci (murni,
+// deterministik — diekspos untuk uji). Urutan penting: ekonomi
+// dulu (kata data paling spesifik), lalu teknologi, sains, dunia,
+// indonesia; selebihnya 'umum'.
+const KATA_KATEGORI: { kategori: string; kata: string[] }[] = [
+  {
+    kategori: "ekonomi",
+    kata: ["penduduk", "inflasi", "ekonomi", "harga", "upah", "gaji", "kemiskinan", "pengangguran", "ekspor", "impor", "utang", "apbn", "pajak", "investasi", "pertumbuhan"],
+  },
+  {
+    kategori: "teknologi",
+    kata: ["teknologi", "internet", "kecerdasan", "komputer", "digital", "robot", "satelit"],
+  },
+  {
+    kategori: "sains",
+    kata: ["sains", "ilmiah", "penelitian", "hewan", "tumbuhan", "bumi", "iklim", "angkasa", "fosil", "evolusi"],
+  },
+  {
+    kategori: "dunia",
+    kata: ["negara", "dunia", "presiden", "perang", "asean", "amerika", "tiongkok", "eropa", "afrik", "perdamaian"],
+  },
+  {
+    kategori: "indonesia",
+    kata: ["indonesia", "jakarta", "pemerintah", "pemilu", "nusantara", "jawa", "sumatera", "kalimantan", "sulawesi", "papua"],
+  },
+];
+
+export function kategoriPertanyaan(pertanyaan: string): string {
+  const rendah = pertanyaan.toLowerCase();
+  for (const { kategori, kata } of KATA_KATEGORI) {
+    if (kata.some((k) => rendah.includes(k))) return kategori;
+  }
+  return "umum";
+}
+
 const JAWABAN_KOSONG =
   "Belum ada data di PRATA FAKTA yang bisa menjawab pertanyaan ini. " +
   "Pertanyaanmu masuk antrean untuk dijawab editor/Muse.";
 
+export type ReferensiJawaban = {
+  judul: string;
+  /** null bila korpusnya belum punya halaman khusus (mis. profil
+   *  negara — halaman /negara belum dibangun area lain). */
+  url: string | null;
+};
+
 type Kandidat = {
   judul: string;
   ringkasan: string | null;
-  slug: string;
-  sumber: "artikel" | "pengetahuan";
+  url: string | null;
   skor: number;
 };
 
 function bersihkanPola(s: string): string {
   return s.replace(/[%_]/g, "");
+}
+
+function formatAngka(n: number): string {
+  return n.toLocaleString("id-ID");
 }
 
 async function cariKandidat(
@@ -77,9 +128,14 @@ async function cariKandidat(
 ): Promise<Kandidat[]> {
   const peta = new Map<string, Kandidat>();
   const pola = (k: string) => `%${bersihkanPola(k)}%`;
+  const catat = (kunciMap: string, judul: string, ringkasan: string | null, url: string | null, skor: number) => {
+    const lama = peta.get(kunciMap);
+    if (lama) lama.skor += skor;
+    else peta.set(kunciMap, { judul, ringkasan, url, skor });
+  };
 
   for (const k of kata) {
-    const [art, png] = await Promise.all([
+    const [art, png, ind, evt, neg] = await Promise.all([
       supabase
         .from("pf_articles")
         .select("slug, judul, ringkasan")
@@ -92,38 +148,91 @@ async function cariKandidat(
         .eq("status", "terbit")
         .or(`judul.ilike.${pola(k)},ringkasan.ilike.${pola(k)},isi.ilike.${pola(k)}`)
         .limit(10),
+      supabase
+        .from("pf_data_indicators")
+        .select("id, nama, slug, satuan, sumber_nama")
+        .or(`nama.ilike.${pola(k)},slug.ilike.${pola(k)}`)
+        .limit(5),
+      supabase
+        .from("pf_events")
+        .select("id, judul, ringkasan")
+        .or(`judul.ilike.${pola(k)},ringkasan.ilike.${pola(k)}`)
+        .limit(5),
+      supabase
+        .from("pf_countries")
+        .select("kode, nama, ibu_kota, populasi, pdb, sistem_pemerintahan, sumber, periode_referensi")
+        .or(`nama.ilike.${pola(k)},kode.ilike.${pola(k)}`)
+        .limit(5),
     ]);
-    const catat = (
-      baris: { slug: string; judul: string; ringkasan: string | null }[],
-      sumber: "artikel" | "pengetahuan",
-    ) => {
-      for (const r of baris) {
-        const kunciMap = `${sumber}:${r.slug}`;
-        const rendah = `${r.judul} ${r.ringkasan ?? ""}`.toLowerCase();
-        const skor = rendah.includes(k) ? 3 : 1;
-        const lama = peta.get(kunciMap);
-        if (lama) lama.skor += skor;
-        else
-          peta.set(kunciMap, {
-            judul: r.judul,
-            ringkasan: r.ringkasan,
-            slug: r.slug,
-            sumber,
-            skor,
-          });
-      }
-    };
     if (!art.error && art.data) {
-      catat(
-        art.data as { slug: string; judul: string; ringkasan: string | null }[],
-        "artikel",
-      );
+      for (const r of art.data as { slug: string; judul: string; ringkasan: string | null }[]) {
+        const rendah = `${r.judul} ${r.ringkasan ?? ""}`.toLowerCase();
+        catat(`artikel:${r.slug}`, r.judul, r.ringkasan, `/artikel/${r.slug}`, rendah.includes(k) ? 3 : 1);
+      }
     }
     if (!png.error && png.data) {
-      catat(
-        png.data as { slug: string; judul: string; ringkasan: string | null }[],
-        "pengetahuan",
-      );
+      for (const r of png.data as { slug: string; judul: string; ringkasan: string | null }[]) {
+        const rendah = `${r.judul} ${r.ringkasan ?? ""}`.toLowerCase();
+        catat(`pengetahuan:${r.slug}`, r.judul, r.ringkasan, `/pengetahuan/${r.slug}`, rendah.includes(k) ? 3 : 1);
+      }
+    }
+    if (!ind.error && ind.data) {
+      for (const r of ind.data as { id: string; nama: string; slug: string; satuan: string | null; sumber_nama: string }[]) {
+        // Nilai terakhir indikator (tanpa nilai, indikator tetap
+        // jadi kandidat — jawabannya menyebut sumbernya saja).
+        let nilaiTeks = "";
+        try {
+          const { data: poin } = await supabase
+            .from("pf_data_points")
+            .select("tanggal, nilai")
+            .eq("indikator_id", r.id)
+            .order("tanggal", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (poin) {
+            const p = poin as { tanggal: string; nilai: number | string };
+            nilaiTeks = `Nilai terakhir: ${formatAngka(Number(p.nilai))}${r.satuan ? ` ${r.satuan}` : ""} (per ${p.tanggal}). `;
+          }
+        } catch {
+          // Poin gagal dibaca: kandidat tetap tampil tanpa nilai.
+        }
+        catat(
+          `indikator:${r.slug}`,
+          r.nama,
+          `${nilaiTeks}Sumber: ${r.sumber_nama}.`,
+          "/data",
+          r.nama.toLowerCase().includes(k) ? 3 : 1,
+        );
+      }
+    }
+    if (!evt.error && evt.data) {
+      for (const r of evt.data as { id: string; judul: string; ringkasan: string | null }[]) {
+        const rendah = `${r.judul} ${r.ringkasan ?? ""}`.toLowerCase();
+        catat(`event:${r.id}`, r.judul, r.ringkasan, "/timeline", rendah.includes(k) ? 3 : 1);
+      }
+    }
+    if (!neg.error && neg.data) {
+      for (const r of neg.data as {
+        kode: string; nama: string; ibu_kota: string | null; populasi: number | null;
+        pdb: number | null; sistem_pemerintahan: string | null;
+        sumber: string | null; periode_referensi: string | null;
+      }[]) {
+        const fakta: string[] = [];
+        if (r.ibu_kota) fakta.push(`Ibu kota: ${r.ibu_kota}`);
+        if (r.populasi !== null) fakta.push(`Populasi: ${formatAngka(r.populasi)}`);
+        if (r.pdb !== null) fakta.push(`PDB: ${formatAngka(r.pdb)}`);
+        if (r.sistem_pemerintahan) fakta.push(`Sistem pemerintahan: ${r.sistem_pemerintahan}`);
+        if (r.sumber) fakta.push(`Sumber: ${r.sumber}${r.periode_referensi ? ` (${r.periode_referensi})` : ""}`);
+        catat(
+          `negara:${r.kode}`,
+          `${r.nama} — profil negara`,
+          fakta.length > 0 ? fakta.join(". ") + "." : null,
+          // Belum ada halaman /negara (area 11, gelombang lain):
+          // referensi menunjuk nama negaranya tanpa tautan.
+          null,
+          r.nama.toLowerCase().includes(k) ? 3 : 1,
+        );
+      }
     }
   }
   return [...peta.values()]
@@ -170,10 +279,11 @@ export async function POST(req: Request) {
 
   const kata = kataKunci(pertanyaan);
   const kandidat = kata.length > 0 ? await cariKandidat(supabase, kata) : [];
+  const kategori = kategoriPertanyaan(pertanyaan);
 
   let jawaban: string;
-  let referensi: { judul: string; url: string }[];
-  let status: "terjawab" | "menunggu";
+  let referensi: ReferensiJawaban[];
+  let status: "terjawab" | "tidak_ada_data";
   if (kandidat.length > 0) {
     const terbaik = kandidat[0];
     jawaban =
@@ -182,16 +292,13 @@ export async function POST(req: Request) {
         : terbaik.judul;
     referensi = kandidat.map((k) => ({
       judul: k.judul,
-      url:
-        k.sumber === "artikel"
-          ? `/artikel/${k.slug}`
-          : `/pengetahuan/${k.slug}`,
+      url: k.url,
     }));
     status = "terjawab";
   } else {
     jawaban = JAWABAN_KOSONG;
     referensi = [];
-    status = "menunggu";
+    status = "tidak_ada_data";
   }
 
   let service;
@@ -215,6 +322,8 @@ export async function POST(req: Request) {
       jawaban,
       referensi,
       status,
+      kategori,
+      publik: false,
       dijawab_pada: status === "terjawab" ? new Date().toISOString() : null,
     })
     .select("id, status, dibuat_pada")
@@ -258,7 +367,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("pf_questions")
     .select(
-      "id, user_id, pertanyaan, jawaban, referensi, status, dibuat_pada, dijawab_pada",
+      "id, user_id, pertanyaan, jawaban, referensi, status, kategori, publik, membantu, dibuat_pada, dijawab_pada",
     )
     .eq("user_id", penggunaId)
     .order("dibuat_pada", { ascending: false })

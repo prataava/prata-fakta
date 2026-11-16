@@ -51,7 +51,53 @@ async function slugTidakAda(
   return false;
 }
 
+// Pemeriksaan keberadaan kode negara (ISO-2) di pf_countries
+// lewat REST publik. true bila kode PASTI tidak ada (hasil
+// kosong, atau tabel belum ada = PGRST205). false bila ada ATAU
+// bila pemeriksaan gagal (fail-open: halaman yang menangani).
+async function kodeNegaraTidakAda(kode: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/pf_countries?kode=eq.${encodeURIComponent(kode)}&select=id&limit=1`,
+      {
+        headers: {
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+        },
+      },
+    );
+    if (res.ok) {
+      const baris = (await res.json()) as unknown[];
+      return Array.isArray(baris) && baris.length === 0;
+    }
+    if (res.status === 404) {
+      try {
+        const body = (await res.json()) as { code?: string };
+        if (body.code === "PGRST205") return true;
+      } catch {
+        // Abaikan; lanjut ke halaman.
+      }
+    }
+  } catch {
+    // Fail-open: halaman yang menangani (notFound + noindex).
+  }
+  return false;
+}
+
 export default async function proxy(request: NextRequest) {
+  // Negara tidak ada → 404 SEBELUM halaman dirender (Fase 8
+  // Gelombang 2, Area 11 — pola yang sama dengan
+  // /pengetahuan/[slug] Fase 7). pf_countries tidak punya
+  // kolom status: keberadaan dicek dari kode ISO-2 saja.
+  // Tabel belum ada (PGRST205) → kode apa pun memang 404.
+  const cocokNegara = /^\/negara\/([^/]+)$/.exec(request.nextUrl.pathname);
+  if (cocokNegara) {
+    const kode = decodeURIComponent(cocokNegara[1]).toUpperCase();
+    if (await kodeNegaraTidakAda(kode)) {
+      return NextResponse.rewrite(new URL("/_not-found", request.url));
+    }
+  }
+
   // Artikel tidak ada → 404 SEBELUM halaman dirender (Fase 2).
   const cocokArtikel = /^\/artikel\/([^/]+)$/.exec(request.nextUrl.pathname);
   if (cocokArtikel) {
@@ -75,6 +121,32 @@ export default async function proxy(request: NextRequest) {
     const slug = decodeURIComponent(cocokPengetahuan[1]);
     if (await slugTidakAda("pf_knowledge_articles", slug)) {
       return NextResponse.rewrite(new URL("/_not-found", request.url));
+    }
+  }
+
+  // Gelombang 2 (Fase 8, integrasi koordinator): keempat rute
+  // slug baru mengalami utang yang SAMA — smoke test 16 Nov 2026
+  // membuktikan /cerita/tidak-ada, /riset/tidak-ada,
+  // /akademi/tidak-ada, /podcast/tidak-ada semuanya HTTP 200
+  // (UI 404 benar, status salah) karena notFound() di halaman
+  // tidak mengubah status shell statis. Pola yang sama:
+  // periksa keberadaan slug di proxy sebelum halaman dirender.
+  // Keempat tabel punya kolom slug + status ('draft','terbit')
+  // di v10, jadi helper slugTidakAda dipakai apa adanya.
+  const cocokGel2: Array<{ pola: RegExp; tabel: string }> = [
+    { pola: /^\/cerita\/([^/]+)$/, tabel: "pf_stories" },
+    { pola: /^\/riset\/([^/]+)$/, tabel: "pf_research_reports" },
+    { pola: /^\/akademi\/([^/]+)$/, tabel: "pf_courses" },
+    { pola: /^\/podcast\/([^/]+)$/, tabel: "pf_podcast_episodes" },
+  ];
+  for (const { pola, tabel } of cocokGel2) {
+    const cocok = pola.exec(request.nextUrl.pathname);
+    if (cocok) {
+      const slug = decodeURIComponent(cocok[1]);
+      if (await slugTidakAda(tabel, slug)) {
+        return NextResponse.rewrite(new URL("/_not-found", request.url));
+      }
+      break;
     }
   }
 

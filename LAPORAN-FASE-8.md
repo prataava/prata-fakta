@@ -1,17 +1,28 @@
 # LAPORAN FASE 8 — PRATA FAKTA: AUDIT & PRODUCTION READINESS GATE
 
-**Tanggal:** 16 November 2026 (±06.29–07.00 WIB)
+**Tanggal:** 16 November 2026 (±06.29 WIB — diperbarui ±07.37 WIB, pengawasan Gelombang 2)
 **Repo:** `github.com/prataava/prata-fakta` — `~/workspace/prata-fakta`
-**HEAD:** `f1e68d6` (Gelombang 1) + perubahan gate uncommitted (commit oleh agen utama)
+**HEAD:** `649958a` (remediasi Gelombang 1) + pekerjaan Gelombang 2 uncommitted (commit oleh agen utama)
 **Status gate: TERTAHAN — lolos lokal, tertahan di produksi.**
 
-> **Cara membaca laporan ini:** setiap klaim diberi status tegas —
-> **Terverifikasi lokal** / **Terverifikasi staging** /
-> **Terverifikasi production** / **Belum diuji** / **Terblokir**.
-> Tidak ada satu pun klaim "Terverifikasi staging" atau
-> "Terverifikasi production" dalam laporan ini: semua bukti
-> berasal dari PGlite, build lokal, dan dry-run lokal. Situs
-> PRATA FAKTA **BELUM LIVE**.
+> **PERNYATAAN TEGAS — BACA DULU: Semua pengujian dalam
+> laporan ini masih LOKAL, bukan production.** Tidak ada satu
+> pun klaim "Terverifikasi staging" atau "Terverifikasi
+> production" dalam laporan ini — dan tidak boleh ada yang
+> membacanya seolah-olah begitu. Semua bukti berasal dari
+> PGlite, build lokal, dan dry-run lokal di VM ini. Situs
+> PRATA FAKTA **BELUM LIVE**: migrasi v1–v10 belum pernah
+> dijalankan di Supabase produksi, deploy Vercel masih 403,
+> scheduler belum pernah jalan live, dan tidak ada satu pun
+> pengguna nyata yang memakai sistem ini. Pengujian lokal
+> **BUKAN** pengujian produksi — render live, login staf
+> nyata, klik browser nyata, dan perilaku di Vercel semuanya
+> masih **Belum diuji**. Setiap klaim di bawah ini diberi
+> status tegas — **Terverifikasi lokal** / **Terverifikasi
+> staging** / **Terverifikasi production** / **Belum diuji** /
+> **Terblokir** — dan status "Terverifikasi production" tidak
+> pernah dipakai sebelum migrasi + deploy + smoke test
+> produksi benar-benar terjadi atas otorisasi pemilik.
 
 ## 0. Ringkasan gate (untuk pemilik)
 
@@ -1240,3 +1251,442 @@ browser nyata (moderator/admin/kuis/peta).
 | Smoke test `next start` | Terverifikasi lokal (`/` 200, slug tak ada 404, `/api/health` 200 degraded jujur, `/laporkan` 200, `/sitemap.xml` 200, log 0 error) |
 | Render live / produksi / scheduler live | **Terblokir** (migrasi v1–v9 + Vercel 403, butuh pemilik) |
 | Gelombang 2 | **LAYAK DIMULAI (di kode)** |
+
+---
+
+## 13. Gelombang 2 — pembangunan 10 area (16 Nov 2026 ±07.30–08.15 WIB)
+
+### 13.0 Pernyataan tegas + mandat
+
+**SEMUA pengujian di bagian ini masih LOKAL (PGlite + `next start`
+di VM), BUKAN production.** Tidak ada satu pun langkah di bagian
+ini yang menyentuh Supabase produksi, Vercel, secret, akun admin,
+atau data produksi. Migrasi v1–v10 belum dijalankan di produksi;
+deploy Vercel masih blokir 403 (lihat §11). Situs tetap **BELUM
+LIVE**. Sejarah NO-GO §12.6 dan remediasi §12.9 di atas TIDAK
+diubah — bagian ini hanya menambah progres sesudahnya.
+
+Mandat yang mengatur gelombang ini (berurutan, yang terbaru
+menggantikan yang lama):
+
+1. **Persetujuan + pengawasan pemilik, ±07.37 WIB** — Gelombang 2
+   DISETUJUI berdasarkan remediasi; bertahap (2A dulu: Story
+   Tracker, Explain the World, Reality Check, Ask the World,
+   satu per satu lengkap; 2B sesudahnya: Academy, Podcast,
+   Research, Country Profile, Historical Archive, Admin Control
+   Center); data nyata + sumber terperiksa + Muse AI saja;
+   publikasi otomatis TETAP MATI; audit ulang T3/T10/DNS
+   rebinding/CSP; regression tiap penambahan; laporan per
+   gelombang.
+2. **Master Autonomous Execution Directive, ±07.47 WIB** — Muse
+   sebagai lead autonomous agent sampai selesai; 17 tahap
+   (1 audit repo, 2–5 Gelombang 2A, 6 audit 2A + regression,
+   7–12 Gelombang 2B, 13 keamanan + scheduler, 14 integrasi
+   14 area, 15 audit menyeluruh + regression, 16 final
+   production readiness, 17 siapkan deployment/cutover untuk
+   persetujuan pemilik). DONE per fitur = frontend + backend +
+   DB + API + permission + error handling + loading/empty state
+   + data nyata + pengujian + regression + dokumentasi. BATAS
+   tetap: tanpa migrasi/deploy/ubah secret/ubah akun admin/ubah
+   data produksi tanpa persetujuan eksplisit; jangan sebut live
+   sebelum deploy berhasil + diuji.
+
+**Penyimpangan v10 (dicatat, untuk diputuskan pemilik).**
+Perintah bertahap 07.37 WIB meminta v10 dibatasi pada tabel
+4 area prioritas 2A, tabel 6 area sisanya di migrasi lanjutan.
+Tetapi v10 (16 tabel) sudah ditulis + tervalidasi 28/28
+SEBELUM perintah itu tiba, dan 4 pekerja sudah membangun di
+atasnya. Memotongnya = menulis ulang migrasi + 5 baterai yang
+sudah lolos, risiko regresi, tanpa manfaat produksi (v10
+aditif, belum pernah diterapkan). Yang dilakukan sebagai
+gantinya: verifikasi + pelaporan tetap bertahap (2A
+diverifikasi/dilaporkan dulu, 2B sesudahnya); penyimpangan
+dicatat di sini agar pemilik bisa memerintahkan pemotongan
+bila tetap menginginkannya.
+
+**Cara kerja gelombang ini.** Koordinator menulis migrasi v10
+sendiri, lalu mendelegasikan 10 area ke 6 pekerja (masing-masing
+dengan baterai sendiri, tanpa commit — commit oleh koordinator).
+Koordinator lalu: audit ulang keamanan (dibaca langsung dari
+kode), perbaiki blocker build/lint, bersihkan warning lint,
+perluas tipe `AksiAudit`, integrasikan nav publik + sitemap,
+jalankan regression penuh + smoke test `next start`, tulis
+bagian ini, dan commit SATU commit Gelombang 2 (push oleh agen
+utama).
+
+### 13.1 Migrasi v10 — Gelombang 2
+
+- Berkas: `supabase/migrations/20261116_pf_v10_wave2.sql`
+  (baru; v1–v9 TIDAK diubah).
+- Isi: 16 tabel baru (`pf_stories`, `pf_story_events`,
+  `pf_story_articles`, `pf_story_followers`, `pf_courses`,
+  `pf_course_modules`, `pf_course_lessons`, `pf_course_progress`,
+  `pf_podcast_episodes`, `pf_podcast_history`,
+  `pf_podcast_playlist_items`, `pf_research_reports`,
+  `pf_documents`, `pf_countries`, `pf_country_facts`,
+  `pf_system_settings`) + 14 kolom perluasan (`knowledge`:
+  jenis/tingkat/estimasi_menit/seri; `indicators`: cakupan/
+  frekuensi/negara_kode; `questions`: publik/kategori/
+  membantu; `events`: era/penting/negara_kode; `articles`:
+  negara_kode) + GRANT eksplisit sejak awal (pelajaran F4) +
+  RLS aktif di semua tabel baru.
+- Tervalidasi: `scripts/uji-fase8-gel2-migrasi.mjs` **28/28,
+  EXIT 0** — v1–v10 dijalankan 2× idempoten TANPA blanket
+  grant: **53 tabel / RLS 53/53 / policy 106** (27 baru v10);
+  isolasi pemilik 4/4 tabel user; FK `negara_kode` menolak
+  `'XX'`; CHECK menolak jenis podcast `'video'`.
+- `supabase/CUTOVER.md` diperbarui: judul + §0 (tahap 3D) +
+  §3.10 (v10, ekspektasi 53/53/106) + checklist v10.
+
+### 13.2 Gelombang 2A — empat area prioritas
+
+#### 13.2.1 Story Tracker — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-cerita.mjs` **66/66** (juga
+  mencakup Historical Archive + `/admin/event`).
+- Berkas: `src/lib/cerita.ts`, `src/app/cerita/` (+`[slug]`),
+  `src/app/api/cerita/`, `src/app/api/admin/cerita/`,
+  `src/app/api/admin/event/`, `src/components/cerita/`,
+  `src/app/timeline/page.tsx` (filter `?cerita=`).
+- Yang dibangun: halaman detail cerita (kronologi, berita
+  terkait, pihak/lokasi tercatat, status perkembangan,
+  tombol ikuti); artikel dihubungkan ke cerita; kronologi
+  tersimpan; pengguna dapat mengikuti (isolasi per-user
+  diuji); admin kelola cerita + event.
+- **WAJIB pf_akar_salinan: dipenuhi** — `sumber_independen`
+  hanya dihitung bila rantai salinan terverifikasi lewat
+  RPC v9; bila rantai tak tersedia, jumlah disembunyikan
+  dengan penjelasan (tidak mengulang kesalahan kesetaraan
+  palsu Gelombang 1).
+- Belum selesai / catatan: `/timeline?cerita=` memfilter
+  dari 100 event terbaru saja (batas sadar); celah RLS
+  tautan artikel draf ditutup di lapisan aplikasi (pola
+  F-A1-1), bukan di policy; notifikasi pembaruan masih
+  pull-based (tanpa push); penggabungan dua peristiwa
+  TIDAK otomatis (entity matching + review manual — tidak
+  ada auto-merge judul mirip).
+
+#### 13.2.2 Explain the World — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-akademi.mjs` **106/106**
+  (baterai bersama dengan Academy — keduanya dibangun
+  pekerja yang sama di atas `pf_knowledge_articles`).
+- Berkas: `src/lib/explainer.ts`,
+  `src/app/pengetahuan/[slug]/page.tsx`,
+  `src/app/admin/pengetahuan/`,
+  `src/app/api/admin/pengetahuan/`.
+- Yang dibangun: explainer berlapis (ringkas → Mengapa
+  penting → mendalam → linimasa → istilah); format
+  singkat/menengah/mendalam lewat kolom v10 (jenis,
+  tingkat, estimasi_menit, seri); referensi per artikel;
+  editor khusus admin (buat/ubah/terbit).
+- Belum selesai / catatan: teori/dugaan/interpretasi
+  TIDAK diubah menjadi fakta (label eksplisit); isi
+  penjelasan tetap butuh review redaksi sebelum terbit
+  (gate editorial Fase 5 berlaku — tidak ada auto-publish).
+
+#### 13.2.3 Reality Check — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-riset.mjs` **71/71**
+  (baterai bersama dengan Research).
+- Berkas: `src/lib/reality.ts`,
+  `src/components/data/GrafikInteraktif.tsx`,
+  `src/app/data/page.tsx`, `src/app/api/admin/data/`.
+- Yang dibangun: grafik interaktif `/data` (hover, rentang
+  periode, YoY, tema Indonesia/Dunia); tiap grafik wajib
+  nama indikator + nilai + satuan + negara/wilayah +
+  periode + sumber + tanggal pengambilan + metodologi bila
+  tersedia; filter tanggal/negara; perbandingan periode.
+- Belum selesai / catatan: data awal hanya dari indikator
+  yang sudah ada di database; bila data belum ada, empty
+  state jujur (TIDAK ada angka dummy — ditegakkan di
+  komponen); impor dari BPS/BI/World Bank dkk. masih
+  manual lewat admin (belum ada konektor impor otomatis
+  sumber resmi).
+
+#### 13.2.4 Ask the World — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-tanya-podcast.mjs`
+  **72/72** (baterai bersama dengan Podcast).
+- Berkas: `src/lib/lanjutan.ts` (diperluas),
+  `src/app/tanya/page.tsx`, `src/app/tanya/arsip/`,
+  `src/app/api/tanya/route.ts`,
+  `src/app/api/tanya/[id]/`,
+  `src/app/api/tanya/arsip/`,
+  `src/components/lanjutan/FormTanya.tsx`,
+  `src/app/api/topik/route.ts` (validasi topik negara).
+- Yang dibangun: korpus tanya diperluas (artikel +
+  pengetahuan + indikator + event + negara); arsip Q&A
+  publik + vote 1/IP/hari; setiap jawaban menunjukkan
+  sumbernya; riwayat percakapan tersimpan per akun.
+- Kejujuran mekanisme: bila referensi tidak ada, status
+  = `tidak_ada_data` (BUKAN `menunggu` seperti Fase 6) —
+  sistem mengakui keterbatasan, bukan pura-pura menjawab;
+  antrean admin menghitung keduanya. Arsip dibaca via
+  service role karena anon SELECT `pf_questions` = 0
+  baris di RLS (dicatat sebagai utang: policy arsip
+  publik belum dibuka — butuh migrasi bila mau lewat
+  anon).
+- Belum selesai / catatan: jawaban AI adalah retrieval
+  deterministik dari korpus PRATA FAKTA (bukan LLM
+  generatif) — sesuai mandat "AI HANYA via Muse" +
+  "tanpa endpoint AI fiktif"; tidak ada URL/kutipan
+  fiktif; konten sumber diperlakukan sebagai data, bukan
+  instruksi (perlindungan prompt injection dasar).
+
+### 13.3 Gelombang 2B — enam area sisanya
+
+#### 13.3.1 PRATA Academy — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-akademi.mjs` **106/106**
+  (bersama Explain the World, §13.2.2).
+- Berkas: `src/lib/akademi.ts`, `src/app/akademi/`
+  (+`[slug]`), `src/app/api/akademi/`,
+  `src/app/admin/akademi/`, `src/app/api/admin/akademi/`,
+  `src/components/akademi/`.
+- Yang dibangun: kursus + modul + pelajaran + progres
+  belajar per akun; kuis akademi server-side — **kunci
+  TIDAK PERNAH ke klien** (diuji); pembahasan jawaban;
+  rate limit 20/mnt terbukti 429; bookmark + riwayat.
+- Belum selesai / catatan: **sertifikat TIDAK dibangun**
+  (benar — sistem penilaian belum mendukung sertifikat,
+  jadi tidak diklaim); audit admin Academy bersifat
+  best-effort (gagal insert audit hanya console, tidak
+  menggagalkan tulis) — **menyimpang dari fail-closed
+  Fase 7**, dicatat sebagai utang Tahap 13.
+
+#### 13.3.2 PRATA Podcast — BERFUNGSI SEBAGIAN (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-tanya-podcast.mjs`
+  **72/72** (bersama Ask the World, §13.2.4).
+- Berkas: `src/lib/podcast.ts`, `src/app/podcast/`
+  (+`[slug]`), `src/app/api/podcast/`,
+  `src/app/admin/podcast/`, `src/app/api/admin/podcast/`,
+  `src/components/podcast/`.
+- Yang dibangun: pemutar TTS browser (SpeechSynthesis) +
+  playlist + riwayat mendengarkan + kecepatan pemutaran +
+  halaman episode + admin episode (buat/terbit); hanya
+  artikel sendiri (hak penggunaan).
+- **BELUM BISA (jujur): file audio MP3 server + RSS
+  enclosure** — tidak ada layanan TTS server gratis tanpa
+  key yang tersedia; yang ada adalah suara browser, dan
+  laporan ini TIDAK mengklaim file audio server.
+  Riwayat TTS hanya tercatat saat bacaan selesai.
+
+#### 13.3.3 PRATA Research — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-riset.mjs` **71/71**
+  (bersama Reality Check, §13.2.3).
+- Berkas: `src/lib/riset.ts`, `src/app/riset/`
+  (+`[slug]`), `src/app/api/riset/`,
+  `src/app/api/dokumen/`, `src/app/admin/riset/`,
+  `src/app/api/admin/riset/`, `src/components/riset/`.
+- Yang dibangun: pusat dokumen/laporan (metadata +
+  tautan sumber tiap dokumen — TIDAK menyalin isi
+  berhak cipta); pencarian + filter topik/penulis/
+  institusi/tahun; dataset CSV dari titik indikator
+  nyata; POST riset selalu `draft` (tidak ada
+  publikasi langsung).
+- Belum selesai / catatan: tautan dataset laporan↔
+  indikator via konvensi slug sama + metadata
+  `riset_slug` (tanpa kolom FK — butuh v11 bila mau
+  eksplisit); unggah materi berhak cipta tanpa hak
+  TIDAK diizinkan (validasi admin).
+
+#### 13.3.4 Country Profile — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-negara.mjs` **77/77**.
+- Berkas: `src/lib/negara.ts`, `src/app/negara/`
+  (+`[kode]`), `src/app/api/negara/`,
+  `src/app/admin/negara/`, `src/app/api/admin/negara/`,
+  `src/components/negara/`.
+- Yang dibangun: profil per negara (kode ISO-2 konsisten;
+  identitas, ibu kota, populasi, ekonomi, pendidikan,
+  energi, geografi, hubungan internasional, berita
+  terbaru, data historis); **angka bersumber 3 lapis**
+  (nilai + sumber + periode referensi); validasi topik
+  negara di POST `/api/topik` (400 bila tanpa profil);
+  topik GDELT jadi parameter (default `"Indonesia"`).
+- Kejujuran data: angka TANPA sumber TIDAK dirender
+  sebagai fakta — dipisah ke daftar "Fakta tanpa sumber
+  tercatat"; bila data belum ada, empty state jujur.
+
+#### 13.3.5 Historical Archive — BERFUNGSI (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-cerita.mjs` **66/66**
+  (bersama Story Tracker, §13.2.1).
+- Berkas: `src/lib/sejarah.ts`, `src/app/sejarah/`,
+  `src/app/admin/event/`, `src/app/api/admin/event/`.
+- Yang dibangun: arsip sejarah Indonesia + dunia di atas
+  `pf_events` + kolom v10 (era, penting, negara_kode);
+  timeline; "hari ini dalam sejarah" dari tanggal
+  peristiwa; tokoh/negara/lokasi dari data tercatat;
+  referensi akademis/institusional per peristiwa.
+- Belum selesai / catatan: tanggal peristiwa vs tanggal
+  publikasi sumber vs tanggal dokumentasi dibedakan di
+  model data; TIDAK ada narasi sejarah dari AI tanpa
+  referensi; tidak ada halaman detail `[slug]` peristiwa
+  (detail lewat timeline/cerita).
+
+#### 13.3.6 Advanced Admin Control Center — BERFUNGSI SEBAGIAN (terverifikasi lokal)
+
+- Baterai: `scripts/uji-fase8-gel2-admin.mjs` **83/83**.
+- Berkas: `src/app/admin/layout.tsx` (nav 19 tautan, grup
+  Utama/Konten/Kendali/Monitoring),
+  `src/app/admin/kendali/` (+`src/app/api/admin/kendali/`,
+  `src/lib/admin/kendali.ts`,
+  `src/components/admin/FormFlag.tsx`),
+  `src/app/admin/{agen-ai,analitik,api-sehat,data,duplikat,klaster,kualitas,laporan-pengguna,monitoring,verifikasi}/`.
+- Yang dibangun: `/admin/kendali` (feature flags,
+  pemicu manual 5 job, ekspor audit CSV); 10 halaman
+  monitoring (Live News Monitoring dari `ingestion_runs`
+  nyata, Source Management, News Clustering dari
+  dedup/`disalin_dari` + `pf_akar_salinan`, Editorial
+  Queue, Verification Dashboard, AI Agent Logs,
+  Scheduler Monitoring, API Health, Duplicate Detection,
+  Article Quality Control, Correction Management, User
+  Reports); RBAC + audit log untuk operasi sensitif yang
+  sudah diaudit (lihat catatan).
+- **BELUM BISA (jujur): Traffic Analytics** — tidak ada
+  analitik yang terkonfigurasi; halaman menampilkan
+  "belum tersedia", TANPA angka palsu.
+- Belum selesai / catatan: F6 (terakhir_jalan run cron)
+  SEBAGIAN — pemicu manual UI memperbarui, run GitHub
+  Actions tetap tidak; F7 SEBAGIAN — 5 dari 8 job bisa
+  dipicu manual, digest/podcast/riset tidak bisa (route
+  400 jujur); **F2/F3/F4/F5/F8/F12 BELUM diperbaiki**
+  (workflow YAML, gating string, retry/backoff) —
+  dinyatakan di halaman Kendali, masuk Tahap 13;
+  **flag belum ditegakkan di route** (hanya tersimpan +
+  ditampilkan).
+
+### 13.4 Integrasi koordinator
+
+| Pekerjaan | Hasil |
+|---|---|
+| Nav publik (`Header.tsx`) | Tautan Cerita, Riset, Sejarah, Akademi, Negara, Podcast ditambah (Pengetahuan/Data/Tanya sudah ada); BottomNav tetap 5 item |
+| Sitemap (`sitemap.ts`) | Halaman statis baru + slug dinamis `pf_stories`/`pf_courses`/`pf_research_reports`/`pf_podcast_episodes` + kode negara dari `pf_countries` (tanpa filter status — tabel negara tak punya kolom status) |
+| Tipe `AksiAudit` (`src/lib/admin/types.ts`) | Diperluas 19 → **47 anggota**, kini sama persis dengan CHECK v9 §6 (sebelumnya desinkron — bukti di §13.5 T10) |
+| Lint | 8 warning dibersihkan (variabel/fungsi tak terpakai di 3 baterai + 1 import); hasil akhir **0 error, 0 warning** |
+| Build blocker | `next build` gagal prerender `/admin/api-sehat` (`Date.now()` di `src/lib/kesehatan.ts:26`, Next 16 cacheComponents) — diperbaiki dengan `await connection()`; build lolos **147/147** |
+| Regresi G1 | `uji-fase8-gel1.mjs` sempat 158/159 karena grafik `/data` pindah ke `GrafikInteraktif.tsx` — asersi diperbarui mengikuti kode (bukan sebaliknya); kembali **159/159** |
+| Lint error `set-state-in-effect` | 3 error di `admin/event`, `admin/podcast`, `admin/tanya` — diubah ke pola fetch `.then()` + flag `batal` |
+| **Bug ditemukan smoke test: 404 slug 4 rute baru** | `/cerita/tidak-ada`, `/riset/tidak-ada`, `/akademi/tidak-ada`, `/podcast/tidak-ada` semuanya **HTTP 200** (UI 404 benar, status salah) — utang pola Fase 6/7 yang belum diterapkan ke rute baru: shell statis mengalir 200 sebelum `notFound()` di halaman berjalan. **Diperbaiki** di `src/proxy.ts` (pemeriksaan `slugTidakAda` untuk `pf_stories`/`pf_research_reports`/`pf_courses`/`pf_podcast_episodes`, pola sama dengan `/pengetahuan`); smoke test ulang: keempatnya **404**, log 0 error. Catatan jujur: 404 saat ini lewat cabang PGRST205 (tabel v10 belum ada di produksi) — jalur rewrite proxy terverifikasi ujung-ke-ujung, tetapi jalur "slug ADA → 200" baru bisa dibuktikan sesudah v10 diterapkan di produksi |
+
+### 13.5 Audit ulang keamanan terbuka (koordinator, dibaca langsung dari kode)
+
+Bukti penuh: `/tmp/pf-gel2-keamanan-ulang.md` (16 Nov 2026
+±07.40 WIB). Ringkasan — **tidak satu pun dari empat
+temuan ini dinyatakan tertutup**:
+
+| Temuan | Status | Bukti |
+|---|---|---|
+| **T3** — rate limit terdistribusi + IP trust | **TERBUKA** | `src/lib/ai/route-auth.ts:26-40` limiter `Map` in-memory per instance, tanpa eviction; `:42-46` IP dari entri kiri `x-forwarded-for` (ditulis klien); `x-vercel-forwarded-for` grep 0; tanpa store bersama (`pf_rate_limits` tidak ada di v1–v10); route POST baru Gelombang 2 memakai limiter yang sama (30/mnt/IP) — kelemahan mekanisme tetap. Perbaikan butuh keputusan pemilik + uji live Vercel → Tahap 13 |
+| **T10** — audit logging + CRUD sumber | **TERBUKA (sebagian)** | Fail-closed audit logging TIDAK BERUBAH (by design Fase 7, tetap berlaku). CRUD sumber + cek sumber MASIH 0 panggilan audit (`grep audit src/app/api/sumber/` = 0 — POST/PATCH/DELETE/cek). Desinkronisasi tipe `AksiAudit` 19 vs CHECK 47 — **DITUTUP di integrasi ini** (tipe diperluas ke 47, §13.4). Audit route admin baru: pengetahuan/akademi/riset/data/kendali menulis audit (sebagian via helper lokal, bukan adapter — Academy best-effort, §13.3.1); **cerita/event/negara/tanya/podcast admin TIDAK menulis audit sama sekali** → utang Tahap 13 |
+| **DNS rebinding** (sisa T6) | **TERBUKA** | `src/lib/ingestion/ssrf.ts:13-16` mengakui TOCTOU (butuh pinning IP di lapis koneksi); `fetchAman` memvalidasi tiap hop lalu `fetch` me-resolve ulang → jendela TOCTOU tetap ada; tidak ada anak Gelombang 2 yang menyentuh `ssrf.ts` → Tahap 13 |
+| **CSP** | **TERBUKA** (belum dipasang) | `next.config.ts`: 4 header (nosniff, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy); komentar eksplisit "CSP belum dipasang — butuh pengujian nonce/hash dan berisiko memblokir skrip tema anti-kedip di `<head>`"; tidak ada header Content-Security-Policy di berkas mana pun → Tahap 13 |
+| Scheduler gate §10.3 (F1–F13) | **SEBAGIAN** | F6/F7 sebagian (§13.3.6); F2/F3/F4/F5/F8/F12 BELUM diperbaiki → Tahap 13 |
+| Publikasi otomatis | **TETAP MATI** | Gate editorial Fase 5 berlaku; draf VERIFIED wajib review isi+sumber |
+| Sisa terbuka lain | Tidak berubah | My Prata F5 hapus akun mandiri; Jejak Fakta F-A1-2 provenance `raw_item` tak tampil; notifikasi push belum tersedia |
+
+### 13.6 Regression + build + smoke test (koordinator, 16 Nov 2026 ±08.00–08.15 WIB)
+
+Perintah dijalankan (angka dari output nyata, bukan
+ringkasan pekerja):
+
+- `npx tsc --noEmit` → **EXIT 0**
+- `npm run lint` → **EXIT 0 (0 error, 0 warning)**
+- `npm run build` → **EXIT 0, 147/147 halaman**
+  (BUILD_ID `RuumHW-xq7whJTMGyd4qU` sesudah perbaikan proxy;
+  sebelumnya `FEJ1KuS-d5dLIR7MUFxHr`)
+
+| Baterai | Hasil | Keterangan |
+|---|---|---|
+| `uji-fase5.mjs` | LOLOS | 53 asersi (gate) |
+| `uji-fase6.mjs` | **53/53** | |
+| `uji-fase7.mjs` | **87/87** | |
+| `uji-fase8-gel1.mjs` | **159/159** | sempat 158/159, diperbaiki §13.4 |
+| `uji-remediasi-multisource.mjs` | **71/71** | |
+| `uji-remediasi-integrasi.mjs` | **17/17** | |
+| `uji-editorial.mjs` | LOLOS | 28/28 (gate) |
+| `uji-ingestion.mjs` | **FLAKY eksternal** | 2 run "1 KEGAGALAN", run ke-3 **SEMUA LOLOS** (GDELT 5 item OK; RSS 7 feed OK; dedup run 2 = 0 baru). Pola flake eksternal yang sama seperti gate/remediasi (GDELT 429) — bukan regresi kode |
+| `uji-fase8-gel2-migrasi.mjs` | **28/28** | v1–v10 2× idempoten, 53/53/106 |
+| `uji-fase8-gel2-cerita.mjs` | **66/66** | Story Tracker + Historical Archive |
+| `uji-fase8-gel2-akademi.mjs` | **106/106** | Explain the World + Academy |
+| `uji-fase8-gel2-riset.mjs` | **71/71** | Reality Check + Research |
+| `uji-fase8-gel2-negara.mjs` | **77/77** | Country Profile |
+| `uji-fase8-gel2-tanya-podcast.mjs` | **72/72** | Ask the World + Podcast |
+| `uji-fase8-gel2-admin.mjs` | **83/83** | Admin Control Center |
+
+Total asersi yang dihitung: **971/971 lolos** (tidak
+termasuk uji-ingestion yang flaky eksternal). **Tidak ada
+satu pun baterai lama yang gagal** — Fase 1–7 + Gelombang 1
+utuh.
+
+Smoke test `next start` (port 3101, sesudah perbaikan
+proxy §13.4): `/` 200, `/cerita` 200, `/riset` 200,
+`/negara` 200, `/akademi` 200, `/podcast` 200, `/tanya`
+200, `/sitemap.xml` 200, `/api/health` 200,
+`/cerita/tidak-ada` 404, `/riset/tidak-ada` 404,
+`/akademi/tidak-ada` 404, `/podcast/tidak-ada` 404,
+`/negara/XX` 404, `/pengetahuan/tidak-ada` 404,
+`/artikel/tidak-ada` 404; **log 0 error**.
+
+### 13.7 Status tegas per area (sesudah Gelombang 2)
+
+| Area | Status | Catatan |
+|---|---|---|
+| Story Tracker | Terverifikasi lokal | pf_akar_salinan dipatuhi |
+| Explain the World | Terverifikasi lokal | Isi butuh review redaksi |
+| Reality Check | Terverifikasi lokal | Impor sumber resmi masih manual |
+| Ask the World | Terverifikasi lokal | Retrieval deterministik, bukan LLM generatif; arsip via service role |
+| PRATA Academy | Terverifikasi lokal | Tanpa sertifikat (benar); audit best-effort |
+| PRATA Podcast | Berfungsi sebagian (lokal) | TTS browser + playlist + riwayat OK; **file audio MP3 + RSS enclosure BELUM BISA** |
+| PRATA Research | Terverifikasi lokal | Tautan dataset via slug, tanpa FK |
+| Country Profile | Terverifikasi lokal | Angka tanpa sumber dipisah, tidak dirender sebagai fakta |
+| Historical Archive | Terverifikasi lokal | Tanpa halaman detail `[slug]` peristiwa |
+| Advanced Admin Control Center | Berfungsi sebagian (lokal) | **Traffic Analytics BELUM BISA**; F2/F3/F4/F5/F8/F12 belum diperbaiki; flag belum ditegakkan |
+| Migrasi v1–v10 | Terverifikasi lokal (PGlite) | 53/53/106, 2× idempoten |
+| Build/lint/tsc + semua baterai | Terverifikasi lokal | 147/147, EXIT 0, 971/971 |
+| Smoke test `next start` | Terverifikasi lokal | 9× 200, 7× 404, log 0 error |
+| Render live / produksi / scheduler live | **Terblokir** | Migrasi v1–v10 + Vercel 403, butuh pemilik |
+| Klik browser nyata / login staf nyata / mobile 320–430px | **Belum diuji** | Subagen tidak punya browser live |
+
+### 13.8 Blokir yang butuh pemilik + langkah lanjut (Tahap 13–17)
+
+Blokir yang sama seperti §11 (tidak berubah):
+
+1. **Migrasi v1–v10 belum dijalankan di Supabase produksi**
+   — prosedur di `supabase/CUTOVER.md` §3 (tahap 3A–3D),
+   butuh pemilik di SQL Editor.
+2. **Deploy Vercel masih 403** scope tim `prataava` —
+   opsi A hubungkan ulang / B import manual / C ZIP sumber
+   (lihat §11).
+
+Langkah lanjut sesuai Master Directive (Tahap 13–17,
+dikerjakan koordinator sesudah commit Gelombang 2 ini):
+
+- **Tahap 13:** keamanan — T3 (limiter lintas instance via
+  tabel Supabase + increment atomik; jangan percaya header
+  IP klien), T10 (audit CRUD sumber + audit route admin
+  cerita/event/negara/tanya/podcast + konsistensi
+  fail-closed Academy), T6 (IP pinning atau allowlist host
+  ketat — jangan klaim selesai bila TOCTOU tersisa), CSP
+  (nonce, kompatibel Next.js + tema), T4 (akun nonaktif
+  konsisten di semua route) + scheduler (F2/F3/F4/F5/F8/F12,
+  F6/F7 sisa, concurrency/locking/idempotency/alerting).
+- **Tahap 14:** integrasi seluruh 14 area (verifikasi
+  silang tautan + nav + sitemap + admin).
+- **Tahap 15:** audit menyeluruh + regression semua fase
+  (termasuk aksesibilitas + responsif 320–1920px — visual
+  tetap Belum diuji tanpa browser live).
+- **Tahap 16:** final production readiness.
+- **Tahap 17:** siapkan deployment + cutover untuk
+  persetujuan pemilik (tanpa menjalankan migrasi/deploy).
+
+Commit Gelombang 2: **SATU commit lokal** (hash commit
+tercatat di laporan koordinator ke agen utama + `git log`;
+push oleh agen utama). Berkas berubah: **122**
+(+25.450/−183), termasuk migrasi v10 + 7 baterai baru +
+LAPORAN-FASE-8.md §13 + AUDIT-EXPANSION.md §9.6–§9.7 +
+CUTOVER.md v10 + README.md.
