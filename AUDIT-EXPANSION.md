@@ -654,9 +654,25 @@ perbandingan + kolom `peran`/`kutipan`, v8). Serupa:
 seksi Sumber & Referensi + tier 90/75/60. DB: didukung
 (v8 kolom). API: ada (`lib/data.ts`). Muse AI: tidak
 langsung (data tier/koroborasi Fase 4). Migrasi: sudah
-di v8. Risiko: rendah; bobot bukti eksplisit (tanpa
-kesetaraan palsu). Tanpa rusak: ya — regression lolos.
-Belum diuji: tampilan dengan artikel terbit nyata.
+di v8. Risiko: **TINGGI untuk klaim "N sumber independen" —
+KOREKSI pasca-audit mendalam 16 Nov 2026 (§9.4):
+tampilan `getPerbandinganSumber` menghitung independen
+sebagai jumlah `sumberId` berbeda (`data.ts:991-993`) dan
+TIDAK memakai `disalin_dari` (grep = 0 di `data.ts` +
+komponen) — satu berita disalin 3× tampil sebagai 3
+independen (X = 3, Y = 3, tidak dibedakan), kesetaraan
+palsu yang dilarang §5.3. Mesin (`daftarSumberIndependen`,
+`verification.ts:73`) benar (X = 1, Y = 3). Temuan lain:
+sumber utama tanpa tier/skor (F-A3-3), bukti tak
+tercocokkan tak terlihat (F-A3-4), `beda_waktu` dipicu
+tanggal berapa pun (F-A3-5), dedup judul-saja loloskan
+parafrase (F-A3-6). Peredam: pipeline menulis evidence
+hanya dari URL akar independen, jadi bug laten untuk data
+pipeline. VERDIK: TIDAK LAYAK untuk klaim independen —
+perbaiki tampilan dulu (pakai rantai `disalin_dari`
+seperti mesin).** Tanpa rusak: ya — regression lolos
+(120/120 tidak pernah menguji logika ini). Belum diuji:
+tampilan dengan artikel terbit nyata.
 
 **4. Explain the World — BELUM dibangun.** Sudah ada:
 tidak. Serupa: `/pengetahuan` + `[slug]` (artikel
@@ -793,7 +809,7 @@ ada; Traffic Analytics HANYA bila tersedia (tampilkan
 |---|---|---|
 | 1 | Jejak Fakta | Selesai Gelombang 1 — terverifikasi lokal |
 | 2 | Story Tracker | Belum dibangun — rencana §5.2 tetap berlaku |
-| 3 | Multi-Source View | Selesai Gelombang 1 — terverifikasi lokal |
+| 3 | Multi-Source View | Selesai Gelombang 1 — **TIDAK LAYAK** untuk klaim independen (audit mendalam §9.4; perbaikan tampilan wajib sebelum klaim dipakai) |
 | 4 | Explain the World | Belum dibangun — rencana §5.4 tetap berlaku |
 | 5 | Reality Check | Belum dibangun — rencana §5.5 tetap berlaku |
 | 6 | Ask the World | Belum dibangun — rencana §5.6 tetap berlaku |
@@ -811,3 +827,52 @@ sudah ada dicatat sebagai pengembangan (§9.2), bukan
 bangun baru. Migrasi v8 TIDAK diubah selama gate
 (0 baris diff) — perbaikan keamanan gate berupa patch
 kode + dokumentasi, bukan migrasi baru.
+
+### 9.4 Audit mendalam Gelombang 1 (16 Nov 2026 ±07.00–07.06 WIB)
+
+Atas perintah pemilik 07.00 WIB ("bukti fitur
+benar-benar bekerja"), dua agen audit read-only menguji
+4 fitur Gelombang 1 + migrasi v8 di PGlite + `next
+start` (laporan: `/tmp/pf-audit-gel1-a/` dan
+`/tmp/pf-audit-gel1-b/` — ephemera). Semua klaim kunci
+di bawah diverifikasi ulang koordinator langsung di kode.
+
+| Fitur | Verdik |
+|---|---|
+| Jejak Fakta | LAYAK DENGAN CATATAN (F-A1-1: tanpa cek `status='terbit'` di aplikasi — perlindungan draf sepenuhnya RLS v8; F-A1-2: provenance `raw_item` tak pernah ditampilkan) |
+| Multi-Source View | **TIDAK LAYAK** untuk klaim "N sumber independen" (lihat §9.2 area 3) |
+| Public Report | LAYAK DENGAN CATATAN (validasi server-side + rate limit + tolak insert anon terbukti; simpan ujung-ke-ujung BELUM terbukti — 503 jujur tanpa service key; F1: `ditinjau` tak pernah tercapai; F2: laporan tanpa `artikel_id` tak bisa diterima — hanya ditolak) |
+| My Prata | LAYAK DENGAN CATATAN (isolasi 6/6 tabel terbukti; F4: `pf_user_preferences` tanpa GRANT eksplisit; F5: hapus akun mandiri belum ada) |
+| Migrasi v8 + regresi | LAYAK DENGAN CATATAN (idempoten 2×, 37/37/79, baterai 87/87 + 120/120 + 80/80; **F4 TINGGI — lihat bawah**) |
+
+**F4 (TINGGI) — tidak ada GRANT eksplisit untuk tabel
+baru di v1–v8.** Satu-satunya pernyataan GRANT nyata di
+seluruh v1–v8 adalah v8:190 (GRANT per kolom kuis tanpa
+`kunci`); v8:189 REVOKE tabel kuis. Komentar v8:180-188
+sendiri mengakui ketergantungan pada "(grant default
+Supabase)". Supabase mengubah default sejak **30 Okt
+2026**: tabel baru di proyek lama tidak lagi otomatis
+mendapat grant (sumber resmi). Bukti PGlite: `authenticated`
+SELECT `pf_user_preferences` → **42501** sebelum grant,
+bisa sesudah grant. Karena cutover menjalankan v1–v8
+sebagai tabel baru, ini berpotensi memutus SEMUA tabel,
+bukan hanya preferensi. Baterai repo tak pernah menangkap
+ini (blanket grant di awal skrip uji + tak pernah baca
+`pf_user_preferences` sebagai `authenticated`).
+**Tindak lanjut wajib sebelum cutover produksi:** tambah
+GRANT eksplisit (ke v8/v9 + verifikasi PGlite TANPA
+blanket grant) ATAU verifikasi setting Data API proyek
+`prata` (butuh akses pemilik — tidak dapat diverifikasi
+dari VM ini).
+
+**Keputusan Gelombang 2: TIDAK LAYAK dilanjutkan dulu
+(NO-GO).** Yang wajib diperbaiki dulu: (1) tampilan
+Multi-Source View (pakai rantai `disalin_dari` seperti
+mesin); (2) GRANT eksplisit semua tabel `pf_*` (F4);
+(3) jalur terima laporan tanpa `artikel_id` (F2) atau
+batasi formulir mewajibkan `artikel_id`; (4) status
+`ditinjau` (F1 — sambungkan atau hapus); (5) cek
+`status='terbit'` di `getJejakFakta` (F-A1-1,
+defense-in-depth). Sesudah perbaikan, audit mendalam
+A+B diulang pada perbaikannya. Detail penuh:
+`LAPORAN-FASE-8.md` §12.
