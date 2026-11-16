@@ -7,6 +7,14 @@
 //     sebagai banyak sumber independen.
 //   - >= 2 sumber independen tier-1 mendukung -> VERIFIED
 //   - >= 2 sumber independen tier berapa pun -> CROSS-CHECKED
+//   - 1 sumber independen tier-1 saja -> CROSS-CHECKED (AMBANG
+//     DILONGGARKAN 16 Nov 2026 atas permintaan pemilik agar draf
+//     cepat terisi: sumber tier-1 — Antara, CNN Indonesia,
+//     Liputan6 — punya verifikasi editorial sendiri, jadi satu
+//     sumber tier-1 cukup untuk DRAF. Bukan VERIFIED — VERIFIED
+//     tetap butuh >= 2 sumber independen tier-1. Draf tetap wajib
+//     review editor sebelum terbit, dan verification record
+//     mencatat 1 sumber independen secara jujur.)
 //   "Sumber independen" dihitung TOTAL termasuk sumber item utama
 //   (aturan dua-sumber: utama + 1 koroborator independen sudah
 //   terkoroborasi; koroborator saja tidak dihitung tanpa utama).
@@ -136,6 +144,17 @@ export function tentukanKeputusanVerifikasi(
       `${independen.length} sumber independen (tier-1: ${jumlahTier1}) ` +
       `memberitakan judul yang sama — cek silang, belum memenuhi ` +
       `syarat VERIFIED (butuh >= 2 sumber independen tier-1).`;
+  } else if (independen.length === 1 && jumlahTier1 === 1) {
+    // AMBANG DILONGGARKAN 16 Nov 2026 (permintaan pemilik — draf
+    // cepat terisi): satu sumber tier-1 saja cukup untuk draf
+    // (CROSS-CHECKED, bukan VERIFIED — VERIFIED tetap butuh >= 2
+    // sumber independen tier-1). Draf tetap wajib review editor
+    // sebelum terbit; verification record mencatat 1 sumber.
+    keputusan = "CROSS-CHECKED";
+    alasan =
+      `1 sumber independen tier-1 memberitakan judul ini — draf ` +
+      `dibuat dari satu sumber tepercaya (ambang dilonggarkan); ` +
+      `tetap perlu review editor sebelum terbit.`;
   } else if (item24Jam >= 3) {
     keputusan = "DEVELOPING";
     alasan =
@@ -369,6 +388,25 @@ export function tentukanKeputusanDariKlaim(
   const totalTier1 =
     (tierAkarUtama === 1 ? 1 : 0) +
     independenKorob.filter((s) => s.tier === 1).length;
+
+  // AMBANG DILONGGARKAN 16 Nov 2026 (permintaan pemilik — draf
+  // cepat terisi): satu sumber tier-1 saja cukup untuk draf
+  // (CROSS-CHECKED, bukan VERIFIED). Alasan sama seperti sinyal
+  // judul — draf tetap wajib review editor sebelum terbit.
+  if (totalIndependen === 1 && tierAkarUtama === 1) {
+    const intiLabel = [...koroboratorPerInti.keys()].join("; ");
+    return {
+      keputusan: "CROSS-CHECKED",
+      sumberIndependen: totalIndependen,
+      jumlahTier1: totalTier1,
+      intiCocok: [...koroboratorPerInti.keys()],
+      koroborator: semuaKoroborator,
+      alasan:
+        `1 sumber independen tier-1 memuat inti klaim yang sama` +
+        (intiLabel ? ` (${intiLabel})` : ``) +
+        ` — draf dibuat dari satu sumber tepercaya (ambang dilonggarkan).`,
+    };
+  }
 
   if (totalIndependen < 2) {
     return {
