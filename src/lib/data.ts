@@ -804,12 +804,28 @@ export type SumberPerbandingan = {
   skor: number | null;
   /** Sumber utama artikel (sumber_url artikel) — sumber awal. */
   utama: boolean;
+  /** Id item akar rantai salinan (dari RPC pf_akar_salinan);
+   *  null bila rantai kolom ini belum terverifikasi. */
+  akarId: string | null;
+  /** Nama sumber akar bila kolom ini berasal dari item salinan;
+   *  null bila kolom ini item asli / bukan salinan. */
+  disalinDari: string | null;
+  /** Rantai salinan kolom ini terverifikasi lewat RPC
+   *  pf_akar_salinan (false bila RPC tak tersedia atau URL
+   *  kolom tak cocok ke satu pun item mentah). */
+  rantaiTerverifikasi: boolean;
 };
 
 export type SelPerbandingan = {
   status: StatusSelPerbandingan;
   /** Sel dari sumber utama artikel (sumber awal). */
   sumberAwal: boolean;
+  /** Sel ini berasal dari bukti yang merupakan salinan
+   *  (disalin_dari_id terisi di rantai). */
+  salinan: boolean;
+  /** Nama sumber akar bila bukti sel ini disalin, null bila
+   *  bukan salinan. */
+  disalinDari: string | null;
 };
 
 export type BobotKlaim = {
@@ -817,11 +833,45 @@ export type BobotKlaim = {
   mendukung: number;
   menentang: number;
   netral: number;
-  /** Jumlah sumber INDEPENDEN berbeda yang mendukung klaim. */
+  /** Jumlah sumber INDEPENDEN berbeda yang mendukung klaim —
+   *  dihitung dari AKAR rantai salinan (satu berita yang disalin
+   *  3 media = 1), TIDAK termasuk akar yang dicurigai parafrase. */
   independen: number;
-  /** Skor kredibilitas tertinggi di antara sumber pendukung
-   *  (tier 90/75/60); null bila tidak ada pendukung. */
+  /** Jumlah evidence mendukung yang merupakan salinan. */
+  salinan: number;
+  /** Jumlah evidence mendukung yang tak tercocokkan ke kolom
+   *  sumber mana pun (terdaftar terpisah, tidak hilang). */
+  buktiTakTercocokkan: number;
+  /** Jumlah akar berbeda yang dicurigai parafrase (judul mirip
+   *  tanpa rantai salinan) — tidak dihitung di independen. */
+  kemungkinanParafrase: number;
+  /** Jumlah kunci akar berbeda yang mendukung DAN rantainya
+   *  terverifikasi lewat RPC (0 bila RPC tak tersedia). */
+  independenTerverifikasi: number;
+  /** Skor kredibilitas tertinggi di antara sumber pendukung,
+   *  dihitung dari tier AKAR (tier 90/75/60); null bila tidak
+   *  ada pendukung. */
   skorTertinggi: number | null;
+};
+
+/** Bukti yang tidak dapat dicocokkan ke kolom sumber mana pun —
+ *  ditampilkan terpisah di komponen, bukan dibuang diam-diam. */
+export type BuktiTakTercocokkan = {
+  klaimId: string;
+  sumber_url: string;
+  sumber_nama: string | null;
+  arah: string;
+  kutipan: string | null;
+};
+
+/** Akar yang dicurigai parafrase: judulnya mirip (Jaccard >= 0,8)
+ *  dengan akar lain tanpa rantai salinan yang menghubungkan. */
+export type AkarParafrase = {
+  akarKunci: string;
+  akarNama: string | null;
+  akarJudul: string | null;
+  /** Judul akar lain yang mirip dengan akar ini. */
+  miripDengan: string | null;
 };
 
 export type PerbandinganSumber = {
@@ -834,6 +884,12 @@ export type PerbandinganSumber = {
   sel: Record<string, Record<string, SelPerbandingan>>;
   bobot: BobotKlaim[];
   tersedia: boolean;
+  /** RPC pf_akar_salinan berhasil dipanggil (false bila RPC
+   *  belum diterapkan / gagal — hitungan independen saat itu
+   *  memakai kolom, belum terverifikasi rantai). */
+  rantaiTersedia: boolean;
+  buktiTakTercocokkan: BuktiTakTercocokkan[];
+  parafrase: AkarParafrase[];
 };
 
 function tanggalKalender(iso: string | null): string | null {
@@ -843,6 +899,248 @@ function tanggalKalender(iso: string | null): string | null {
   return d.toISOString().slice(0, 10);
 }
 
+/** Normalisasi URL untuk pencocokan: buang spasi + garis miring
+ *  akhir (RPC mencocokkan persis atau tanpa trailing slash). */
+function normalisasiUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+/** Normalisasi judul untuk perbandingan: huruf kecil, buang
+ *  tanda baca, rapatkan spasi. */
+export function normalisasiJudul(judul: string): string {
+  return judul
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Kemiripan token Jaccard (0..1) antara dua judul setelah
+ *  normalisasi. 1 bila judul ternormalisasi identik dan tak
+ *  kosong; 0 bila salah satu judul kosong / tanpa token. */
+export function kemiripanJudul(a: string, b: string): number {
+  const normA = normalisasiJudul(a);
+  const normB = normalisasiJudul(b);
+  if (!normA || !normB) return 0;
+  if (normA === normB) return 1;
+  const tokenA = new Set(normA.split(" "));
+  const tokenB = new Set(normB.split(" "));
+  let iris = 0;
+  for (const t of tokenA) {
+    if (tokenB.has(t)) iris += 1;
+  }
+  const gabung = tokenA.size + tokenB.size - iris;
+  if (gabung === 0) return 0;
+  return iris / gabung;
+}
+
+/** Satu bukti yang sudah dicocokkan ke kolom + diurai akarnya —
+ *  masukan fungsi murni hitungBobotPerbandingan. akarKunci =
+ *  kunci akar rantai salinan (akar_sumber_id atau
+ *  "item:"+akar_id); bila rantai tak tersedia, kunci kolom
+ *  ("sumber:"+id kolom); null bila bukti tak tercocokkan. */
+export type BuktiPerbandinganMasukan = {
+  klaimId: string;
+  sumberId: string | null;
+  arah: string;
+  tanggal: string | null;
+  akarKunci: string | null;
+  disalin: boolean;
+  disalinDari: string | null;
+  akarJudul: string | null;
+  akarNama: string | null;
+  rantaiTerverifikasi: boolean;
+  sumberUrl: string;
+  sumberNama: string | null;
+  kutipan: string | null;
+};
+
+export type HasilHitungPerbandingan = {
+  bobot: BobotKlaim[];
+  sel: Record<string, Record<string, SelPerbandingan>>;
+  buktiTakTercocokkan: BuktiTakTercocokkan[];
+  parafrase: AkarParafrase[];
+};
+
+/** Logika murni matriks klaim × sumber (diekspor agar bisa diuji
+ *  tanpa database — pola uji-fase7.mjs).
+ *  - "Independen" dihitung dari AKAR rantai salinan, bukan dari
+ *    kolom: satu berita yang disalin 3 media = 1 sumber.
+ *  - Akar yang dicurigai parafrase (judul mirip Jaccard >= 0,8
+ *    dengan akar lain, tanpa rantai salinan yang menghubungkan)
+ *    TIDAK dihitung di independen.
+ *  - "beda_waktu" HANYA bila bukti sel lebih lambat dari bukti
+ *    paling awal klaim itu DAN akarnya berbeda (liputan
+ *    independen baru); salinan telat tetap "sama".
+ *  - skorTertinggi = skor terbesar dari tier AKAR pendukung
+ *    (skorPerAkar), bukan tier kolom salinan.
+ *  - Bukti yang tak tercocokkan ke kolom mana pun dikembalikan
+ *    terpisah (buktiTakTercocokkan), tidak dibuang.
+ *  Bila rantai tak tersedia, pemanggil mengisi akarKunci dengan
+ *  kunci kolom — hitungan lalu sama seperti sebelum remediasi,
+ *  dengan independenTerverifikasi = 0. */
+export function hitungBobotPerbandingan(
+  klaimId: string[],
+  kolomId: string[],
+  bukti: BuktiPerbandinganMasukan[],
+  skorPerAkar: Record<string, number>,
+  kolomUtamaId: string | null,
+): HasilHitungPerbandingan {
+  const AMBANG_PARAFRASE = 0.8;
+  const buktiPerKlaim = new Map<string, BuktiPerbandinganMasukan[]>();
+  for (const b of bukti) {
+    const daftar = buktiPerKlaim.get(b.klaimId) ?? [];
+    daftar.push(b);
+    buktiPerKlaim.set(b.klaimId, daftar);
+  }
+  // Deteksi parafrase antar akar berbeda (global per artikel,
+  // dari evidence mendukung): akar pertama dipertahankan,
+  // akar berikutnya yang judulnya mirip ditandai.
+  const akarDitemukan: { kunci: string; judul: string; nama: string | null }[] = [];
+  const kunciDilihat = new Set<string>();
+  for (const b of bukti) {
+    if (b.arah !== "mendukung") continue;
+    if (!b.akarKunci || !b.akarJudul) continue;
+    if (kunciDilihat.has(b.akarKunci)) continue;
+    kunciDilihat.add(b.akarKunci);
+    akarDitemukan.push({ kunci: b.akarKunci, judul: b.akarJudul, nama: b.akarNama });
+  }
+  const dipertahankan: { kunci: string; judul: string }[] = [];
+  const parafrasePerKunci = new Map<string, string>();
+  for (const akar of akarDitemukan) {
+    let mirip: string | null = null;
+    for (const jaga of dipertahankan) {
+      if (kemiripanJudul(akar.judul, jaga.judul) >= AMBANG_PARAFRASE) {
+        mirip = jaga.judul;
+        break;
+      }
+    }
+    if (mirip !== null) {
+      parafrasePerKunci.set(akar.kunci, mirip);
+    } else {
+      dipertahankan.push({ kunci: akar.kunci, judul: akar.judul });
+    }
+  }
+  const bobot: BobotKlaim[] = [];
+  const sel: Record<string, Record<string, SelPerbandingan>> = {};
+  for (const kid of klaimId) {
+    const daftar = buktiPerKlaim.get(kid) ?? [];
+    const mendukung = daftar.filter((d) => d.arah === "mendukung");
+    const menentang = daftar.filter((d) => d.arah === "menentang");
+    const netral = daftar.filter((d) => d.arah === "netral");
+    const kunciIndependen = new Set<string>();
+    const kunciTerverifikasi = new Set<string>();
+    const kunciParafrase = new Set<string>();
+    let salinan = 0;
+    let takTercocokkan = 0;
+    let skorTertinggi: number | null = null;
+    for (const d of mendukung) {
+      if (d.disalin) salinan += 1;
+      if (d.sumberId === null) takTercocokkan += 1;
+      if (!d.akarKunci) continue;
+      const skor = skorPerAkar[d.akarKunci];
+      if (typeof skor === "number" && (skorTertinggi === null || skor > skorTertinggi)) {
+        skorTertinggi = skor;
+      }
+      if (parafrasePerKunci.has(d.akarKunci)) {
+        kunciParafrase.add(d.akarKunci);
+        continue;
+      }
+      kunciIndependen.add(d.akarKunci);
+      if (d.rantaiTerverifikasi) kunciTerverifikasi.add(d.akarKunci);
+    }
+    const tanggalAda = daftar
+      .map((d) => d.tanggal)
+      .filter((t): t is string => Boolean(t));
+    const tanggalAwal = tanggalAda.length > 0 ? [...tanggalAda].sort()[0] : null;
+    const kunciAwal = new Set<string>();
+    if (tanggalAwal !== null) {
+      for (const d of daftar) {
+        if (d.tanggal === tanggalAwal && d.akarKunci) kunciAwal.add(d.akarKunci);
+      }
+    }
+    bobot.push({
+      klaimId: kid,
+      mendukung: mendukung.length,
+      menentang: menentang.length,
+      netral: netral.length,
+      independen: kunciIndependen.size,
+      salinan,
+      buktiTakTercocokkan: takTercocokkan,
+      kemungkinanParafrase: kunciParafrase.size,
+      independenTerverifikasi: kunciTerverifikasi.size,
+      skorTertinggi,
+    });
+    const baris: Record<string, SelPerbandingan> = {};
+    for (const sid of kolomId) {
+      const buktiSel = daftar.filter((d) => d.sumberId === sid);
+      let status: StatusSelPerbandingan;
+      if (daftar.length === 0) {
+        status = "tanpa_bukti";
+      } else if (buktiSel.length === 0) {
+        status = "belum_diketahui";
+      } else if (buktiSel.some((d) => d.arah === "menentang")) {
+        status = "berbeda";
+      } else if (
+        tanggalAwal !== null &&
+        buktiSel.some(
+          (d) =>
+            d.tanggal !== null &&
+            d.tanggal > tanggalAwal &&
+            d.akarKunci !== null &&
+            !kunciAwal.has(d.akarKunci),
+        )
+      ) {
+        // Bukti lebih lambat dari bukti paling awal DAN dari akar
+        // berbeda = liputan independen baru (cerita berkembang).
+        // Salinan telat dari akar yang sama tetap "sama".
+        status = "beda_waktu";
+      } else if (buktiSel.some((d) => d.arah === "mendukung")) {
+        status = "sama";
+      } else {
+        status = "belum_diketahui";
+      }
+      let disalinDariSel: string | null = null;
+      for (const d of buktiSel) {
+        if (d.disalinDari) {
+          disalinDariSel = d.disalinDari;
+          break;
+        }
+      }
+      baris[sid] = {
+        status,
+        sumberAwal: sid === kolomUtamaId,
+        salinan: buktiSel.some((d) => d.disalin),
+        disalinDari: disalinDariSel,
+      };
+    }
+    sel[kid] = baris;
+  }
+  const takCocok: BuktiTakTercocokkan[] = [];
+  for (const b of bukti) {
+    if (b.sumberId !== null) continue;
+    takCocok.push({
+      klaimId: b.klaimId,
+      sumber_url: b.sumberUrl,
+      sumber_nama: b.sumberNama,
+      arah: b.arah,
+      kutipan: b.kutipan,
+    });
+  }
+  const parafrase: AkarParafrase[] = [];
+  for (const akar of akarDitemukan) {
+    const mirip = parafrasePerKunci.get(akar.kunci);
+    if (mirip === undefined) continue;
+    parafrase.push({
+      akarKunci: akar.kunci,
+      akarNama: akar.nama,
+      akarJudul: akar.judul,
+      miripDengan: mirip,
+    });
+  }
+  return { bobot, sel, buktiTakTercocokkan: takCocok, parafrase };
+}
+
 /**
  * Multi-Source View: matriks klaim × sumber untuk satu artikel
  * TERBIT. Status sel dihitung dari pf_evidence (arah
@@ -850,10 +1148,28 @@ function tanggalKalender(iso: string | null): string | null {
  * URL persis atau nama sumber — TANPA kesetaraan palsu: klaim
  * tanpa satu pun bukti ditandai "tanpa_bukti", dan sumber yang
  * tidak punya bukti untuk klaim itu ditandai "belum_diketahui"
- * (bukan "sama"). "beda_waktu" dipakai bila bukti untuk klaim
- * yang sama dicatat pada tanggal berbeda (cerita berkembang).
+ * (bukan "sama").
+ *
+ * "Sumber independen" dihitung dari AKAR rantai salinan lewat
+ * RPC pf_akar_salinan (SECURITY DEFINER, migrasi v9) — pf_raw_items
+ * hanya boleh dibaca staf, jadi klien anon di sini TIDAK BOLEH
+ * query tabel itu langsung dan TIDAK memakai service-role client
+ * (akan membypass RLS yang melindungi draf). Satu berita yang
+ * disalin 3 media = 1 sumber independen. Bila RPC belum
+ * diterapkan / gagal, rantaiTersedia=false dan hitungan memakai
+ * kolom seperti sebelumnya — komponen wajib menampilkannya
+ * sebagai belum terverifikasi, bukan sebagai angka pasti.
+ *
+ * "beda_waktu" HANYA bila bukti sel lebih lambat dari bukti
+ * paling awal klaim itu DAN akarnya berbeda (liputan independen
+ * baru = cerita berkembang); salinan telat dari akar yang sama
+ * tetap "sama". Bukti yang tak tercocokkan ke kolom mana pun
+ * dikembalikan terpisah (buktiTakTercocokkan), tidak dibuang.
+ * Akar yang dicurigai parafrase (judul mirip tanpa rantai)
+ * tidak dihitung di independen dan dilaporkan terpisah.
  * Bobot bukti eksplisit per klaim: jumlah sumber independen
- * yang mendukung + skor kredibilitas tertinggi (tier 90/75/60).
+ * yang mendukung + skor kredibilitas tertinggi dari tier AKAR
+ * (tier 90/75/60).
  */
 export async function getPerbandinganSumber(
   artikelId: string,
@@ -865,6 +1181,9 @@ export async function getPerbandinganSumber(
     sel: {},
     bobot: [],
     tersedia: false,
+    rantaiTersedia: false,
+    buktiTakTercocokkan: [],
+    parafrase: [],
   };
   try {
     const supabase = await createClient();
@@ -894,27 +1213,165 @@ export async function getPerbandinganSumber(
       klaimId.length > 0
         ? await supabase
             .from("pf_evidence")
-            .select("klaim_id, sumber_url, sumber_nama, arah, dibuat_pada")
+            .select("id, klaim_id, sumber_url, sumber_nama, kutipan, arah, dibuat_pada")
             .in("klaim_id", klaimId)
         : { data: [], error: null };
     if (errBukti || !bukti) return kosong;
 
-    // ---- Daftar sumber (kolom matriks) ----
-    const sumber: SumberPerbandingan[] = [];
+    // ---- Rantai salinan via RPC SECURITY DEFINER (v9) ----
+    // pf_raw_items hanya boleh dibaca staf, jadi klien anon di sini
+    // TIDAK BOLEH query tabel itu langsung; rantai ditelusuri lewat
+    // RPC pf_akar_salinan. Bila RPC belum diterapkan / gagal,
+    // JANGAN gagal total: rantaiTersedia=false dan hitungan memakai
+    // kunci kolom seperti sebelumnya (ditandai belum terverifikasi
+    // di komponen). JANGAN pakai service-role client di sini
+    // (akan membypass RLS yang melindungi draf).
     const sumberUrlUtama =
       typeof (artikel as { sumber_url?: unknown }).sumber_url === "string"
         ? ((artikel as { sumber_url: string }).sumber_url as string)
         : null;
+    const semuaUrl = [
+      ...(sumberUrlUtama ? [sumberUrlUtama] : []),
+      ...((tautan as unknown as Record<string, unknown>[])
+        .map((t) => (typeof t.url === "string" ? (t.url as string) : ""))
+        .filter(Boolean)),
+      ...((bukti as unknown as Record<string, unknown>[])
+        .map((b) =>
+          typeof b.sumber_url === "string" ? (b.sumber_url as string) : "",
+        )
+        .filter(Boolean)),
+    ];
+    const urlUnik = [...new Set(semuaUrl)];
+    type BarisRantai = {
+      akarId: string;
+      akarSumberId: string | null;
+      akarNama: string | null;
+      disalin: boolean;
+      akarJudul: string | null;
+    };
+    let rantaiTersedia = false;
+    const petaRantai = new Map<string, BarisRantai>();
+    if (urlUnik.length > 0) {
+      const { data: rantai, error: errRantai } = await supabase.rpc(
+        "pf_akar_salinan",
+        { p_artikel_id: artikelId, p_url: urlUnik },
+      );
+      if (!errRantai && Array.isArray(rantai)) {
+        rantaiTersedia = true;
+        for (const r of rantai as unknown as Record<string, unknown>[]) {
+          const kunci = normalisasiUrl(String(r.url ?? ""));
+          if (!kunci || petaRantai.has(kunci)) continue;
+          const akarId =
+            typeof r.akar_id === "string" ? (r.akar_id as string) : "";
+          if (!akarId) continue;
+          petaRantai.set(kunci, {
+            akarId,
+            akarSumberId: (r.akar_sumber_id as string | null) ?? null,
+            akarNama: (r.akar_nama as string | null) ?? null,
+            disalin: r.disalin === true,
+            akarJudul: (r.akar_judul as string | null) ?? null,
+          });
+        }
+      }
+    }
+
+    // ---- Tier akar (pf_sources BOLEH dibaca anon) ----
+    const akarSumberIdUnik = [
+      ...new Set(
+        [...petaRantai.values()]
+          .map((r) => r.akarSumberId)
+          .filter((s): s is string => Boolean(s)),
+      ),
+    ];
+    const tierPerSumberId = new Map<string, { tier: number; skor: number }>();
+    if (akarSumberIdUnik.length > 0) {
+      const { data: sumberAkar } = await supabase
+        .from("pf_sources")
+        .select("id, prioritas")
+        .in("id", akarSumberIdUnik);
+      for (const s of (sumberAkar ??
+        []) as unknown as Record<string, unknown>[]) {
+        const prioritas =
+          typeof s.prioritas === "number" ? (s.prioritas as number) : null;
+        if (prioritas !== null) {
+          const tier = tierDariPrioritas(prioritas);
+          tierPerSumberId.set(String(s.id), {
+            tier,
+            skor: skorKredibilitas(tier),
+          });
+        }
+      }
+    }
+
+    // ---- Daftar sumber (kolom matriks) ----
+    const sumber: SumberPerbandingan[] = [];
+    const kunciAkarPerKolom = new Map<string, string>();
+    // Resolusi akar per kolom: kunci akar = akar_sumber_id atau
+    // "item:"+akar_id; bila URL kolom tak cocok RPC -> kunci
+    // sendiri "sumber:"+id kolom, rantaiTerverifikasi=false.
+    const uraiAkarKolom = (idKolom: string, url: string | null) => {
+      const baris = url ? petaRantai.get(normalisasiUrl(url)) : undefined;
+      if (baris) {
+        return {
+          akarKunci: baris.akarSumberId ?? `item:${baris.akarId}`,
+          akarId: baris.akarId,
+          disalinDari: baris.disalin ? baris.akarNama : null,
+          rantaiTerverifikasi: true,
+        };
+      }
+      return {
+        akarKunci: `sumber:${idKolom}`,
+        akarId: null,
+        disalinDari: null,
+        rantaiTerverifikasi: false,
+      };
+    };
     if (sumberUrlUtama) {
+      const idUtama = `utama:${sumberUrlUtama}`;
+      const akar = uraiAkarKolom(idUtama, sumberUrlUtama);
+      kunciAkarPerKolom.set(idUtama, akar.akarKunci);
+      // F-A3-3: sumber utama WAJIB mendapat tier/skor — resolve via
+      // SELECT pf_sources berdasarkan url artikel, fallback via
+      // akar_sumber_id dari RPC. Bila tetap tak ketemu, tier tetap
+      // null dan komponen menampilkan "tier tidak diketahui".
+      let tierUtama: number | null = null;
+      let skorUtama: number | null = null;
+      const { data: sUtama } = await supabase
+        .from("pf_sources")
+        .select("id, prioritas")
+        .eq("url", sumberUrlUtama)
+        .maybeSingle();
+      const prioritasUtama =
+        sUtama &&
+        typeof (sUtama as Record<string, unknown>).prioritas === "number"
+          ? ((sUtama as Record<string, unknown>).prioritas as number)
+          : null;
+      if (prioritasUtama !== null) {
+        const tierHasil = tierDariPrioritas(prioritasUtama);
+        tierUtama = tierHasil;
+        skorUtama = skorKredibilitas(tierHasil);
+      } else {
+        const barisUtama = petaRantai.get(normalisasiUrl(sumberUrlUtama));
+        const tierAkar = barisUtama?.akarSumberId
+          ? tierPerSumberId.get(barisUtama.akarSumberId)
+          : undefined;
+        if (tierAkar) {
+          tierUtama = tierAkar.tier;
+          skorUtama = tierAkar.skor;
+        }
+      }
       sumber.push({
-        id: `utama:${sumberUrlUtama}`,
+        id: idUtama,
         nama: namaDariUrl(sumberUrlUtama),
         url: sumberUrlUtama,
         peran: "utama",
         kutipan: null,
-        tier: null,
-        skor: null,
+        tier: tierUtama,
+        skor: skorUtama,
         utama: true,
+        akarId: akar.akarId,
+        disalinDari: akar.disalinDari,
+        rantaiTerverifikasi: akar.rantaiTerverifikasi,
       });
     }
     for (const t of tautan as unknown as Record<string, unknown>[]) {
@@ -930,8 +1387,11 @@ export async function getPerbandinganSumber(
       const prioritas =
         typeof pf?.prioritas === "number" ? pf.prioritas : null;
       const tier = prioritas === null ? null : tierDariPrioritas(prioritas);
+      const idKolom = String(t.id);
+      const akar = uraiAkarKolom(idKolom, url);
+      kunciAkarPerKolom.set(idKolom, akar.akarKunci);
       sumber.push({
-        id: String(t.id),
+        id: idKolom,
         nama: pf?.nama ?? (url ? namaDariUrl(url) : "Sumber"),
         url,
         peran: (t.peran as string | null) ?? null,
@@ -939,10 +1399,33 @@ export async function getPerbandinganSumber(
         tier,
         skor: tier === null ? null : skorKredibilitas(tier),
         utama: false,
+        akarId: akar.akarId,
+        disalinDari: akar.disalinDari,
+        rantaiTerverifikasi: akar.rantaiTerverifikasi,
       });
     }
 
-    // ---- Bukti per klaim, dicocokkan ke sumber ----
+    // Skor per akar (untuk skorTertinggi): tier AKAR dulu; bila
+    // akar tak dikenal di pf_sources, pakai tier kolomnya.
+    const skorPerAkar: Record<string, number> = {};
+    for (const s of sumber) {
+      if (!s.rantaiTerverifikasi) continue;
+      const baris = s.url ? petaRantai.get(normalisasiUrl(s.url)) : undefined;
+      const tierAkar = baris?.akarSumberId
+        ? tierPerSumberId.get(baris.akarSumberId)
+        : undefined;
+      const kunci = kunciAkarPerKolom.get(s.id);
+      if (tierAkar && kunci && skorPerAkar[kunci] === undefined) {
+        skorPerAkar[kunci] = tierAkar.skor;
+      }
+    }
+    for (const s of sumber) {
+      const kunci = kunciAkarPerKolom.get(s.id);
+      if (!kunci || skorPerAkar[kunci] !== undefined) continue;
+      if (s.skor !== null) skorPerAkar[kunci] = s.skor;
+    }
+
+    // ---- Bukti per klaim, dicocokkan ke sumber + diurai akarnya ----
     const cocokKeSumber = (
       b: Record<string, unknown>,
     ): SumberPerbandingan | null => {
@@ -961,23 +1444,56 @@ export async function getPerbandinganSumber(
       return null;
     };
 
-    const buktiPerKlaim = new Map<
-      string,
-      { sumberId: string | null; arah: string; tanggal: string | null }[]
-    >();
+    const buktiMasukan: BuktiPerbandinganMasukan[] = [];
     for (const b of (bukti as unknown as Record<string, unknown>[])) {
       const kid = String(b.klaim_id ?? "");
-      const daftar = buktiPerKlaim.get(kid) ?? [];
       const s = cocokKeSumber(b);
-      daftar.push({
+      const urlBukti =
+        typeof b.sumber_url === "string" ? (b.sumber_url as string) : "";
+      // Akar evidence diutamakan dari baris RPC URL-nya sendiri
+      // (URL evidence bisa berupa salinan yang URL kolomnya
+      // berbeda bila cocok lewat nama); fallback ke akar kolom.
+      const baris = urlBukti
+        ? petaRantai.get(normalisasiUrl(urlBukti))
+        : undefined;
+      let akarKunci: string | null;
+      let disalin = false;
+      let disalinDari: string | null = null;
+      let akarJudul: string | null = null;
+      let akarNama: string | null = null;
+      let terverifikasi = false;
+      if (baris) {
+        akarKunci = baris.akarSumberId ?? `item:${baris.akarId}`;
+        disalin = baris.disalin;
+        disalinDari = baris.disalin ? baris.akarNama : null;
+        akarJudul = baris.akarJudul;
+        akarNama = baris.akarNama;
+        terverifikasi = true;
+      } else if (s) {
+        akarKunci = kunciAkarPerKolom.get(s.id) ?? `sumber:${s.id}`;
+      } else {
+        // Bukti tak tercocokkan: akarKunci null -> masuk daftar
+        // buktiTakTercocokkan, tidak dihitung di independen.
+        akarKunci = null;
+      }
+      buktiMasukan.push({
+        klaimId: kid,
         sumberId: s ? s.id : null,
         arah: String(b.arah ?? "netral"),
         tanggal: tanggalKalender((b.dibuat_pada as string | null) ?? null),
+        akarKunci,
+        disalin,
+        disalinDari,
+        akarJudul,
+        akarNama,
+        rantaiTerverifikasi: terverifikasi,
+        sumberUrl: urlBukti,
+        sumberNama: (b.sumber_nama as string | null) ?? null,
+        kutipan: (b.kutipan as string | null) ?? null,
       });
-      buktiPerKlaim.set(kid, daftar);
     }
 
-    // ---- Matriks + bobot ----
+    // ---- Matriks + bobot (logika murni, lihat hitungBobotPerbandingan) ----
     const daftarKlaim = (
       klaim as unknown as Record<string, unknown>[]
     ).map((k) => ({
@@ -986,66 +1502,26 @@ export async function getPerbandinganSumber(
       jenis: String(k.jenis ?? "lain"),
       status: String(k.status ?? "belum_terverifikasi"),
     }));
-    const sel: Record<string, Record<string, SelPerbandingan>> = {};
-    const bobot: BobotKlaim[] = [];
+    const idUtama = sumber.find((s) => s.utama)?.id ?? null;
+    const hasil = hitungBobotPerbandingan(
+      daftarKlaim.map((k) => k.id),
+      sumber.map((s) => s.id),
+      buktiMasukan,
+      skorPerAkar,
+      idUtama,
+    );
 
-    for (const k of daftarKlaim) {
-      const daftar = buktiPerKlaim.get(k.id) ?? [];
-      const tanggalUnik = [
-        ...new Set(daftar.map((d) => d.tanggal).filter((t): t is string => Boolean(t))),
-      ];
-      const tanggalAwal = tanggalUnik.length > 0 ? [...tanggalUnik].sort()[0] : null;
-      const mendukung = daftar.filter((d) => d.arah === "mendukung");
-      const menentang = daftar.filter((d) => d.arah === "menentang");
-      const netral = daftar.filter((d) => d.arah === "netral");
-      const independen = new Set(
-        mendukung.map((d) => d.sumberId).filter((s): s is string => Boolean(s)),
-      ).size;
-      const skorPendukung = sumber
-        .filter(
-          (s) =>
-            s.skor !== null &&
-            mendukung.some((d) => d.sumberId === s.id),
-        )
-        .map((s) => s.skor as number);
-      bobot.push({
-        klaimId: k.id,
-        mendukung: mendukung.length,
-        menentang: menentang.length,
-        netral: netral.length,
-        independen,
-        skorTertinggi:
-          skorPendukung.length > 0 ? Math.max(...skorPendukung) : null,
-      });
-
-      const baris: Record<string, SelPerbandingan> = {};
-      for (const s of sumber) {
-        const buktiSel = daftar.filter((d) => d.sumberId === s.id);
-        let status: StatusSelPerbandingan;
-        if (daftar.length === 0) {
-          status = "tanpa_bukti";
-        } else if (buktiSel.length === 0) {
-          status = "belum_diketahui";
-        } else if (buktiSel.some((d) => d.arah === "menentang")) {
-          status = "berbeda";
-        } else if (
-          tanggalAwal !== null &&
-          buktiSel.some((d) => d.tanggal !== null && d.tanggal !== tanggalAwal)
-        ) {
-          // Bukti untuk klaim ini dicatat pada tanggal berbeda —
-          // cerita berkembang; bukan sekadar "sama".
-          status = "beda_waktu";
-        } else if (buktiSel.some((d) => d.arah === "mendukung")) {
-          status = "sama";
-        } else {
-          status = "belum_diketahui";
-        }
-        baris[s.id] = { status, sumberAwal: s.utama };
-      }
-      sel[k.id] = baris;
-    }
-
-    return { artikelId, klaim: daftarKlaim, sumber, sel, bobot, tersedia: true };
+    return {
+      artikelId,
+      klaim: daftarKlaim,
+      sumber,
+      sel: hasil.sel,
+      bobot: hasil.bobot,
+      tersedia: true,
+      rantaiTersedia,
+      buktiTakTercocokkan: hasil.buktiTakTercocokkan,
+      parafrase: hasil.parafrase,
+    };
   } catch {
     return kosong;
   }

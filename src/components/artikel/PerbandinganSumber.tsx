@@ -1,11 +1,16 @@
-// Multi-Source View (Area 3, Fase 8 Gelombang 1) — matriks
-// klaim × sumber di halaman artikel. Data dari
+// Multi-Source View (Area 3, Fase 8 Gelombang 1 + Remediasi) —
+// matriks klaim × sumber di halaman artikel. Data dari
 // getPerbandinganSumber (lib/data.ts). Prinsip: TANPA kesetaraan
 // palsu — klaim tanpa bukti ditandai "Klaim tanpa bukti", sumber
 // yang tidak punya bukti untuk klaim itu ditandai "Belum
-// diketahui" (bukan "sama"). Bobot bukti eksplisit per klaim:
-// jumlah sumber independen yang mendukung + skor kredibilitas
-// tertinggi (tier 90/75/60 dari prioritas pf_sources).
+// diketahui" (bukan "sama"). "Sumber independen" dihitung dari
+// AKAR rantai salinan: satu berita yang disalin 3 media = 1
+// sumber independen, bukan 3. Bila rantai salinan belum
+// terverifikasi (RPC belum diterapkan), hitungan ditandai belum
+// dapat dipastikan — bukan ditampilkan sebagai angka pasti.
+// Bobot bukti eksplisit per klaim: jumlah sumber independen yang
+// mendukung + skor kredibilitas tertinggi dari tier AKAR
+// (tier 90/75/60 dari prioritas pf_sources).
 import Link from "next/link";
 import type {
   PerbandinganSumber,
@@ -35,6 +40,12 @@ const LABEL_STATUS_KLAIM: Record<string, string> = {
   tidak_dapat_diverifikasi: "Tidak dapat diverifikasi",
 };
 
+const LABEL_ARAH: Record<string, string> = {
+  mendukung: "Mendukung",
+  menentang: "Menentang",
+  netral: "Netral",
+};
+
 export default function PerbandinganSumber({
   perbandingan,
 }: {
@@ -42,6 +53,10 @@ export default function PerbandinganSumber({
 }) {
   const { klaim, sumber, sel, bobot } = perbandingan;
   const bobotPerKlaim = new Map(bobot.map((b) => [b.klaimId, b]));
+  const teksKlaim = new Map(klaim.map((k) => [k.id, k.teks]));
+  const rantaiTersedia = perbandingan.rantaiTersedia;
+  const buktiTakTercocokkan = perbandingan.buktiTakTercocokkan ?? [];
+  const parafrase = perbandingan.parafrase ?? [];
 
   return (
     <section className="seksi" aria-labelledby="seksi-perbandingan-sumber">
@@ -52,11 +67,12 @@ export default function PerbandinganSumber({
           Baris = klaim dalam artikel; kolom = sumber. &ldquo;Sama&rdquo;
           berarti sumber itu punya bukti yang mendukung klaim;
           &ldquo;Berbeda&rdquo; berarti ada bukti yang menentang;
-          &ldquo;Beda waktu&rdquo; berarti bukti untuk klaim itu dicatat
-          pada tanggal berbeda (cerita berkembang). &ldquo;Belum
-          diketahui&rdquo; berarti sumber itu tidak punya bukti
-          tercatat untuk klaim tersebut — bukan berarti ia setuju
-          atau tidak setuju.
+          &ldquo;Beda waktu&rdquo; berarti ada liputan independen yang
+          lebih baru untuk klaim itu (cerita berkembang) — salinan
+          yang terbit belakangan dari berita yang sama TIDAK
+          dihitung sebagai beda waktu. &ldquo;Belum diketahui&rdquo;
+          berarti sumber itu tidak punya bukti tercatat untuk klaim
+          tersebut — bukan berarti ia setuju atau tidak setuju.
         </p>
       </div>
 
@@ -77,6 +93,14 @@ export default function PerbandinganSumber({
         </p>
       ) : (
         <>
+          {!rantaiTersedia && (
+            <p className="pesan-error" role="status">
+              Rantai salinan belum terverifikasi — hitungan independen belum dapat dipastikan. Jumlah sumber independen di
+              bawah dihitung dari kolom sumber, bukan dari akar rantai
+              salinan, sehingga satu berita yang disalin beberapa
+              media bisa terhitung lebih dari satu sumber.
+            </p>
+          )}
           <div style={{ overflowX: "auto" }}>
             <table className="tabel-data">
               <thead>
@@ -97,11 +121,34 @@ export default function PerbandinganSumber({
                           <span className="lencana">Sumber awal</span>
                         </>
                       )}
-                      {s.tier !== null && s.skor !== null && (
+                      {s.disalinDari && (
+                        <>
+                          <br />
+                          <span className="lencana">
+                            Disalin dari {s.disalinDari}
+                          </span>
+                        </>
+                      )}
+                      {s.tier !== null && s.skor !== null ? (
                         <>
                           <br />
                           <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>
                             Tier {s.tier} · skor {s.skor}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <br />
+                          <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>
+                            Tier tidak diketahui
+                          </span>
+                        </>
+                      )}
+                      {rantaiTersedia && !s.rantaiTerverifikasi && (
+                        <>
+                          <br />
+                          <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>
+                            Rantai belum terverifikasi
                           </span>
                         </>
                       )}
@@ -131,6 +178,13 @@ export default function PerbandinganSumber({
                             <>
                               {" · "}
                               {b.independen} sumber independen mendukung
+                              {b.salinan > 0 && ` · ${b.salinan} salinan`}
+                              {rantaiTersedia &&
+                                ` · ${b.independenTerverifikasi} terverifikasi rantainya`}
+                              {b.kemungkinanParafrase > 0 &&
+                                ` · ${b.kemungkinanParafrase} kemungkinan parafrase (tidak dihitung)`}
+                              {b.buktiTakTercocokkan > 0 &&
+                                ` · ${b.buktiTakTercocokkan} bukti tak tercocokkan`}
                               {b.skorTertinggi !== null
                                 ? ` · skor tertinggi ${b.skorTertinggi}`
                                 : " · tanpa skor sumber"}
@@ -152,6 +206,14 @@ export default function PerbandinganSumber({
                                 <span className="lencana">Sumber awal</span>
                               </>
                             )}
+                            {c.disalinDari && (
+                              <>
+                                {" "}
+                                <span className="lencana">
+                                  Disalin dari {c.disalinDari}
+                                </span>
+                              </>
+                            )}
                           </td>
                         );
                       })}
@@ -162,13 +224,96 @@ export default function PerbandinganSumber({
             </table>
           </div>
           <p style={{ color: "var(--muted)", fontSize: "0.88rem", marginTop: 12 }}>
-            Bobot bukti: tier dihitung dari prioritas sumber
-            (tier 1 = skor 90, tier 2 = 75, tier 3 = 60) dan jumlah
-            sumber independen yang mendukung klaim. Bukti kuat
-            berarti banyak sumber independen yang sepakat — satu
-            sumber saja, betapa pun tinggi tier-nya, tidak
-            disamakan dengan banyak sumber independen.
+            Cara hitung independen: satu berita yang disalin oleh
+            beberapa media dihitung sebagai SATU sumber independen
+            (akar rantai salinan = 1 sumber), bukan satu per media
+            yang menyalin. Tier dihitung dari prioritas sumber
+            (tier 1 = skor 90, tier 2 = 75, tier 3 = 60) dan skor
+            tertinggi diambil dari tier sumber AKAR, bukan dari media
+            penyalin. Bukti kuat berarti banyak sumber independen
+            yang sepakat — satu sumber saja, betapa pun tinggi
+            tier-nya, tidak disamakan dengan banyak sumber
+            independen.
           </p>
+          {parafrase.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h3 style={{ fontSize: "1rem", marginBottom: 8 }}>
+                Kemungkinan salinan/parafrase — belum terverifikasi
+                sebagai independen
+              </h3>
+              <p style={{ color: "var(--muted)", fontSize: "0.88rem" }}>
+                Sumber-sumber di bawah ini judulnya sangat mirip
+                dengan sumber lain, tanpa rantai salinan yang
+                menghubungkan keduanya. Mereka TIDAK dihitung sebagai
+                sumber independen sampai ada verifikasi bahwa ini
+                liputan yang benar-benar terpisah.
+              </p>
+              <ul>
+                {parafrase.map((p) => (
+                  <li key={p.akarKunci}>
+                    {p.akarNama ?? "Sumber tanpa nama"}
+                    {p.akarJudul && (
+                      <>
+                        {" — “"}
+                        {p.akarJudul}
+                        {"”"}
+                      </>
+                    )}
+                    {p.miripDengan && (
+                      <>
+                        {" (mirip dengan “"}
+                        {p.miripDengan}
+                        {"”)"}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {buktiTakTercocokkan.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h3 style={{ fontSize: "1rem", marginBottom: 8 }}>
+                Bukti yang tidak dapat dicocokkan ke sumber di atas
+              </h3>
+              <p style={{ color: "var(--muted)", fontSize: "0.88rem" }}>
+                Bukti-bukti ini tercatat untuk klaim di bawah, tetapi
+                sumbernya tidak cocok dengan kolom sumber mana pun —
+                ditampilkan di sini agar tidak hilang diam-diam.
+              </p>
+              <ul>
+                {buktiTakTercocokkan.map((b, i) => (
+                  <li key={`${b.klaimId}-${i}`}>
+                    {teksKlaim.get(b.klaimId) ?? "Klaim tidak dikenal"}
+                    {" — "}
+                    {b.sumber_nama ? (
+                      b.sumber_url ? (
+                        <Link href={b.sumber_url} target="_blank" rel="noopener noreferrer">
+                          {b.sumber_nama}
+                        </Link>
+                      ) : (
+                        b.sumber_nama
+                      )
+                    ) : b.sumber_url ? (
+                      <Link href={b.sumber_url} target="_blank" rel="noopener noreferrer">
+                        {b.sumber_url}
+                      </Link>
+                    ) : (
+                      "Sumber tanpa nama"
+                    )}
+                    {` (${LABEL_ARAH[b.arah] ?? b.arah})`}
+                    {b.kutipan && (
+                      <>
+                        {" — “"}
+                        {b.kutipan}
+                        {"”"}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       )}
     </section>
