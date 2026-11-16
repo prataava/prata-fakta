@@ -589,3 +589,43 @@ MASIH TERBUKA — prasyarat B2. **Status: BELUM LIVE**
 di VM tidak ada SUPABASE_ACCESS_TOKEN / service-role key /
 Supabase CLI / psql; Vercel 403 dikonfirmasi ulang,
 `authorize_team_access` tidak didukung wrapper MCP).
+
+## 16. Gelombang B2 — evaluasi ulang keterbatasan (16 Nov 2026)
+
+Lima agen paralel + integrasi koordinator. Commit
+`f38f7ec` (91 berkas, +12.749/−319). Detail penuh:
+`FINAL-PROJECT-COMPLETION.md` §30, `AUDIT-ULTIMATE.md`
+addendum B2 (I-7–I-10).
+
+**Yang selesai:** hapus akun mandiri via tautan email +
+ekspor tanpa batas + hapus data per item (B2-A);
+penilaian + kelulusan + sertifikat internal + 5 jenis soal
+kuis (B2-B); notifikasi in-app + push VAPID (sampai titik
+konfigurasi) + analytics DB sendiri + error monitoring
+(B2-D); penjawab draf Ask the World + arsip Q&A
+terverifikasi + terjemahan MyMemory (B2-E). **Celah skor
+Academy DITUTUP** (jawaban tersimpan + skor server +
+trigger v14). **TTS Podcast TETAP BELUM BISA** (lisensi
+suara id_ID tidak jelas — bukti primer; workflow + feed
+RSS dibangun bersyarat). Penilai esai manual dibangun
+koordinator (route + antrean admin).
+
+**Migrasi v14:** 61 tabel / RLS 61/61 / policy 119.
+Koreksi: `pf_account_deletions` diklaim ada di v13 —
+SALAH, baru di v14.
+
+**Pengujian: 2.156 asersi terhitung, 0 gagal** (regression
+1.312 + ultimate B1 372 + ultimate B2 472); tsc 0; lint
+0/0; build 164/164 (`B2t3kY8QhZv7Cx-iknTtE`). Insiden:
+`git stash` di tree bersama sempat mengembalikan 10
+berkas ke HEAD — diverifikasi tidak ada pekerjaan hilang,
+stash di-drop (pelajaran: worktree terpisah / giliran
+commit untuk paralel berikutnya).
+
+**Status: BELUM LIVE** (migrasi produksi v1–v14 + deploy
+Vercel menunggu akses pemilik; blokir yang sama seperti
+B1, ditambah langkah deploy manual: 4 env var VAPID,
+Redirect URL hapus akun, bucket `podcast-audio`).
+Pekerjaan berikutnya: Tahap C–H (keamanan uji ulang,
+news intelligence, integrasi 14 area, QC penuh) lalu
+langkah produksi.

@@ -304,7 +304,7 @@ Laporan mentah: `/tmp/pf-ultimate-audit-limitations.md` (54 KB). Aturan putusan 
 
 | ID | Keterbatasan | Ringkasan rencana (detail di laporan mentah) |
 |---|---|---|
-| L-A1 | Hapus akun mandiri (My Prata F5) | `supabase.auth.admin.deleteUser` — pola `auth.admin.*` sudah dipakai di repo (`supabase-adapter.ts:426,458`); semua tabel pengguna `ON DELETE CASCADE`; migrasi v13: tabel `pf_account_deletions` (jejak pasca-hapus) + route `DELETE /api/saya/akun` + UI dua langkah. **Satu keputusan pemilik: metode verifikasi identitas (kata sandi vs tautan email).** |
+| L-A1 | Hapus akun mandiri (My Prata F5) | `supabase.auth.admin.deleteUser` — pola `auth.admin.*` sudah dipakai di repo (`supabase-adapter.ts:426,458`); semua tabel pengguna `ON DELETE CASCADE`; migrasi v13: tabel `pf_account_deletions` (jejak pasca-hapus) + route `DELETE /api/saya/akun` + UI dua langkah. **Satu keputusan pemilik: metode verifikasi identitas (kata sandi vs tautan email).** **KOREKSI 16 Nov 2026 (B2-A): klaim "tabel `pf_account_deletions` di v13" SALAH — grep v1–v13: 0 hasil; tabel itu baru dibuat di migrasi v14 (B2-A §1).** |
 | L-A2 | Privasi / hapus data per item | Fondasi sudah ada (`pf_user_preferences` + `GET/PATCH /api/saya/preferensi`); tambah `DELETE /api/saya/data?jenis=bookmark\|riwayat\|skor` + policy DELETE pemilik + kolom `email_notifikasi`/`push_notifikasi`. |
 | L-B1 | Sistem penilaian + kriteria kelulusan Academy | Kriteria terukur dari data yang sudah tersimpan: 100% pelajaran materi/artikel selesai + rata-rata kuis modul ≥ 70 + kuis akhir ≥ 70 + skor harus terverifikasi silang terhadap `pf_quiz_scores` (bukan angka dari klien). Fungsi server-side `cekKelulusan(course_id, user_id)`. **PRASYARAT: tutup celah `POST /api/akademi/progres` yang menerima skor mentah dari klien — sertifikat bisa dipalsukan dengan satu POST bila tidak ditutup.** |
 | L-B2 | Sertifikat Academy | Sertifikat penyelesaian **internal** (bukan resmi — kalimat itu wajib di sertifikat). Migrasi v13: `pf_certificates` (kode verifikasi unik 12 karakter, snapshot kriteria, `dicabut`); route `POST /api/akademi/sertifikat` (idempotent); halaman publik `/akademi/sertifikat/[kode]` siap cetak (CSS print; verifikasi = lookup DB, bukan gambar statis). |
@@ -421,7 +421,7 @@ otorisasi tim, bukan spesifik PRATA FAKTA.
 | P1-9 | Tambah `loading.tsx` (skeleton), `error.tsx` (tombol "Coba lagi" + tautan Beranda, `role="alert"`), `not-found.tsx` (tautan Beranda/Arsip) di `src/app/` (+ `error.tsx` khusus `src/app/admin/`). | F-T1, F-S5 |
 | P1-10 | Satukan permukaan akun: `/saya` sebagai dasbor dengan section "Profil & Keamanan" + "Pengaturan & Privasi"; samakan label BottomNav/Header ("Saya"). | F-T2 |
 | P1-11 | Podcast via Piper: verifikasi lisensi suara `id_ID` → workflow GitHub Actions + bucket Storage + `/podcast.xml` (RSS enclosure). | L-C2 |
-| P1-12 | Hapus akun mandiri (A1) + ekspor pra-hapus tanpa batas (paginasi) + tabel `pf_account_deletions`. | L-A1 |
+| P1-12 | Hapus akun mandiri (A1) + ekspor pra-hapus tanpa batas (paginasi) + tabel `pf_account_deletions` (v14, bukan v13 — koreksi B2, lihat L-A1). | L-A1 |
 | P1-13 | Notifikasi in-app: tulis penulis notifikasi (saat ini 0 INSERT ke `pf_notifications`) + pemicu dari event (koreksi, jawaban tanya, pembaruan cerita). | L-E1 |
 | P1-14 | Penjawab draf Ask the World: job terjadwal membuat DRAF jawaban (selalu `publik=false`) untuk review staf. | L-F1 |
 | P1-15 | Policy arsip Q&A publik (`publik=true AND status='terjawab'`, tanpa `user_id`) + baca arsip via session client. | B-S10, L-F2 |
@@ -633,3 +633,75 @@ bukan GalatGateTerbit), `TIMEOUT_LOCK_MENIT` 30→15, pemicu
 manual kini fail-closed (audit wajib). Semua diperbarui
 dengan alasan terdokumentasi — TIDAK ADA tes yang dihapus
 agar angka bagus.
+
+## ADDENDUM — Gelombang B2 (16 Nov 2026, evaluasi ulang keterbatasan)
+
+Lima agen paralel (B2-A Akun & Privasi, B2-B Academy, B2-C
+Podcast TTS, B2-D Notifikasi + Analytics, B2-E Ask the World
++ Terjemahan) + integrasi koordinator. Migrasi v14
+(`20261116_pf_v14_gelombang_b2.sql`, 61 tabel / RLS 61/61 /
+119 policy). Baterai B2: tanya 91/91, podcast 61/61,
+akademi 120/120 (109 + 11 integrasi), notifikasi 54/54,
+akun 114/114, migrasi v14 32/32 — total 472/472.
+
+### I-7 (SEDANG): Klaim audit salah — `pf_account_deletions` tidak ada di v13
+
+AUDIT-ULTIMATE.md §L-A1/P1-12 menyebut tabel jejak hapus
+akun itu bagian dari v13. B2-A membuktikan dengan grep
+v1–v13 (0 hasil) + SQL baterai: tabel TIDAK ADA sebelum
+v14. Koreksi dicatat inline di L-A1/P1-12, di CUTOVER §3.14
+dan README §v14. Pelajaran: klaim "sudah ada di migrasi X"
+wajib dibuktikan grep, bukan diingat dari rencana.
+
+### I-8 (INFO): TTS server Podcast TETAP BELUM BISA — lisensi suara
+
+B2-C memverifikasi ke sumber primer: katalog resmi Piper
+hanya punya satu suara id_ID (`id_ID-news_tts-medium`);
+MODEL_CARD-nya menulis `License: See URL` tanpa lisensi
+eksplisit, menunjuk korpus Malayalam (bukan Indonesia),
+dan suara itu di-fine-tune dari lessac (lisensi riset).
+Engine Piper bebas (MIT/GPL-3.0), suaranya tidak jelas.
+Workflow + feed RSS + enclosure dibangun BERSYARAT suara
+berlisensi (gerbang menolak suara itu + menolak jalan tanpa
+konfirmasi lisensi eksplisit). Tidak ada audio yang
+di-generate dengan suara meragukan.
+
+### I-9 (SEDANG, proses): `git stash` di tree bersama menghapus pekerjaan
+
+Di tengah B2, agen B2-C menjalankan `git stash push -u` +
+`pop` di tree yang dipakai 5 agen paralel; pop gagal
+sebagian dan 10 berkas kembali ke HEAD. B2-A mengalami
+reset ke HEAD dan menulis ulang seluruh pekerjaannya dari
+konteks (cadangan di `~/workspace/prata-fakta-b2a-backup/`).
+Koordinator memverifikasi tree vs stash (hanya 1 berkas
+berbeda = edit lanjutan B2-B) + semua 31 berkas untracked
+ada, lalu men-drop stash. Tidak ada pekerjaan yang hilang
+(dibuktikan 5 baterai hijau + tsc 0 sesudahnya). Pelajaran:
+pekerjaan paralel berikutnya memakai worktree terpisah
+atau giliran commit — JANGAN `stash`/`reset --hard` di
+tree bersama.
+
+### I-10 (RENDAH): Celah + kekurangan yang ditutup/didokumentasi di integrasi B2
+
+- Celah skor Academy (I-4) DITUTUP: jawaban kuis kini
+  tersimpan (`pf_quiz_user_answers`), skor dihitung server
+  + trigger v14 menghitung ulang (tulis langsung REST pun
+  tidak bisa memalsukan); `skor` non-null dari klien
+  ditolak 400. Sertifikat internal HANYA sesudah lulus
+  (ambang 80% pelajaran / 70 rata-rata kuis / 70 kuis akhir).
+- Penilai esai manual DIBANGUN koordinator (route + antrean
+  admin `/admin/akademi/esai` + audit `akademi.progres`) —
+  tanpa ini esai tidak pernah bisa dinilai dan pengguna
+  ber-esai tidak pernah bisa lulus.
+- Limiter `progres` + `sertifikat` diubah ke fail-closed
+  (`buatRateLimiterKeras`) — keduanya sebelumnya fail-open.
+- Backup mencakup 61 tabel; retensi 90 hari dijadwalkan
+  workflow `retensi.yml` (tanggal 1 tiap bulan).
+- TETAP BELUM: penilaian esai otomatis (L-C5, butuh
+  penilai manusia/LLM); UI admin pembuatan soal bertipe
+  baru (soal bertipe dibuat lewat DB langsung);
+  `/api/kuis/skor` (kuis harian) masih menerima
+  benar/total dari klien (tidak memengaruhi sertifikat);
+  pencabutan sertifikat manual belum ada UI-nya; push VAPID
+  butuh 4 env var deploy; email hapus akun butuh Redirect
+  URL `/saya/hapus-akun/konfirmasi` di Supabase Auth.

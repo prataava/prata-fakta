@@ -462,12 +462,95 @@ lolos dengan 1 skip terlihat (GDELT 429 eksternal).
 `npx tsc --noEmit` EXIT 0; `npm run lint` EXIT 0 (0 error,
 0 warning).
 
+### 19c. Regression Gelombang B2 (16 Nov 2026 ±13.00–14.30 WIB)
+
+Ke-27 baterai (19 lama + 5 ultimate B1 + 6 ultimate B2,
+minus editorial + ingestion-live yang dijalankan terpisah)
+dijalankan ULANG sesudah integrasi B2. **7 merah di run
+pertama — semuanya BUKAN regresi kode B2, melainkan
+konsekuensi yang disengaja + 1 bug harness + 1 bug impor:**
+(1) fase5/gate/tahap13c/security crash `ERR_MODULE_NOT_FOUND`
+— `tulis.ts` (baru B2-D) mengimpor `@/lib/...` yang tidak
+bisa di-resolve Node polos (bug impor, diperbaiki ke
+`../supabase/service.ts` — lihat §22d #21); (2) fase7:
+backup kini 61 tabel (v14) — asersi 55 basi; (3) gel2-admin:
+`/admin/analitik` kini menampilkan angka nyata DB sendiri,
+bukan "Belum tersedia"; (4) integrasi14: `/podcast.xml`
+(route handler non-API) dikira mati oleh pemindai tautan;
+(5) security §P2-13: harness mentranspilasi
+`responGalatAdmin` tanpa stub `catatGalatAplikasi` (hook
+baru B2-D). Semua diperbaiki dengan alasan terdokumentasi —
+TIDAK ADA tes yang dihapus agar angka bagus.
+
+| Baterai | Hasil B2 |
+|---|---|
+| uji-fase5 | SEMUA LOLOS (crash impor `@/` diperbaiki) |
+| uji-fase6 | SEMUA LOLOS |
+| uji-fase7 | **87/87** (skema v1–v14, 61 tabel, 119 policy) |
+| uji-fase8-gel1 | 159/159 |
+| uji-remediasi-multisource | 71/71 |
+| uji-remediasi-integrasi | SEMUA LOLOS |
+| uji-editorial | SEMUA LOLOS (28 OK) |
+| uji-fase8-gel2-migrasi | 28/28 |
+| uji-fase8-gel2-cerita | 66/66 |
+| uji-fase8-gel2-akademi | **107/107** (was 106 — 3 asersi B2-B diganti, bukan dihapus) |
+| uji-fase8-gel2-riset | 71/71 |
+| uji-fase8-gel2-negara | 77/77 |
+| uji-fase8-gel2-tanya-podcast | 72/72 |
+| uji-fase8-gel2-admin | **84/84** (asersi analitik diperbarui ke angka nyata DB) |
+| uji-tahap13a | 191/191 |
+| uji-tahap13b | 109/109 |
+| uji-tahap13c | SEMUA LOLOS (119) |
+| uji-tahap13-migrasi | 15/15 |
+| uji-integrasi14 | **28/28** (pemindai tautan kini mengenal route handler non-API) |
+| uji-ingestion (live) | SEMUA LOLOS |
+
+**Total regression B2 (19 baterai lama): 1.312 asersi
+terhitung, 0 gagal** + 4 baterai SEMUA LOLOS tanpa hitungan
+(fase5, fase6, remediasi-integrasi, ingestion-live).
+
+Baterai ULTIMATE (semua EXIT 0):
+
+| Baterai | Hasil |
+|---|---|
+| uji-ultimate-gate | **77/77** |
+| uji-ultimate-ingestion | **71/71** |
+| uji-ultimate-security | **109/109** (was 108, +1 hook log galat B2-D) |
+| uji-ultimate-backend | **115/115** |
+
+Baterai ULTIMATE baru (Gelombang B2, semua EXIT 0):
+
+| Baterai | Hasil |
+|---|---|
+| uji-ultimate-b2-tanya (B2-E) | **91/91** (draf, arsip, MyMemory) |
+| uji-ultimate-b2-podcast (B2-C) | **61/61** (RSS, enclosure, lisensi) |
+| uji-ultimate-b2-akademi (B2-B) | **120/120** (was 109, +11 penilai esai + limiter keras) |
+| uji-ultimate-b2-notifikasi (B2-D) | **54/54** (notifikasi, push, analytics) |
+| uji-ultimate-b2-akun (B2-A) | **114/114** (hapus akun, ekspor, hapus per item) |
+| uji-ultimate-b2-migrasi (v14) | **32/32** (v1–v14 2× idempoten, 61/61/119, 0 blanket grant) |
+
+**Total keseluruhan B2: 2.156 asersi terhitung, 0 gagal**
+(1.312 regression + 372 ultimate B1 + 472 ultimate B2).
+`npx tsc --noEmit` EXIT 0; `npm run lint` EXIT 0 (0 error,
+0 warning — 6 warning awal B2 dibersihkan: 1 `catch (e)`
+di `sw.js`, 1 fungsi + 1 parameter tak terpakai di baterai
+akun, 3 variabel seed tak terpakai di baterai notifikasi).
+
 ## 20. Build results
 
 - `npm run build` → **EXIT 0, 148/148 halaman** (generate
   6,8 dtk), BUILD_ID `NuVJviTVNDHPrL8k97_Re` (Gelombang B1,
   16 Nov 2026 ±14.00 WIB; naik dari 147 — halaman baru
   `/jelajahi`).
+- `npm run build` → **EXIT 0, 164/164 halaman** (generate
+  6,6 dtk), BUILD_ID `B2t3kY8QhZv7Cx-iknTtE` (Gelombang B2,
+  16 Nov 2026 ±14.30 WIB; naik dari 148 — halaman baru
+  `/podcast.xml`, `/admin/akademi/esai`,
+  `/akademi/sertifikat/[kode]`, `/saya/hapus-akun`,
+  `/saya/hapus-akun/konfirmasi`, `/saya/notifikasi` +
+  API baru). Peringatan prerender `[baca] ... cookies()
+  rejects ...` tetap kelas yang sama (galat baca DB yang
+  ditangani saat prerender, bukan kegagalan build).
 - Komposisi: ~14 statis (○) + mayoritas dinamis (ƒ, baca data
   per request — arsitektur sejak Fase 1–7, bukan regresi CSP)
   + sub-rute partial-prerender (◐).
@@ -549,6 +632,37 @@ policy — lihat §23.
 | 18 | Dedup diuji presisi (0 URL ganda di DB + semua "baru" adalah URL baru + baru <10%); GDELT 429 = skip terlihat | Ingestion SEMUA LOLOS (1 dilewati) |
 | 19 | BELUM diperbaiki — prasyarat Gelombang B2 (skor dihitung server dari jawaban tersimpan) | — |
 
+### 22d. Bug ditemukan Gelombang B2 (integrasi + regression)
+
+| # | Bug | Dampak | Ditemukan di |
+|---|---|---|---|
+| 20 | Klaim audit salah: `pf_account_deletions` disebut ada di v13 (AUDIT-ULTIMATE.md §L-A1/P1-12) | Dokumen menyesatkan; tabel sebenarnya baru ada di v14 | B2-A (grep v1–v13: 0 hasil) |
+| 21 | `src/lib/notifikasi/tulis.ts` mengimpor `@/lib/supabase/service` — alias Next.js tidak bisa di-resolve Node polos | 5 baterai crash `ERR_MODULE_NOT_FOUND` (fase5, gate, tahap13c, security, editorial) | Regression B2 (run pertama) |
+| 22 | Pemindai tautan `uji-integrasi14` hanya mengenal `page.tsx` + route `/api/*` | `/podcast.xml` (route handler non-API baru B2-C) dikira tautan mati | Regression B2 (integrasi14: 27/28) |
+| 23 | Harness security §P2-13 mentranspilasi `responGalatAdmin` tanpa `catatGalatAplikasi` | Crash `ReferenceError` sesudah hook log galat B2-D ditambah ke `guard.ts` | Regression B2 (security) |
+| 24 | Esai tersimpan tanpa jalur penilaian (B2-B): jawaban esai `menunggu_penilaian` tapi tidak ada route/UI penilai | Pengguna ber-esai tidak pernah bisa lulus (kelulusan tertahan selamanya) | Integrasi B2 (review laporan B2-B) |
+| 25 | `pf_newsletter_subscribers` tanpa FK ke auth.users | Langganan newsletter TIDAK ikut terhapus saat akun dihapus (cascade tidak menjangkau) | B2-A (audit cascade) |
+| 26 | 4 tabel tanpa policy DELETE pemilik + v9 tanpa GRANT DELETE atasnya (`pf_quiz_scores`, `pf_notifications`, `pf_user_preferences`, `pf_questions`) | Hapus data per item ditolak 42501 walau policy ada | B2-A (baterai, sebelum diperbaiki) |
+| 27 | `pf_quiz_questions` CHECK v8 memaksa `opsi` 1–10 butir | Soal isian/esai (tanpa opsi) tidak bisa dibuat | B2-B (pengujian jenis soal) |
+| 28 | `git stash` + `reset --hard` di tree bersama 5 agen paralel | 10 berkas kembali ke HEAD; B2-A menulis ulang seluruh pekerjaannya dari konteks | Insiden B2 (lihat AUDIT-ULTIMATE.md I-9) |
+| 29 | Asersi basi B2 (4): backup 55 tabel, analitik "Belum tersedia", limiter progres fail-open, `pf_quiz_scores` 3 policy | 4 baterai merah — BUKAN regresi kode | Regression B2 |
+
+### 22e. Bug diperbaiki Gelombang B2
+
+| # | Perbaikan | Verifikasi |
+|---|---|---|
+| 19 | **DITUTUP:** jawaban kuis tersimpan (`pf_quiz_user_answers`) + skor dihitung server (`hitungSkorProgres`) + trigger v14 menghitung ulang (tulis REST pun tak bisa memalsukan); `skor` non-null dari klien ditolak 400 | Akademi 120/120 (tulis skor=100 tanpa jawaban → 0 baris; dengan 3 benar → tersimpan 3) |
+| 20 | Koreksi inline di AUDIT-ULTIMATE.md L-A1/P1-12 + CUTOVER §3.14 + README §v14 | grep v1–v13 = 0; v14 battery: tabel ada, 0 FK |
+| 21 | Impor diubah ke `../supabase/service.ts` (relatif + ekstensi, konvensi lib) | fase5/gate/tahap13c/editorial SEMUA LOLOS; security 109/109 |
+| 22 | Pemindai kini memasukkan route handler non-API ke kumpulan halaman | integrasi14 28/28 |
+| 23 | Harness menyediakan stub `catatGalatAplikasi` penangkap + asersi baru hook terpanggil | security 109/109 (+1 asersi hook) |
+| 24 | Route + antrean admin `/admin/akademi/esai` + lib `daftarEsaiMenunggu()` + audit `akademi.progres` (koordinator) | Akademi 120/120 (+11 asersi penilai esai) |
+| 25 | Route hapus akun menghapus langganan newsletter menurut email secara eksplisit | Akun 114/114 (baris newsletter bertahan sesudah `delete from auth.users` → dihapus route) |
+| 26 | v14 §5c/§5d: 4 policy DELETE pemilik + GRANT DELETE ke authenticated | Akun 114/114; migrasi v14 32/32 |
+| 27 | v14 §3: CHECK opsi v8 diganti CHECK v14 (isian/esai dibebaskan) | Akademi 120/120; migrasi v14 32/32 |
+| 28 | Tree diverifikasi vs stash (hanya 1 berkas berbeda = edit lanjutan B2-B; 31 berkas untracked ada) lalu stash di-drop; tidak ada pekerjaan hilang | 5 baterai B2 hijau + tsc 0 sesudah insiden |
+| 29 | Asersi diperbarui ke keadaan baru yang jujur (backup 61, analitik angka nyata DB, progres + sertifikat fail-closed, `pf_quiz_scores` 4 policy) | fase7 87/87, gel2-admin 84/84, gel2-akademi 107/107 |
+
 ## 23. Sisa risiko
 
 1. **T6 penutupan penuh belum terverifikasi** — pinning tidak
@@ -560,7 +674,8 @@ policy — lihat §23.
    berisiko** (limiter keras + 503 bila RPC gagal) — TAPI
    GET + route admin internal masih fail-open sesuai desain,
    dan T3 baru AKTIF sesudah migrasi v11 diterapkan di
-   produksi.
+   produksi. **B2: +2 route** (`progres`, `sertifikat`) kini
+   fail-closed juga.
 3. **CSRF: cek Origin TERPUSAT di proxy.ts** (semua mutasi
    `/api/*`) + per-route lapis kedua — di kode TERTUTUP;
    verifikasi HTTP live (403/429/503) BELUM dilakukan.
@@ -570,7 +685,12 @@ policy — lihat §23.
    flip); `Secure: true` di produksi sudah diterapkan.
 5. **Run live GitHub Actions 0** — lock antar-run bersamaan,
    retry, dan assert `jq` di runner nyata belum teruji.
+   Workflow baru B2 (tanya-jawab-draf, podcast-tts, retensi)
+   juga belum pernah berjalan live.
 6. **Uji login + klik browser nyata + HP/desktop belum diuji.**
+   Bertambah di B2: klik tautan hapus akun di email nyata,
+   `deleteUser` Auth nyata, langganan push browser nyata,
+   pemutaran MP3 di browser nyata, run workflow pertama.
 7. **Uji responsif visual + a11y penuh belum diuji.**
 8. **GDELT 429** — flake eksternal; ingestion RSS tetap jalan.
 9. **Backoff F12 baca 100 baris audit terbaru** — bila >100
@@ -589,8 +709,11 @@ policy — lihat §23.
 14. **Audio Podcast / Traffic Analytics / sertifikat** —
     dievaluasi ulang di Audit Ultimate (16 BISA DIBANGUN);
     dikerjakan Gelombang B2. **Celah skor Academy (L-B1)
-    MASIH TERBUKA** — sertifikat HANYA sesudah skor dihitung
-    server.
+    DITUTUP di B2** (skor server-side + trigger v14);
+    sertifikat internal kini diterbitkan hanya sesudah lulus.
+    **TTS server Podcast TETAP BELUM BISA** (lisensi suara
+    id_ID tidak jelas — B2-C, bukti primer; workflow +
+    feed RSS dibangun bersyarat suara berlisensi).
 15. **Vercel 403** — deploy terblokir sampai pemilik bertindak
     (bukti segar 16 Nov 2026 ±13.00 WIB: requestId
     `iad1:sfo1:iad1:sfo1::8qk7g-1794807437316-bdccdae0b466`;
@@ -599,13 +722,39 @@ policy — lihat §23.
     karena konektor sudah connected — jalan keluar: disconnect
     + hubungkan ulang dengan persetujuan tim, atau import
     manual di dashboard).
-16. **Migrasi produksi v1–v13 belum dijalankan** — di VM ini
+16. **Migrasi produksi v1–v14 belum dijalankan** — di VM ini
     TIDAK ADA `SUPABASE_ACCESS_TOKEN`, service-role key,
     Supabase CLI, atau `psql`; satu-satunya kredensial lokal
     adalah anon key di `.env.local` (bukti: 0 tabel `pf_*` di
     produksi, PGRST205). Jalur tersisa: SQL Editor via
     browser, atau pemilik menyerahkan service-role key lewat
-    Secure Vault.
+    Secure Vault. **v14 wajib ikut** (61 tabel / 119 policy);
+    tanpa v14, kode B2 menjawab 503 jujur / PGRST204.
+17. **Kunci VAPID deploy belum ada** — push tidak berfungsi
+    sampai 4 env var diisi (`VAPID_PUBLIC_KEY`,
+    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
+    `NEXT_PUBLIC_VAPID_PUBLIC_KEY`) + `POST /api/push/uji`
+    diverifikasi staf.
+18. **Redirect URL hapus akun** — `/saya/hapus-akun/konfirmasi`
+    harus di-allowlist di Supabase Auth, bila tidak klik
+    tautan email gagal. Templat email Magic Link bawaan
+    berbunyi "masuk", bukan "hapus akun" (konteks dijelaskan
+    di halaman konfirmasi; penyesuaian templat opsional).
+19. **Penilaian esai otomatis TETAP BELUM BISA** (L-C5);
+    UI admin pembuatan soal bertipe baru belum ada (soal
+    bertipe dibuat lewat DB langsung); `/api/kuis/skor`
+    (kuis harian) masih menerima benar/total dari klien
+    (tidak memengaruhi sertifikat); pencabutan sertifikat
+    manual belum ada UI-nya; log galat belum menyeluruh
+    (hanya route admin + kunjungan); topik `isu` tidak
+    menghasilkan notifikasi artikel (tidak ada kolom isu di
+    `pf_articles`).
+20. **Jejak audit lama menyimpan `aktor_email` polos** —
+    baris `pf_audit_logs` dari aksi sebelum penghapusan akun
+    tetap menyimpan email (desain audit integritas); hanya
+    jejak penghapusan itu sendiri yang memakai hash. Bila
+    kebijakan menuntut penghapusan email dari audit lama,
+    itu keputusan pemilik terpisah.
 
 ## 24. Commit hashes
 
@@ -627,7 +776,9 @@ policy — lihat §23.
 | `63dd17b` | Tahap 14 — Integrasi 14 area (artikel ↔ cerita ↔ negara) |
 | `7ff50f0` | Tahap 15–17 — regression + readiness + dokumentasi |
 | `de3f876` | Audit Ultimate (Tahap A) — audit dari nol 6 agen: 94 temuan + 25 putusan keterbatasan + Vercel 403 terbukti (sudah di-push agen utama) |
-| `ebd4cf7` | Gelombang B1 — perbaikan P0–P3 + migrasi v13 + 5 baterai ultimate + integrasi (BELUM di-push; butuh token GitHub — agen utama yang push) |
+| `ebd4cf7` | Gelombang B1 — perbaikan P0–P3 + migrasi v13 + 5 baterai ultimate + integrasi (**sudah di-push agen utama 16 Nov 2026 ±12.56 WIB**, terverifikasi via API) |
+| `6dbab13` | Docs B1: FINAL-PROJECT-COMPLETION §19b/22b-c/29 + §23-28, AUDIT-ULTIMATE addendum integrasi, LAPORAN-AKHIR §15 (sudah di-push bersama `ebd4cf7`) |
+| `f38f7ec` | Gelombang B2 — evaluasi ulang keterbatasan (16 BISA DIBANGUN): hapus akun, Academy, Podcast, notifikasi + analytics, draf tanya + migrasi v14 + integrasi koordinator (BELUM di-push; butuh token GitHub — agen utama yang push) |
 
 Catatan: koordinator (subagen) hanya commit lokal; push
 dilakukan agen utama.
@@ -671,13 +822,53 @@ dilakukan agen utama.
 - Dihapus: `.github/workflows/editorial.yml` (dipecah 3).
 - Total repo: 78 halaman + 80 rute API (build 148 halaman);
   55 tabel migrasi; 25 baterai uji di `scripts/`.
+- **Gelombang B2 (sejak `6dbab13`): 91 berkas,
+  +12.749 / −319 baris** (`git diff 6dbab13..f38f7ec
+  --shortstat`).
+- Baru (B2): migrasi v14 (6 tabel baru, §1–§5);
+  `src/lib/akun/` (token-hapus, paginasi, jenis-data,
+  respons), `src/lib/akademi/` (penilaian, sertifikat, esai),
+  `src/lib/notifikasi/` (tulis, push),
+  `src/lib/analytics/` (kunjungan, galat),
+  `src/lib/ai/tanya-draf.ts`, `src/lib/terjemahan/mymemory.ts`,
+  `src/lib/podcast/rss.ts`; `src/app/podcast.xml/`,
+  `src/app/akademi/sertifikat/[kode]/`,
+  `src/app/saya/hapus-akun/` (+ konfirmasi),
+  `src/app/saya/notifikasi/`, `src/app/admin/akademi/esai/`,
+  `src/app/api/tanya/draf/`, `src/app/api/akademi/sertifikat/`,
+  `src/app/api/saya/akun/`, `src/app/api/saya/data/`,
+  `src/app/api/notifikasi/jumlah/`, `src/app/api/push/`,
+  `src/app/api/analytics/`, `src/app/api/admin/akademi/esai/`;
+  `src/components/NotifikasiBadge.tsx`,
+  `src/components/PelacakKunjungan.tsx`,
+  `src/components/akademi/TombolSertifikat.tsx`,
+  `src/app/saya/HapusDataPerItem.tsx`; `public/sw.js`;
+  workflow `.github/workflows/tanya-jawab-draf.yml`,
+  `podcast-tts.yml`, `retensi.yml`;
+  6 baterai ultimate B2 (`uji-ultimate-b2-tanya/podcast/
+  akademi/notifikasi/akun/migrasi`).
+- Diubah (B2): `src/lib/notifikasi/tulis.ts` (impor relatif),
+  `src/lib/admin/editorial.ts` + `guard.ts` (hook notifikasi
+  + log galat), `src/lib/admin/types.ts` (4 aksi audit),
+  `src/app/api/admin/tanya/[id]/` (draf setujui/tolak/edit),
+  `src/app/api/admin/podcast/` (hook notifikasi),
+  `src/app/api/akademi/progres/` + `sertifikat/` (limiter
+  keras), `src/app/api/akademi/kuis/jawab/` (skor server),
+  `src/app/api/saya/ekspor/` (paginasi tanpa batas),
+  `src/app/api/saya/preferensi/` (3 kolom baru),
+  `src/components/Header.tsx` (badge + tracker),
+  5 baterai lama (asersi basi B2), `supabase/CUTOVER.md`
+  (§3.14 v14 + §3.15) + `supabase/README.md` (§v14),
+  `scripts/backup-pf.mjs` (61 tabel).
+- Total repo sesudah B2: build 164 halaman; 61 tabel migrasi;
+  33 baterai uji di `scripts/`.
 
 ## 26. Status production
 
 | Aspek | Status |
 |---|---|
-| Kode | **Selesai, terverifikasi lokal** (Tahap 13–17 + Audit Ultimate + Gelombang B1, commit `ebd4cf7`, build 148/148) |
-| Migrasi produksi | **Terblokir akses** — v1–v13 belum dijalankan; di VM tidak ada SUPABASE_ACCESS_TOKEN / service-role key / Supabase CLI / psql (hanya anon key di `.env.local`); 0 tabel `pf_*` di produksi terverifikasi (PGRST205) |
+| Kode | **Selesai, terverifikasi lokal** (Tahap 13–17 + Audit Ultimate + Gelombang B1 + Gelombang B2, commit `f38f7ec`, build 164/164) |
+| Migrasi produksi | **Terblokir akses** — v1–v14 belum dijalankan; di VM tidak ada SUPABASE_ACCESS_TOKEN / service-role key / Supabase CLI / psql (hanya anon key di `.env.local`); 0 tabel `pf_*` di produksi terverifikasi (PGRST205) |
 | Deploy Vercel | **Terblokir** — 403 akses tim `prataava` (bukti segar 16 Nov 2026 ±13.00 WIB, requestId `iad1:sfo1:iad1:sfo1::8qk7g-1794807437316-bdccdae0b466`); `authorize_team_access` TIDAK didukung wrapper MCP; `authorize-url` ditolak (konektor sudah connected) |
 | Env vars Vercel (6) | **Belum diisi** — nama di `DEPLOY.md`; nilai dari pemilik |
 | Secret GitHub Actions (3) | **Belum diisi** — nama di `DEPLOY.md`; nilai dari pemilik |
@@ -692,12 +883,14 @@ berhasil + diuji.**
 
 ## 27. Hambatan yang memerlukan pemilik
 
-1. **Jalankan migrasi v1–v13** di Supabase produksi via SQL
-   Editor (prosedur `supabase/CUTOVER.md` §3, tahap 3A–3G;
-   validasi 55/55/107 + seed 5 job; **v13 §10 wajib ikut —
-   tanpa itu backend mati 42501**). Alternatif: berikan
-   service-role key lewat Secure Vault agar Muse menjalankan
-   (di VM saat ini tidak ada akses API/CLI ke Supabase).
+1. **Jalankan migrasi v1–v14** di Supabase produksi via SQL
+   Editor (prosedur `supabase/CUTOVER.md` §3, tahap 3A–3H;
+   validasi 61/61/119 + seed 5 job; **v13 §10 wajib ikut —
+   tanpa itu backend mati 42501; v14 wajib ikut — tanpa itu
+   kode B2 menjawab 503 jujur / PGRST204**). Alternatif:
+   berikan service-role key lewat Secure Vault agar Muse
+   menjalankan (di VM saat ini tidak ada akses API/CLI ke
+   Supabase).
 2. **Pulihkan akses deploy Vercel 403** — putuskan opsi A
    (disconnect konektor di Muse → hubungkan ulang + setujui
    akses tim `prataava` di layar OAuth; ±5 menit, nol risiko
@@ -706,7 +899,7 @@ berhasil + diuji.**
    Vercel), atau C (ZIP sumber). JANGAN buat proyek duplikat.
 3. **Isi 6 env var Vercel + 3 secret GitHub Actions** (nama
    saja di `DEPLOY.md`; nilai tidak pernah lewat chat).
-4. **Backup baseline + pasca-migrasi 55/55.**
+4. **Backup baseline + pasca-migrasi 61/61.**
 5. **Tetapkan super_admin pertama** sesudah migrasi.
 6. **Nonaktifkan signup di dashboard Supabase Auth** bila
    pendaftaran ingin ditutup penuh (flag aplikasi saja tidak
@@ -719,15 +912,25 @@ berhasil + diuji.**
 9. **Uji live sesudah deploy:** login + klik browser nyata +
    HP/desktop; verifikasi pinning T6 dari egress langsung;
    uji CSRF live + flag cookie sesi.
+10. **Isi 4 env var VAPID** (`VAPID_PUBLIC_KEY`,
+    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
+    `NEXT_PUBLIC_VAPID_PUBLIC_KEY`) + uji `POST /api/push/uji`
+    bila push diinginkan (generate kunci: `npx web-push
+    generate-vapid-keys`).
+11. **Allowlist Redirect URL** `/saya/hapus-akun/konfirmasi`
+    di Supabase Auth (bila tidak, klik tautan hapus akun
+    gagal); opsional sesuaikan templat email Magic Link.
+12. **Buat bucket Storage `podcast-audio`** (publik) bila
+    audio podcast diinginkan — TIDAK bisa via migrasi.
 
 ## 28. Langkah terakhir menuju peluncuran
 
-1. Pemilik menjalankan migrasi v1–v13 + validasi 55/55/107
+1. Pemilik menjalankan migrasi v1–v14 + validasi 61/61/119
    (§27.1).
 2. Pemilik memulihkan deploy Vercel + isi env/secret (§27.2–3).
-3. Muse deploy kode (commit B1 `ebd4cf7`, sesudah di-push) +
+3. Muse deploy kode (commit B2 `f38f7ec`, sesudah di-push) +
    verifikasi `GET /api/health` = `db: "ok"`.
-4. Backup pasca-migrasi 55/55 + tetapkan super_admin pertama.
+4. Backup pasca-migrasi 61/61 + tetapkan super_admin pertama.
 5. Verifikasi live: 12× 200 + 8× 404 (seperti smoke lokal),
    CSP header + nonce unik, login 3 peran, klik alur utama,
    HP 320–430px + desktop, pinning T6, CSRF + cookie.
@@ -736,7 +939,7 @@ berhasil + diuji.**
 7. Umumkan URL produksi + pantau `/api/health` dan
    `/admin/monitoring` 24 jam pertama.
 
-**Kriteria "LIVE" (tegas):** migrasi 55/55/107 terverifikasi
+**Kriteria "LIVE" (tegas):** migrasi 61/61/119 terverifikasi
 di produksi + deploy Vercel berhasil + `/api/health`
 `db: "ok"` + login + klik browser nyata lolos + tanpa error
 di log. Sebelum itu, status tetap **BELUM LIVE**.
@@ -825,8 +1028,71 @@ akses pemilik (§27).
 
 ---
 
+## 30. Ultimate — Gelombang B2: evaluasi ulang keterbatasan (16 Nov 2026)
+
+Lima agen paralel (B2-A Akun & Privasi, B2-B Academy, B2-C
+Podcast TTS, B2-D Notifikasi + Analytics, B2-E Ask the World
++ Terjemahan) + integrasi koordinator. Commit `f38f7ec`
+(91 berkas, +12.749/−319).
+
+### 30.1 Yang diselesaikan (16 BISA DIBANGUN → dibangun)
+
+| Area | Hasil | Bukti |
+|---|---|---|
+| A1 Hapus akun mandiri | Selesai di kode (tautan email; keputusan koordinator — berlaku untuk Google OAuth, tanpa kata sandi) | Akun 114/114 |
+| A2 Privasi + ekspor + hapus per item | Selesai (ekspor tanpa batas 1000; 11 jenis hapus per item) | Akun 114/114 |
+| B1 Penilaian + kelulusan Academy | Selesai (ambang 80/70/70, terdokumentasi) | Akademi 120/120 |
+| B2 Sertifikat internal | Selesai (label INTERNAL, kode verifikasi + halaman publik) | Akademi 120/120 |
+| C2 TTS Podcast via Piper | **BELUM BISA** — lisensi suara id_ID tidak jelas (bukti primer); workflow + RSS dibangun bersyarat | Podcast 61/61 |
+| D1 Traffic Analytics + error monitoring DB sendiri | Selesai (angka nyata DB, tanpa fingerprinting; retensi 90 hari + workflow) | Notifikasi 54/54 |
+| E1 Notifikasi in-app | Selesai (penulis nyata 4 kejadian, dedup, preferensi) | Notifikasi 54/54 |
+| E3 Push VAPID | Selesai sampai titik konfigurasi (4 env var; kunci belum ada) | Notifikasi 54/54 |
+| F1 Penjawab draf Ask the World | Selesai (ekstraktif, anti-auto-publish struktural) | Tanya 91/91 |
+| F2 Arsip Q&A | Terverifikasi tanpa celah (tidak diubah) | Tanya 91/91 |
+| G2 Terjemahan MyMemory | Selesai (judul saja, hemat kuota; gagal → dilewati) | Tanya 91/91 |
+| H2–H6 Jenis soal kuis | Selesai (PG kompleks, isian, benar/salah, esai disimpan, riwayat per soal) | Akademi 120/120 |
+
+### 30.2 Celah skor Academy — DITUTUP
+
+Temuan I-4 (B1) ditutup di B2: jawaban kuis tersimpan,
+skor dihitung server, trigger v14 menghitung ulang.
+Sertifikat internal hanya sesudah lulus. Penilai esai
+manual dibangun koordinator (tanpa ini pengguna ber-esai
+tidak pernah lulus).
+
+### 30.3 Migrasi v14
+
+61 tabel / RLS 61/61 / policy 119 (55/107 v13 + 6 tabel +
+12 policy). DDL persis kelima agen, dirakit koordinator,
+diuji v1–v14 2× idempoten tanpa blanket grant
+(`uji-ultimate-b2-migrasi` 32/32). Prosedur cutover:
+CUTOVER.md §3.14, README.md §v14. **Koreksi atas audit:**
+`pf_account_deletions` diklaim ada di v13 — SALAH, baru
+di v14 (AUDIT-ULTIMATE.md I-7).
+
+### 30.4 Pengujian
+
+Regression 19 baterai lama: 1.312 terhitung + 4 SEMUA
+LOLOS; ultimate B1: 372/372; ultimate B2: 472/472.
+**Total 2.156 asersi terhitung, 0 gagal.** tsc 0; lint 0/0;
+build 164/164 (`B2t3kY8QhZv7Cx-iknTtE`). Detail: §19c.
+
+### 30.5 Residual risk sesudah B2
+
+Lihat §23 (diperbarui): TTS server tetap belum bisa;
+VAPID + Redirect URL + bucket podcast butuh langkah
+deploy manual; penilaian esai otomatis tetap belum bisa;
+UI pembuatan soal bertipe baru belum ada; `/api/kuis/skor`
+masih menerima skor klien; uji live (login, klik, HP,
+workflow, push, MP3, email hapus akun) belum dilakukan;
+Vercel 403 + migrasi produksi v1–v14 menunggu akses
+pemilik (§27).
+
+---
+
 *Dokumen ini ditulis 16 November 2026, sesudah Tahap 15–17,
-diperbarui Gelombang B1 (commit `ebd4cf7`, §29).
+diperbarui Gelombang B1 (commit `ebd4cf7`, §29) dan
+Gelombang B2 (commit `f38f7ec`, §30).
 Semua angka dari pengujian nyata lokal (PGlite + Node 24 +
 `next start`); tidak ada angka dari production karena situs
 belum live. Bila satu angka di sini terbukti salah, perbaiki
