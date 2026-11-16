@@ -4,6 +4,28 @@
 // TIDAK ADA auto-VERIFIED di sini: semua item baru berstatus
 // status_verifikasi 'UNCONFIRMED' dan menunggu kurasi manusia/editor.
 // Hak cipta: hanya metadata + ringkasan sumber + URL yang disimpan.
+//
+// MATRIKS FALLBACK (Tahap E) — satu kegagalan tidak boleh
+// menghentikan pengumpulan:
+//   - Satu feed RSS gagal (429/5xx/jaringan, sesudah retry
+//     per-sumber maks 3x) -> feed RSS lain + GDELT tetap jalan
+//     (Promise.allSettled di jalankanIngestion; tiap sumber
+//     mencatat run 'gagal' sendiri, total.gagal bertambah 1).
+//   - GDELT gagal -> semua feed RSS tetap jalan, dan sebaliknya.
+//   - Satu item gagal disimpan (mis. DB error) -> item lain dalam
+//     feed yang sama tetap diproses; run ditutup 'sebagian'.
+//   - Run tidak bisa dibuat -> sumber itu dilaporkan gagal
+//     (gagal=1, tanpa run); sumber lain tidak terpengaruh.
+//   - Retry HANYA di level sumber (cobaUlang di retry.ts: backoff
+//     eksponensial, hormati Retry-After). Workflow pemicu (GitHub
+//     Actions) TIDAK BOLEH me-retry seluruh job (curl --retry
+//     dihapus Tahap E): memicu ulang endpoint berarti mengambil
+//     ulang SEMUA feed; kegagalan sebagian sudah terlihat lewat
+//     assert respons + status run 'sebagian'/'gagal'.
+//   - 0 item dari sumber yang biasanya produktif (ada item baru
+//     7 hari terakhir) -> run 'sebagian' + peringatan_basi, BUKAN
+//     sukses penuh; sumber basi > 48 jam tanpa item baru ditandai
+//     di pf_sources.status_terakhir (pemeliharaan.ts).
 
 import { fetchRss } from "./rss.ts";
 import type { ItemMentah } from "./rss.ts";

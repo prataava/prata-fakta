@@ -17,8 +17,15 @@
 # lebih lama dari timeout workflow (10 menit) tapi lebih cepat dari
 # interval cron (30 menit), jadi lock basi tidak pernah memblokir
 # run berikutnya.
-# Retry (F8): curl --retry 2 --retry-delay 10 (gagal jaringan /
-# HTTP 408/429/5xx sementara dicoba ulang 2x).
+# Retry (F8, diubah Tahap E): TIDAK ADA curl --retry di sini.
+# Retry hidup DI DALAM engine, per sumber (lib/ingestion/retry.ts:
+# maks 3 percobaan, backoff eksponensial, hormati Retry-After).
+# Memicu ulang endpoint berarti mengambil ulang SEMUA feed —
+# itulah "mengulang seluruh job" yang dilarang Tahap E. Bila POST
+# ini gagal sementara (jaringan/5xx), run cron 30 menit berikutnya
+# yang mengambil alih; kegagalan sebagian sudah terlihat lewat
+# assert di bawah + status run 'sebagian'/'gagal' di
+# pf_ingestion_runs (bukan sukses diam-diam).
 # Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
 # `ok != true` atau `total.gagal > 0`, bukan hanya bila HTTP non-2xx.
 #
@@ -58,7 +65,7 @@ jobs:
               '{dipicu_oleh:"github_actions", sumber_id:$s}')
           fi
           RESP="$(mktemp)"
-          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
+          curl --fail-with-body -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/ingestion/jalankan" \
             -H "x-pf-ingestion-secret: ${{ secrets.PF_INGESTION_SECRET }}" \
             -H "Content-Type: application/json" \
