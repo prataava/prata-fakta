@@ -77,16 +77,27 @@ export default function BottomNav() {
   const pathname = usePathname();
   return (
     <nav className="nav-bawah" aria-label="Navigasi bawah">
-      {ITEMS.map((item) => {
-        const aktif =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-        return (
-          <Link key={item.href} href={item.href} className={aktif ? "aktif" : undefined} aria-current={aktif ? "page" : undefined}>
-            {item.ikon}
-            {item.label}
-          </Link>
-        );
-      })}
+      <div className="nav-bawah-dalam">
+        {ITEMS.map((item) => {
+          const aktif =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`nav-bawah-item${aktif ? " aktif" : ""}`}
+              aria-current={aktif ? "page" : undefined}
+            >
+              <span className="nav-bawah-ikon" aria-hidden="true">
+                {item.ikon}
+              </span>
+              <span className="nav-bawah-label">{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

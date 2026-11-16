@@ -136,7 +136,9 @@ img {
 main.konten {
   flex: 1;
   width: 100%;
-  padding-bottom: 96px; /* ruang untuk bottom nav mobile */
+  /* Ruang untuk bottom nav mobile: tinggi dock 66px + 12px mengambang
+   * + safe area — konten terakhir tidak boleh tertutup nav. */
+  padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 }
 
 @media (min-width: 768px) {
@@ -650,46 +652,194 @@ a.kartu:hover {
   justify-content: space-between;
 }
 
-/* ---------- Bottom nav (mobile) ---------- */
+/* ---------- Bottom nav (mobile) — Floating Frosted Glass Dock ----------
+ * Glassmorphism premium (16 Nov 2026): pill mengambang, bukan bar
+ * menempel tepi. Routing + active state + ikon TIDAK berubah
+ * (lihat BottomNav.tsx — 6 pintu, ikon SVG proyek, /jelajahi
+ * untuk "Lainnya"). Dock GELAP di kedua tema (sesuai referensi);
+ * aksen memakai token --mint. Desktop tetap memakai nav desktop:
+ * dock disembunyikan >= 768px. */
 .nav-bawah {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 50;
+  left: 50%;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 680px;
+  height: 66px;
+  padding: 6px;
   display: flex;
-  justify-content: space-around;
-  background: var(--header-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-top: 1px solid var(--border);
-  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  align-items: center;
+  z-index: 999;
+  /* Frosted glass: gelap translucent + blur + saturasi */
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.09),
+      rgba(255, 255, 255, 0.025)
+    ),
+    rgba(12, 17, 29, 0.76);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 27px;
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  isolation: isolate;
 }
 
-.nav-bawah a {
+/* Highlight garis cahaya atas */
+.nav-bawah::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.nav-bawah-dalam {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  gap: 3px;
+}
+
+.nav-bawah-item {
+  position: relative;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 2px;
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 4px 10px;
-  border-radius: 10px;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+  padding: 5px 2px;
+  text-decoration: none;
+  color: rgba(194, 202, 217, 0.72);
+  border: 1px solid transparent;
+  border-radius: 21px;
+  transition:
+    background 220ms ease,
+    color 220ms ease,
+    border-color 220ms ease,
+    transform 220ms ease,
+    box-shadow 220ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
-.nav-bawah a.aktif {
-  color: var(--accent);
+.nav-bawah-item:hover {
+  color: #dbe2ec;
 }
 
-.nav-bawah svg {
-  width: 22px;
-  height: 22px;
+.nav-bawah-ikon {
+  flex-shrink: 0;
+  display: flex;
+  transition:
+    transform 220ms ease,
+    color 220ms ease;
+}
+
+.nav-bawah-ikon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.nav-bawah-label {
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  transition: color 220ms ease;
+}
+
+/* Active: kapsul kaca sendiri — ikon + label mint */
+.nav-bawah-item.aktif {
+  color: var(--mint);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.065)
+  );
+  border-color: rgba(255, 255, 255, 0.13);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 2px 9px rgba(0, 0, 0, 0.12);
+}
+
+.nav-bawah-item.aktif .nav-bawah-ikon {
+  color: var(--mint);
+  transform: translateY(-1px);
+}
+
+.nav-bawah-item.aktif .nav-bawah-label {
+  color: var(--mint);
+  font-weight: 700;
+}
+
+/* Press feedback */
+.nav-bawah-item:active {
+  transform: scale(0.94);
+}
+
+.nav-bawah-item:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+@media (max-width: 360px) {
+  .nav-bawah {
+    width: calc(100% - 18px);
+    height: 62px;
+    padding: 5px;
+  }
+
+  .nav-bawah-ikon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .nav-bawah-label {
+    font-size: 9px;
+  }
 }
 
 @media (min-width: 768px) {
   .nav-bawah {
     display: none;
+  }
+}
+
+/* Fallback bila browser tanpa backdrop-filter */
+@supports not (
+  (backdrop-filter: blur(20px)) or
+  (-webkit-backdrop-filter: blur(20px))
+) {
+  .nav-bawah {
+    background: rgba(12, 17, 29, 0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-bawah-item,
+  .nav-bawah-ikon,
+  .nav-bawah-label {
+    transition: none;
   }
 }
 
@@ -1158,7 +1308,7 @@ a.kartu:hover {
 }
 
 /* Penanda halaman aktif di nav admin (F-S6) — pola yang sama
- * dengan .nav-kategori a.aktif dan .nav-bawah a.aktif. */
+ * dengan .nav-kategori a.aktif dan .nav-bawah-item.aktif. */
 .admin-nav a.aktif {
   color: var(--accent-ink);
   background: var(--accent);
