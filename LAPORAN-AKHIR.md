@@ -23,7 +23,7 @@ Vercel — keduanya blokir di luar kode (lihat §12).
 | Security audit | 10 temuan; 6 diperbaiki, 2 didokumentasikan (migrasi susulan), 1 diterima fail-closed, 1 sudah diperbaiki sebelumnya (T2) |
 | Performance audit | Lazy loading + header cache diterapkan; First Load JS per rute tidak tersedia dari artefak Turbopack |
 | SEO | Sitemap, robots, RSS, JSON-LD, canonical, Open Graph — semua 200 di smoke test |
-| Backup & monitoring | Skrip backup 36 tabel + endpoint `/api/health` + seksi kesehatan di `/admin/sistem` |
+| Backup & monitoring | Skrip backup 37 tabel + endpoint `/api/health` + seksi kesehatan di `/admin/sistem` |
 | QA 25 butir | 21 LOLOS (lokal), 4 BLOKIR (lihat §5) |
 | Verifikasi | `tsc` EXIT 0, `lint` EXIT 0, `uji-fase7` **87/87 LOLOS**, `build` EXIT 0 (87/87 halaman), smoke test lolos |
 
@@ -323,11 +323,24 @@ password di kode atau file ter-commit (grep audit keamanan).
   §11.4).
 - Bundel sumber cadangan: `prata-fakta-fase7.zip` (di samping
   laporan ini / di repo induk; terverifikasi `tar -tzf`).
+- **Prosedur cutover lengkap (Fase 8): `supabase/CUTOVER.md`** —
+  dokumen ini adalah panduan langkah demi langkah (pemeriksaan
+  sebelum migrasi, backup, migrasi v1–v8, validasi fungsi, smoke
+  test, rollback). Ringkasan deploy: `DEPLOY.md` di root repo.
+- **Backup dulu** (`node scripts/backup-pf.mjs`, lihat §11.6):
+  sebelum migrasi, 37 tabel dilaporkan gagal (404 — tabel belum
+  ada) dan itu normal; 401 berarti key salah.
+- **Repo kini di commit `f1e68d6` (Fase 8 Gelombang 1), 94 rute.**
+  Migrasi v8 sudah mencakup perbaikan T5/T8 (lihat §11.2) —
+  tetapi v8 HANYA boleh dijalankan SESUDAH deploy (§11.4),
+  karena v8 mencabut policy INSERT anonim dan kode penggantinya
+  (service role) baru berlaku sesudah deploy.
 
 ### 11.2 Jalankan migrasi (berurutan, JANGAN dilewat)
 
 Di Supabase Dashboard → SQL Editor, jalankan satu per satu
-`supabase/migrations/`:
+`supabase/migrations/` — **Tahap A: v1–v7 dulu, deploy (§11.4),
+BARU Tahap B: v8** (alasan: lihat `supabase/CUTOVER.md` §0):
 
 1. `20261116_pf_v1_foundation.sql`
 2. `20261116_pf_v2_articles.sql`
@@ -337,17 +350,31 @@ Di Supabase Dashboard → SQL Editor, jalankan satu per satu
 6. `20261116_pf_v6_advanced.sql`
 7. `20261116_pf_v7_quiz_scores.sql`
 
-Verifikasi sesudah tiap berkas (lihat `supabase/README.md`):
+— deploy (§11.4) —
+
+8. `20261116_pf_v8_expansion.sql` (Fase 8 Gelombang 1: T5 cabut
+   3 policy INSERT anonim, T8 batasi baca berlebih, T1-sisa kunci
+   kuis per kolom, perluasan CHECK enum, tabel baru
+   `pf_user_preferences` + kolom Area 3/13)
+
+Verifikasi sesudah tiap berkas (lihat `supabase/README.md` dan
+`supabase/CUTOVER.md` §3):
 
 ```sql
 select count(*) from pg_tables
 where schemaname = 'public' and tablename like 'pf_%';
--- ekspektasi sesudah v7: 36
+-- ekspektasi sesudah v7: 36; sesudah v8: 37
 
 select count(*) from pg_policies
 where schemaname = 'public' and tablename like 'pf_%';
--- ekspektasi sesudah v7: 79
+-- ekspektasi sesudah v7: 79; sesudah v8: 79
+-- (v8: −3 policy insert anonim + 3 policy pf_user_preferences)
 ```
+
+Angka ekspektasi per tahap: v1 = 8 tabel / 18 policy,
+v2 = 16 / 51, v3 = 18 / 53, v4 = 23 / 59, v5 = 26 / 62,
+v6 = 35 / 76, v7 = 36 / 79, v8 = 37 tabel / 79 policy
+(angka v8 diverifikasi dari berkas migrasi, bukan asumsi).
 
 Bila satu berkas gagal, JANGAN lanjut ke berkas berikutnya —
 perbaiki dulu, lalu ulangi berkas itu (semua migrasi idempoten,
@@ -392,6 +419,13 @@ Jalankan `node scripts/backup-pf.mjs` (butuh
 `SUPABASE_SERVICE_ROLE_KEY` di ENV/`.env.local`) secara berkala
 dari mesin tepercaya; simpan hasil JSON + `manifest.json` di luar
 repo. Skrip exit 1 bila ada tabel gagal — jangan abaikan.
+**Sesudah v8, skrip mencakup 37 tabel** (36 dari v1–v7 +
+`pf_user_preferences` dari v8); backup pasca-migrasi harus
+`37/37 tabel, 0 gagal`, dengan seed `pf_roles` 5,
+`pf_permissions` 9, `pf_role_permissions` 19,
+`pf_categories` 34, `pf_sources` 8, `pf_scheduled_jobs` 3.
+Prosedur backup sebelum migrasi (baseline 404 = normal, 401 =
+key salah): `supabase/CUTOVER.md` §2.
 
 ---
 
@@ -399,7 +433,7 @@ repo. Skrip exit 1 bila ada tabel gagal — jangan abaikan.
 
 | # | Blokir | Yang harus dilakukan pemilik |
 |---|---|---|
-| 1 | Migrasi v1–v7 belum dijalankan di Supabase produksi | Jalankan 7 berkas SQL berurutan via SQL Editor (§11.2) — atau berikan service-role key lewat Secure Vault agar Muse yang menjalankan |
+| 1 | Migrasi v1–v8 belum dijalankan di Supabase produksi | Jalankan 8 berkas SQL berurutan via SQL Editor (§11.2 + `supabase/CUTOVER.md` §3) — v1–v7 dulu, deploy, baru v8; atau berikan service-role key lewat Secure Vault agar Muse yang menjalankan |
 | 2 | Deploy Vercel gagal 403 (akses tim `prataava` hilang) | Putuskan: hubungkan ulang Vercel di Muse, atau import repo manual di dashboard Vercel (§11.4) |
 | 3 | Scheduler tidak aktif | Isi secret GitHub Actions sesudah deploy (§11.5) |
 | 4 | Uji login + klik browser nyata belum dilakukan | Sesudah live: login sebagai admin/editor/pembaca, klik alur utama (kuis, peta, tanya, feed, admin), laporkan hasilnya |

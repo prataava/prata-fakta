@@ -58,6 +58,11 @@ const TABEL_PF = [
   "pf_questions",
   // v7
   "pf_quiz_scores",
+  // v8 (Fase 8 Gelombang 1) — tabel baru: pf_user_preferences.
+  // Total sesudah v8: 37 tabel. Bila migrasi v8 di-append lagi
+  // (Gelombang 2/3) dan menambah tabel pf_* baru, TAMBAHKAN
+  // namanya di sini agar backup tetap mencakup semuanya.
+  "pf_user_preferences",
 ];
 
 function bacaEnvLocal() {
