@@ -1,49 +1,66 @@
 /* ============================================================
-   PRATA FAKTA — Design System "Hybrid Editorial Premium"
-   Token warna sesuai brief. JANGAN hardcode warna di komponen:
-   selalu pakai var(--token). Aturan AGENTS: jangan pernah membuat
-   definisi token menunjuk dirinya sendiri (self-ref).
+   PRATA FAKTA — Design System "Aurora Glass Editorial"
+   (Fase 2 redesign, 16 Nov 2026 — menggantikan "Hybrid
+   Editorial Premium"; nama token LAMA dipertahankan agar 96
+   class pemakai tidak berubah, nilainya dipetakan ulang ke
+   palet Aurora; token BARU ditandai "Aurora").
+   JANGAN hardcode warna di komponen: selalu pakai var(--token).
+   Aturan AGENTS: jangan pernah membuat definisi token menunjuk
+   dirinya sendiri (self-ref).
+   Mode: DUA — gelap Aurora (default identitas) + terang yang
+   diadaptasi dari palet yang sama (keputusan pengguna 22.25 WIB).
    ============================================================ */
 
 :root {
-  /* Token merek (identik di kedua mode) */
-  --midnight: #0a101a;
-  --mint: #65e6c0;
-  --cyan: #64ddf0;
+  /* Token merek (identik di kedua mode) — kanon Aurora */
+  --midnight: #080d18;
+  --mint: #68e4c1;
+  --cyan: #77d8f0;
+  --purple: #a58bff; /* Aurora — baru */
   --border: #e4e8ee;
 
-  /* Mode terang (default) */
+  /* Mode terang (default) — Aurora diadaptasi */
   --bg: #f7f8fa;
   --surface: #ffffff;
   --surface-2: #eef1f5;
+  --elevated: #ffffff; /* Aurora — baru */
   --ink: #101827;
   --ink-2: #334155;
   --muted: #5b6b80; /* turunan lebih gelap dari #8492A6 agar kontras di terang */
   --header-bg: rgba(255, 255, 255, 0.92);
+  --glass-bg: rgba(255, 255, 255, 0.75); /* Aurora — baru */
+  --glass-border: rgba(16, 24, 39, 0.12); /* Aurora — baru */
   --accent: #0e7a5f; /* mint yang digelapkan untuk kontras di terang */
   --accent-ink: #ffffff;
   --danger: #b3261e;
   --shadow: 0 1px 2px rgba(16, 24, 39, 0.06), 0 4px 16px rgba(16, 24, 39, 0.06);
+  --shadow-glass: 0 12px 32px rgba(16, 24, 39, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6); /* Aurora — baru */
 
   --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --radius: 12px;
+  --radius-lg: 16px; /* Aurora — baru */
+  --radius-xl: 20px; /* Aurora — baru */
   --maxw: 1200px;
 }
 
 [data-theme="dark"] {
-  --bg: #0a101a;
-  --surface: #101827;
-  --surface-2: #16213a;
-  --ink: #f7f8fa;
-  --ink-2: #c6d0dc;
-  --muted: #8492a6;
-  --border: #223048;
-  --header-bg: rgba(10, 16, 26, 0.92);
-  --accent: #65e6c0;
-  --accent-ink: #0a101a;
+  --bg: #080d18;
+  --surface: #111b2a;
+  --surface-2: #0d1422;
+  --elevated: #172235;
+  --ink: #f1f5f9;
+  --ink-2: #a0aec0;
+  --muted: #738197;
+  --border: rgba(255, 255, 255, 0.1);
+  --header-bg: rgba(8, 13, 24, 0.82);
+  --glass-bg: rgba(17, 27, 42, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --accent: #68e4c1;
+  --accent-ink: #080d18;
   --danger: #ff8a80;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-glass: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 * {
@@ -96,6 +113,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Aurora ambient: cahaya sekitar yang halus di mode gelap saja
+ * (mint/cyan/ungu, alpha 5–7% — selektif, bukan gradient besar).
+ * Mode terang tetap polos agar tidak keruh. */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(104, 228, 193, 0.07), transparent 60%),
+    radial-gradient(900px 480px at 8% 0%, rgba(119, 216, 240, 0.06), transparent 60%),
+    radial-gradient(760px 520px at 50% 108%, rgba(165, 139, 255, 0.05), transparent 62%),
+    var(--bg);
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -123,6 +151,132 @@ img {
 ::selection {
   background: var(--mint);
   color: var(--midnight);
+}
+
+/* ---------- Aurora Glass — permukaan kaca reusable ----------
+ * Satu sistem kaca untuk seluruh situs. Pakai sebagai pembungkus
+ * class, mis. class="kaca kaca-kartu" — JANGAN ubah markup atau
+ * logika komponen saat memakai class ini.
+ * Karakter: blur 18–24px + saturasi, lapisan semi-transparan,
+ * border tipis, inner highlight, bayangan lembut. Untuk panel
+ * berisi banyak teks pakai .kaca-padat (lebih solid).
+ * Blur hanya pada permukaan; keterbacaan tidak boleh turun. */
+.kaca {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
+    var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+}
+
+/* Panel berisi banyak teks — lebih solid agar nyaman dibaca. */
+.kaca-padat {
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  backdrop-filter: blur(12px) saturate(130%);
+}
+
+/* Kartu — radius besar + angkat halus saat hover (pointer saja). */
+.kaca-kartu {
+  border-radius: var(--radius-xl);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(145%);
+  transition: transform 260ms ease, box-shadow 260ms ease;
+}
+
+@media (hover: hover) {
+  .kaca-kartu:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Panel/section — radius sedang. */
+.kaca-panel {
+  border-radius: var(--radius-lg);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Tombol kaca — pil, tekan mengecil sedikit. */
+.kaca-tombol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.kaca-tombol:active {
+  transform: scale(0.97);
+}
+
+/* Input/pencarian kaca — fokus bercahaya aksen. */
+.kaca-input {
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.kaca-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), var(--shadow-glass);
+}
+
+/* Dropdown/laci — blur lebih dalam, bayangan lebih kuat. */
+.kaca-laci {
+  border-radius: var(--radius-lg);
+  -webkit-backdrop-filter: blur(24px) saturate(155%);
+  backdrop-filter: blur(24px) saturate(155%);
+}
+
+/* Modal — permukaan paling dalam. */
+.kaca-modal {
+  border-radius: var(--radius-xl);
+  -webkit-backdrop-filter: blur(26px) saturate(155%);
+  backdrop-filter: blur(26px) saturate(155%);
+}
+
+/* Chip kecil — pil ringkas. */
+.kaca-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Fallback bila browser tanpa backdrop-filter: permukaan solid. */
+@supports not (
+  (backdrop-filter: blur(20px)) or
+  (-webkit-backdrop-filter: blur(20px))
+) {
+  .kaca,
+  .kaca-padat,
+  .kaca-kartu,
+  .kaca-panel,
+  .kaca-tombol,
+  .kaca-input,
+  .kaca-laci,
+  .kaca-modal,
+  .kaca-chip {
+    background: var(--surface);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kaca-kartu,
+  .kaca-tombol,
+  .kaca-input {
+    transition: none;
+  }
 }
 
 /* ---------- Utilitas layout ---------- */

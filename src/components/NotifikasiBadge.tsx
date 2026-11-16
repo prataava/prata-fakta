@@ -71,8 +71,8 @@ export default function NotifikasiBadge() {
             padding: "0 6px",
             fontSize: 12,
             fontWeight: 700,
-            color: "#fff",
-            background: "var(--merah, #c0392b)",
+            color: "var(--accent-ink)",
+            background: "var(--danger)",
           }}
         >
           {jumlah > 99 ? "99+" : jumlah}
