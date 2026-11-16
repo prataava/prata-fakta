@@ -1,10 +1,9 @@
-# CUTOVER — PRATA FAKTA: Migrasi v1–v10 + Go-Live
+# CUTOVER — PRATA FAKTA: Migrasi v1–v12 + Go-Live
 
 **Dokumen:** prosedur cutover produksi (migrasi database + deploy +
 smoke test + rollback).
-**Repo:** `prataava/prata-fakta`, commit `f1e68d6` (Fase 8 Gelombang 1)
-+ perubahan Gelombang 2 (v10, belum di-commit saat dokumen ini
-diperbarui — hash commit menyusul di LAPORAN-FASE-8.md §13),
+**Repo:** `prataava/prata-fakta`, commit `5d3b17b` (Gelombang 2) +
+Tahap 13 (v11–v12, hash commit menyusul di LAPORAN-FASE-8.md §14),
 147 halaman (build lokal EXIT 0).
 **Status: BELUM LIVE.** Situs baru dinyatakan live bila SELURUH
 langkah di dokumen ini selesai dan smoke test §6 lolos. Jangan
@@ -20,7 +19,7 @@ mengumumkan URL produksi sebelum itu.
   langsung di Dashboard Vercel / GitHub / `.env.local`, atau
   diserahkan ke Muse lewat Secure Vault bila Muse yang diminta
   menjalankan langkahnya.
-- Semua migrasi v1–v10 IDEMPOTEN (aman dijalankan ulang). Satu
+- Semua migrasi v1–v12 IDEMPOTEN (aman dijalankan ulang). Satu
   berkas gagal → perbaiki penyebabnya, lalu ULANGI berkas itu.
   JANGAN lanjut ke berkas berikutnya sebelum berkas saat ini lolos
   verifikasi.
@@ -40,6 +39,8 @@ Urutan ini TIDAK boleh dibalik. Alasannya ada di tiap tahap.
 | 3B | Migrasi **v8** + verifikasi (§3) | SQL Editor |
 | 3C | Migrasi **v9** (GRANT eksplisit + RPC) + verifikasi (§3) | SQL Editor |
 | 3D | Migrasi **v10** (Gelombang 2, 16 tabel baru + GRANT) + verifikasi (§3) | SQL Editor |
+| 3E | Migrasi **v11** (Tahap 13A: rate limiter DB + audit T10) + verifikasi (§3) | SQL Editor |
+| 3F | Migrasi **v12** (Tahap 13C: seed 5 job scheduler) + verifikasi (§3) | SQL Editor |
 | 5 | Validasi fungsi database (§4) | SQL Editor |
 | 6 | Smoke test produksi (§6) | Browser + curl |
 | 7 | Aktifkan scheduler GitHub Actions (§7) | GitHub repo |
@@ -639,7 +640,89 @@ where table_schema = 'public' and table_name like 'pf_%'
 | GRANT tabel anon/authenticated | **> 0** (bertambah) |
 | Baris di 16 tabel baru | **0** (tanpa seed operasional) |
 
-### 3.11 Bila satu berkas gagal
+### 3.11 v11 — Tahap 13A (rate limiter DB + audit T10)
+
+- Berkas: `supabase/migrations/20261116_pf_v11_rate_limit_audit.sql`
+- Bergantung pada v1–v10. **Jalankan TEPAT SESUDAH v10.**
+  v11 ADITIF (hanya `CREATE TABLE IF NOT EXISTS` + `CREATE OR
+  REPLACE FUNCTION` + perluasan CHECK audit) — tidak mengubah
+  tabel atau policy lama.
+- Isi: tabel baru `pf_rate_limits` (1 tabel; store bersama rate
+  limiter lintas instance — tanpa policy, akses langsung ditolak
+  RLS, hanya lewat RPC); RPC `pf_rate_limit_check` (SECURITY
+  DEFINER, increment atomik, GRANT EXECUTE ke anon +
+  authenticated); perluasan CHECK `pf_audit_logs` ke **53 aksi**
+  (47 dari v9 + 6 baru: `sumber.buat/ubah/hapus/cek/aktif`,
+  `negara.hapus`).
+- Tervalidasi lokal (PGlite, `scripts/uji-tahap13a.mjs`
+  126/126): v1–v11 dijalankan 2× idempoten TANPA blanket grant.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 54
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 106
+
+-- RPC limiter: 2 panggilan dalam batas 2 lolos, ke-3 ditolak.
+select pf_rate_limit_check('cutover:uji', 2, 60);
+select pf_rate_limit_check('cutover:uji', 2, 60);
+select pf_rate_limit_check('cutover:uji', 2, 60);
+-- ekspektasi: true, true, false (baris uji 'cutover:uji' boleh
+-- dibiarkan — kedaluwarsa sendiri; hapus manual bila mau bersih).
+```
+
+| Pemeriksaan | Ekspektasi sesudah v11 |
+|---|---|
+| Jumlah tabel `pf_*` | **54** (53 + 1 baru) |
+| Tabel ber-RLS | **54/54** |
+| Jumlah policy `pf_*` | **106** (tidak berubah) |
+| Policy `pf_rate_limits` | **0** (akses hanya lewat RPC) |
+| Aksi audit di CHECK | **53** |
+
+### 3.12 v12 — Tahap 13C (seed 5 job scheduler)
+
+- Berkas: `supabase/migrations/20261116_pf_v12_seed_jobs.sql`
+- Bergantung pada v1–v11. **Jalankan TEPAT SESUDAH v11.**
+  v12 ADITIF (hanya perluasan CHECK + INSERT seed) — tidak
+  mengubah tabel atau policy lama.
+- Isi: perluasan CHECK nama `pf_scheduled_jobs` dari 3 nama
+  (v5: ingestion/editorial/brief) ke **5 nama** (tambah
+  `data-analysis`, `terbitkan-terjadwal`) — tanpa ini, seed dua
+  job baru ditolak 23514 dan job locking Tahap 13C fail-open;
+  seed 5 job idempoten (`ON CONFLICT DO NOTHING`).
+- Tervalidasi lokal (PGlite, `scripts/uji-tahap13-migrasi.mjs`
+  15/15): v1–v12 dijalankan 2× idempoten TANPA blanket grant.
+
+Verifikasi tambahan:
+
+```sql
+select nama, jadwal_cron from public.pf_scheduled_jobs order by nama;
+-- ekspektasi: 5 baris — brief '0 22 * * *', data-analysis
+-- '0 1 * * 1', editorial '0 0,6,12,18 * * *', ingestion
+-- '*/30 * * * *', terbitkan-terjadwal '0 * * * *'.
+
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 54 (tidak berubah dari v11)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 106 (tidak berubah dari v11)
+```
+
+| Pemeriksaan | Ekspektasi sesudah v12 |
+|---|---|
+| Jumlah tabel `pf_*` | **54** |
+| Tabel ber-RLS | **54/54** |
+| Jumlah policy `pf_*` | **106** |
+| Baris `pf_scheduled_jobs` | **5** |
+
+### 3.13 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
 2. Baca pesan error SQL Editor sampai habis. Penyebab paling
@@ -958,7 +1041,7 @@ yang sama, mengganti `super_admin` dengan nama peran itu.
 
 ### 9.1 Gagal di satu berkas migrasi — TIDAK perlu rollback
 
-Semua migrasi idempoten. Prosedur baku (§3.10): berhenti,
+Semua migrasi idempoten. Prosedur baku (§3.13): berhenti,
 baca error, perbaiki penyebab, ulangi berkas yang sama.
 Jangan pernah "melompat" ke berkas berikutnya untuk
 menutupi kegagalan.
@@ -970,7 +1053,7 @@ gagal karena data:
 
 1. Identifikasi tahap yang salah dari angka verifikasi
    (tabel §3.1–§3.8 menunjukkan tahap terakhir yang lolos).
-2. Ulangi berkas migrasi tahap itu (§3.10).
+2. Ulangi berkas migrasi tahap itu (§3.13).
 3. Bila pengulangan tidak memperbaiki: kumpulkan bukti
    (pesan error persis + hasil kueri verifikasi) dan
    hentikan cutover — jangan menebak-nebak perbaikan
@@ -1080,12 +1163,14 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §3B: v8 + verifikasi (37 tabel, 79 policy, uji negatif T5/T1 lolos)
 - [ ] §3C: v9 + verifikasi (37 tabel, 79 policy, GRANT tabel > 0, kunci kuis false/false, `pf_akar_salinan` ada)
 - [ ] §3D: v10 + verifikasi (53 tabel, 53/53 RLS, 106 policy, 16 tabel baru 0 baris)
+- [ ] §3E: v11 + verifikasi (54 tabel, 54/54 RLS, 106 policy, RPC limiter true/true/false, CHECK audit 53 aksi)
+- [ ] §3F: v12 + verifikasi (54 tabel, 106 policy, seed 5 job dengan cron benar)
 - [ ] §4: fungsi + trigger tervalidasi
 - [ ] §6: smoke test halaman + API lolos
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik
 - [ ] §7: secret GitHub Actions terisi, workflow terpantau
 - [ ] §8: super_admin pertama ditetapkan
-- [ ] §2: backup pasca-migrasi (37/37 tabel) disimpan di luar repo
+- [ ] §2: backup pasca-migrasi (54/54 tabel) disimpan di luar repo
 
 Bila semua kotak tercentang, situs dinyatakan **LIVE** dan URL
 produksi dicatat di `LAPORAN-AKHIR.md` §12. Sebelum itu, status

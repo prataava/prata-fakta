@@ -54,14 +54,35 @@ flaky eksternal), smoke test `next start` 9× 200 + 7× 404,
 log 0 error. Batas jujur: file audio MP3 + RSS enclosure
 podcast BELUM BISA (tanpa layanan TTS server gratis);
 Traffic Analytics BELUM BISA (tanpa analitik terkonfigurasi);
-T3/T10/DNS rebinding/CSP masih TERBUKA (Tahap 13).
+T3/T10 kini tertutup di kode (Tahap 13, migrasi v11);
+DNS rebinding DIPERSEMPIT (pinning + re-resolusi, penutupan
+penuh belum terverifikasi dari egress langsung); CSP
+terimplementasi (nonce + hash skrip tema, terverifikasi live
+lokal via `next start`).
 Detail: `LAPORAN-FASE-8.md` §13, `AUDIT-EXPANSION.md`
 §9.6–§9.7.
 
-**BELUM LIVE:** migrasi v1–v10 belum dijalankan di Supabase
+**Tahap 13–17: SELESAI (kode, terverifikasi lokal)**
+(16 Nov 2026). Tahap 13 — keamanan + scheduler: rate limit
+lintas instance via tabel Supabase + RPC atomik (v11), audit
+CRUD sumber fail-closed (T10), akun nonaktif konsisten (T4),
+SSRF pinning + re-resolusi (T6, dipersempit — penutupan penuh
+butuh verifikasi dari egress langsung), CSP nonce + hash skrip
+tema, scheduler diperbaiki (F2–F8/F12: concurrency, lock
+server-side, retry, assert jq, seed 5 job, flag ditegakkan),
+migrasi v11–v12 (**54 tabel, RLS 54/54, 106 policy**).
+Tahap 14 — integrasi 14 area (artikel ↔ cerita ↔ negara +
+bar konteks). Tahap 15 — regression penuh **1.365/1.365
+asersi** (19 baterai) + build EXIT 0 (147/147, BUILD_ID
+`NyTEjrq_2Hs81joEYhase`) + smoke 12× 200 + 8× 404, log 0
+error. Tahap 16–17 — readiness + cutover/deploy siap untuk
+persetujuan pemilik. Laporan akhir: `FINAL-PROJECT-COMPLETION.md`
+(28 bagian). Detail: `LAPORAN-FASE-8.md` §14.
+
+**BELUM LIVE:** migrasi v1–v12 belum dijalankan di Supabase
 produksi dan deploy Vercel masih blokir 403 (akses tim
 `prataava`). Cara deploy langkah demi langkah:
-`LAPORAN-AKHIR.md` §11.
+`DEPLOY.md` + `supabase/CUTOVER.md`.
 
 ## Menjalankan lokal
 

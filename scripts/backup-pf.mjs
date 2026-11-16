@@ -59,10 +59,30 @@ const TABEL_PF = [
   // v7
   "pf_quiz_scores",
   // v8 (Fase 8 Gelombang 1) — tabel baru: pf_user_preferences.
-  // Total sesudah v8: 37 tabel. Bila migrasi v8 di-append lagi
-  // (Gelombang 2/3) dan menambah tabel pf_* baru, TAMBAHKAN
-  // namanya di sini agar backup tetap mencakup semuanya.
   "pf_user_preferences",
+  // v10 (Fase 8 Gelombang 2) — 16 tabel baru. Total sesudah v10:
+  // 53 tabel.
+  "pf_stories",
+  "pf_story_events",
+  "pf_story_articles",
+  "pf_story_followers",
+  "pf_courses",
+  "pf_course_modules",
+  "pf_course_lessons",
+  "pf_course_progress",
+  "pf_podcast_episodes",
+  "pf_podcast_history",
+  "pf_podcast_playlist_items",
+  "pf_research_reports",
+  "pf_documents",
+  "pf_countries",
+  "pf_country_facts",
+  "pf_system_settings",
+  // v11 (Tahap 13A) — tabel baru: pf_rate_limits.
+  // Total sesudah v11/v12: 54 tabel. Bila migrasi lanjutan
+  // menambah tabel pf_* baru, TAMBAHKAN namanya di sini agar
+  // backup tetap mencakup semuanya.
+  "pf_rate_limits",
 ];
 
 function bacaEnvLocal() {

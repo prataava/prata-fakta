@@ -771,3 +771,93 @@ dan membuktikan perbaikan (preferensi pemilik terbaca,
 artikel terbit terbaca anon, T5/T8/T1 tetap berlaku, RPC
 rantai 3 item benar) — hasil 16 Nov 2026: **156/156 LOLOS**,
 termasuk semua asersi lama yang masih relevan.
+
+## Migrasi v10 — Gelombang 2 (Fase 8, 16 Nov 2026)
+
+Berkas: `20261116_pf_v10_wave2.sql`. Jalankan SETELAH v1–v9,
+di SQL Editor yang sama (idempoten — aman diulang). ADITIF
+(hanya `CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT
+EXISTS` + GRANT/policy baru) — tidak mengubah tabel atau
+policy lama. GRANT eksplisit sudah di dalam berkas sejak awal
+(pelajaran F4).
+
+Isi: 16 tabel baru (`pf_stories`, `pf_story_events`,
+`pf_story_articles`, `pf_story_followers`, `pf_courses`,
+`pf_course_modules`, `pf_course_lessons`, `pf_course_progress`,
+`pf_podcast_episodes`, `pf_podcast_history`,
+`pf_podcast_playlist_items`, `pf_research_reports`,
+`pf_documents`, `pf_countries`, `pf_country_facts`,
+`pf_system_settings`) + 14 kolom perluasan (`knowledge`:
+jenis/tingkat/estimasi_menit/seri; `indicators`: cakupan/
+frekuensi/negara_kode; `questions`: publik/kategori/
+membantu; `events`: era/penting/negara_kode; `articles`:
+negara_kode) + RLS aktif di semua tabel baru.
+
+Ekspektasi sesudah v10: **53 tabel** `pf_*` ber-RLS,
+**106 policy**. Validasi lokal: `scripts/uji-fase8-gel2-migrasi.mjs`
+28/28 (v1–v10 2× idempoten TANPA blanket grant).
+
+## Migrasi v11 — Tahap 13A: rate limiter DB + audit T10 (16 Nov 2026)
+
+Berkas: `20261116_pf_v11_rate_limit_audit.sql`. Jalankan
+SETELAH v1–v10 (idempoten — aman diulang). ADITIF.
+
+Isi:
+
+- **§1 — tabel `pf_rate_limits`** (store bersama rate limiter
+  lintas serverless instance, pengganti Map in-memory —
+  temuan T3 TERBUKA): kolom `kunci` (PK), `hitungan`,
+  `jendela_detik`, `jendela_mulai`. RLS aktif, **0 policy** —
+  akses langsung ditolak; satu-satunya jalan masuk adalah
+  RPC §2.
+- **§2 — RPC `pf_rate_limit_check(p_kunci, p_batas,
+  p_jendela_detik)`** RETURNS boolean, SECURITY DEFINER,
+  `SET search_path = public`: satu pernyataan atomik
+  `INSERT ... ON CONFLICT DO UPDATE` (jendela kadaluarsa
+  reset ke 1), hapus oportunistik baris kadaluarsa, argumen
+  tak valid → false. `REVOKE EXECUTE FROM public`,
+  `GRANT EXECUTE TO anon, authenticated`.
+- **§3 — perluasan CHECK audit ke 53 aksi** (47 dari v9 + 6
+  baru: `sumber.buat/ubah/hapus/cek/aktif`, `negara.hapus`),
+  pola do-block v9.
+- **§4 — GRANT eksplisit** (pelajaran F4): REVOKE akses
+  langsung tabel `pf_rate_limits` dari anon + authenticated.
+
+Ekspektasi sesudah v11: **54 tabel** `pf_*` ber-RLS,
+**106 policy** (tidak berubah), policy `pf_rate_limits` = 0.
+Validasi lokal: `scripts/uji-tahap13a.mjs` 126/126 (RPC:
+5 lolos/ke-6 ditolak, reset jendela, 2 panggilan paralel
+batas 1 → tepat 1 lolos, SELECT/INSERT langsung ditolak
+42501).
+
+Catatan fail-open (sengaja, terdokumentasi di
+`src/lib/ai/route-auth.ts`): bila RPC gagal (v11 belum
+diterapkan / DB tak terjangkau), limiter MENGIZINKAN +
+`console.error` — rate limit tidak boleh mematikan situs.
+Kegagalan RPC ketahuan lewat log server + baterai 13A.
+
+## Migrasi v12 — Tahap 13C: seed 5 job scheduler (16 Nov 2026)
+
+Berkas: `20261116_pf_v12_seed_jobs.sql`. Jalankan SETELAH
+v1–v11 (idempoten — aman diulang). ADITIF.
+
+Isi:
+
+- **§1 — perluasan CHECK nama `pf_scheduled_jobs`**: v5 hanya
+  mengizinkan 3 nama (`ingestion`, `editorial`, `brief`).
+  Tanpa perluasan ini, seed dua job baru ditolak 23514 dan
+  job locking Tahap 13C fail-open (baris job tidak ada).
+  CHECK baru `pf_scheduled_jobs_nama_check_v12` mengizinkan
+  5 nama; CHECK lama dibuang lewat do-block yang mencari
+  constraint berdasarkan definisinya.
+- **§2 — seed 5 job** (`ON CONFLICT DO NOTHING`):
+  ingestion `*/30 * * * *`, editorial `0 0,6,12,18 * * *`,
+  brief `0 22 * * *`, data-analysis `0 1 * * 1`,
+  terbitkan-terjadwal `0 * * * *`.
+
+Ekspektasi sesudah v12: **54 tabel** `pf_*` ber-RLS,
+**106 policy** (tidak berubah), **5 baris**
+`pf_scheduled_jobs`. Validasi lokal:
+`scripts/uji-tahap13-migrasi.mjs` 15/15 (v1–v12 2× idempoten
+TANPA blanket grant; nama bogus ditolak CHECK; RPC v11
+tetap berfungsi).

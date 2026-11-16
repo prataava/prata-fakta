@@ -433,7 +433,7 @@ key salah): `supabase/CUTOVER.md` §2.
 
 | # | Blokir | Yang harus dilakukan pemilik |
 |---|---|---|
-| 1 | Migrasi v1–v8 belum dijalankan di Supabase produksi | Jalankan 8 berkas SQL berurutan via SQL Editor (§11.2 + `supabase/CUTOVER.md` §3) — v1–v7 dulu, deploy, baru v8; atau berikan service-role key lewat Secure Vault agar Muse yang menjalankan |
+| 1 | Migrasi v1–v12 belum dijalankan di Supabase produksi (diperbarui Tahap 16 — dulu v1–v8) | Jalankan 12 berkas SQL berurutan via SQL Editor (§11.2 + `supabase/CUTOVER.md` §3, tahap 3A–3F; validasi 54/54/106) — atau berikan service-role key lewat Secure Vault agar Muse yang menjalankan |
 | 2 | Deploy Vercel gagal 403 (akses tim `prataava` hilang) | Putuskan: hubungkan ulang Vercel di Muse, atau import repo manual di dashboard Vercel (§11.4) |
 | 3 | Scheduler tidak aktif | Isi secret GitHub Actions sesudah deploy (§11.5) |
 | 4 | Uji login + klik browser nyata belum dilakukan | Sesudah live: login sebagai admin/editor/pembaca, klik alur utama (kuis, peta, tanya, feed, admin), laporkan hasilnya |
@@ -467,3 +467,90 @@ dibuka. URL yang direncanakan: https://prata-fakta.vercel.app
 *PRATA FAKTA Fase 7 selesai di kode + terverifikasi lokal,
 16 November 2026. Commit: "PRATA FAKTA Fase 7: Production —
 security audit, SEO, backup, monitoring, QA penuh".*
+## 14. Tahap 13–17 — penutup Master Autonomous Execution Directive (16 Nov 2026)
+
+Fase 8 Gelombang 2 selesai di kode (§13 LAPORAN-FASE-8), lalu
+Tahap 13–17 menutup seluruh 14 area sampai DONE di kode +
+terverifikasi lokal. Detail penuh: `LAPORAN-FASE-8.md` §14;
+laporan akhir proyek: `FINAL-PROJECT-COMPLETION.md`.
+
+### 14.1 Yang dikerjakan
+
+- **Tahap 13A** — T3: rate limit lintas instance via tabel
+  `pf_rate_limits` + RPC atomik `pf_rate_limit_check` (v11);
+  T10: audit CRUD sumber fail-closed + audit route admin baru;
+  T4: akun nonaktif konsisten (13 berkas / 20 handler).
+  Baterai baru `uji-tahap13a.mjs`: **126/126**.
+- **Tahap 13B** — T6: SSRF pinning + re-resolusi (GDELT yang
+  tadinya `fetch` mentah kini `fetchAman`); CSP nonce +
+  header lengkap; audit penuh (auth/authz/RLS/grants/secret/
+  SQLi/XSS/prompt injection aman; CSRF sebagian; flag cookie
+  sesi belum diuji). Baterai `uji-tahap13b.mjs`: **107/107**.
+- **Tahap 13C** — scheduler: `editorial.yml` dipecah jadi 3
+  workflow; concurrency group; lock server-side (409 bila
+  dipegang); assert `jq` isi respons; retry 2×; `terakhir_jalan`
+  diperbarui tiap run; seed 5 job; backoff gate 6 jam; flag
+  ditegakkan (ingestion/pipeline/pendaftaran/pemeliharaan).
+  Baterai baru `uji-tahap13c.mjs`: **119/119**. Publikasi
+  otomatis TETAP MATI.
+- **Migrasi v11 + v12** — v11: rate limit + audit 53 aksi;
+  v12: CHECK 5 job + seed 5 job. Keadaan akhir: **54 tabel /
+  RLS 54/54 / policy 106**, idempoten 2× tanpa blanket grant.
+  Baterai baru `uji-tahap13-migrasi.mjs`: **15/15**.
+- **Tahap 14** — integrasi 14 area: artikel ↔ cerita (fungsi
+  baru `getCeritaUntukArtikel`) ↔ negara (`negara_kode` di
+  kolom artikel lengkap) + bar konteks di `/artikel/[slug]`.
+  Baterai baru `uji-integrasi14.mjs`: **27/27**.
+- **Tahap 15** — regression penuh: **1.365/1.365 asersi**
+  (19 baterai, 0 gagal; satu-satunya kegagalan = GDELT 429
+  eksternal di uji-ingestion). Build EXIT 0, **147/147
+  halaman**, BUILD_ID `NyTEjrq_2Hs81joEYhase`. Smoke `next
+  start`: 12× 200 + 8× 404, CSP terverifikasi (nonce unik,
+  hash tema = sha256 isi skrip di HTML), log 0 error.
+  **Bug kritis ditemukan + diperbaiki:** build EXIT 1 akibat
+  `headers()` di root layout (CSP nonce) → skrip tema kini
+  pakai hash sha256, layout tidak lagi dinamis.
+- **Tahap 16–17** — readiness + cutover: backup 54 tabel
+  (cocok persis dengan migrasi), `CUTOVER.md` v1–v12,
+  `DEPLOY.md` diperbarui (54/54/106, 77 halaman + 80 API),
+  `PANDUAN.md` (pembaca, pengguna terdaftar, penulis,
+  fact checker, editor, admin + troubleshooting).
+
+### 14.2 Status keamanan sesudah Tahap 13 (tegas)
+
+| Temuan | Status |
+|---|---|
+| T3 rate limit | TERTUTUP di kode; TERBUKA di produksi sampai v11 diterapkan (fail-open, tercatat di log) |
+| T10 audit CRUD sumber | TERTUTUP di kode |
+| T4 akun nonaktif | TERTUTUP di kode |
+| T6 DNS rebinding | DIPERSEMPIT, TIDAK tertutup penuh (butuh verifikasi pinning dari egress langsung) |
+| CSP | TERIMPLEMENTASI, terverifikasi live lokal (eksekusi skrip tema di browser nyata belum diuji) |
+| T5/T8/T1 | TERTUTUP, regression lolos |
+| CSRF | SEBAGIAN (SameSite Lax, belum diuji live) |
+| Scheduler F2–F8/F12 | TERTUTUP di kode (run live Actions belum diuji) |
+| Publikasi otomatis | TETAP MATI |
+
+### 14.3 Blokir yang tersisa (memperbarui §12)
+
+1. Migrasi v1–v12 di Supabase produksi (prosedur
+   `supabase/CUTOVER.md` §3, tahap 3A–3F; validasi 54/54/106
+   + seed 5 job).
+2. Deploy Vercel 403 akses tim `prataava` (opsi A hubungkan
+   ulang / B import manual / C ZIP sumber — `DEPLOY.md`).
+3. Isi 6 env var Vercel + 3 secret GitHub Actions (nama saja;
+   nilai tidak pernah lewat chat).
+4. Backup baseline + pasca-migrasi 54/54.
+5. Sesudah live: uji login + klik browser nyata + HP/desktop;
+   tetapkan super_admin pertama; verifikasi pinning T6 dari
+   egress langsung; uji CSRF live + flag cookie sesi;
+   keputusan T3 edge bila diinginkan; keputusan audio Podcast
+   (file MP3 server) bila diinginkan.
+
+**URL website: MASIH BELUM LIVE** (alasan sama dengan §12:
+blokir #1 dan #2). Jangan disebut live sebelum deployment
+benar-benar berhasil + diuji.
+
+---
+
+*PRATA FAKTA Tahap 13–17 selesai di kode + terverifikasi lokal,
+16 November 2026. Laporan akhir proyek: `FINAL-PROJECT-COMPLETION.md`.*

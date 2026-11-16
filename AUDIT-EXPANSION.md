@@ -940,3 +940,39 @@ sebagian dengan batas jujur).** Produksi tetap terblokir
 Tahap 13–17 (keamanan + scheduler, integrasi 14 area,
 audit menyeluruh, production readiness, deployment/cutover)
 dikerjakan sesudah commit Gelombang 2 ini.
+
+### 9.8 Tahap 13–17 — penutupan utang keamanan + scheduler + regression (16 Nov 2026 ±08.15–10.00 WIB)
+
+Utang yang dicatat §9.6–§9.7 ditutup di Tahap 13–17 (detail
+penuh: `LAPORAN-FASE-8.md` §14; laporan akhir proyek:
+`FINAL-PROJECT-COMPLETION.md`).
+
+| Utang (§9.6/§9.7) | Status sesudah Tahap 13 | Bukti |
+|---|---|---|
+| T3 rate limit in-memory + IP kiri XFF | **TERTUTUP di kode; TERBUKA di produksi sampai v11 diterapkan** | Migrasi v11: tabel `pf_rate_limits` + RPC `pf_rate_limit_check` (atomik); `route-auth.ts` ditulis ulang (IP: `x-vercel-forwarded-for` pertama / `x-forwarded-for` terakhir; kunci `user:<id>` bila login); sapuan 74 berkas / 109 call site. Baterai `uji-tahap13a.mjs` 126/126. Fail-open bila RPC gagal — terverifikasi di smoke Tahap 15 (log `PGRST202` karena RPC belum ada di produksi). |
+| T10 CRUD sumber tanpa audit | **TERTUTUP di kode** | Helper `catatAuditWajib` (fail-closed) + audit CRUD sumber + route admin cerita/event/negara/tanya/podcast. Baterai 13A 126/126. |
+| Academy audit best-effort (menyimpang fail-closed) | **TERTUTUP di kode** | Academy → fail-closed (13A). |
+| T4 akun nonaktif | **TERTUTUP di kode** | 13 berkas / 20 handler; pengecualian login-opsional didokumentasikan (laporan/publik/tanya POST/kuis-jawab POST). |
+| T6 DNS rebinding (TOCTOU) | **DIPERSEMPIT, TIDAK tertutup penuh** | `ssrf.ts` ditulis ulang: `fetchTerpin` (koneksi langsung ke IP tervalidasi, Host+SNI asli) + `periksaUlangResolusi` (buang respons bila IP berubah); allowlist 8 host; GDELT yang tadinya `fetch` mentah kini `fetchAman`. Pinning TIDAK BISA tersambung dari VM (middlebox egress menjawab DNS `198.18/15` palsu) — penutupan penuh butuh verifikasi pinning HTTPS dari egress langsung (Vercel/staging), belum diuji. Baterai `uji-tahap13b.mjs` 107/107. |
+| CSP belum dipasang | **TERIMPLEMENTASI, terverifikasi live lokal** | Nonce unik/request + header di `/`, `/kebijakan/privasi`, `/api/health`, 404; script-src produksi tanpa unsafe-inline/unsafe-eval; skrip tema pakai hash sha256 (`HASH_SKRIP_TEMA`). Eksekusi skrip tema di browser nyata belum diuji. |
+| Scheduler F2/F3/F4/F5/F8/F12 | **TERTUTUP di kode** | `editorial.yml` dipecah 3 workflow; concurrency group; lock server-side (409); assert `jq`; retry 2×; `terakhir_jalan` tiap run; seed 5 job (v12); backoff gate 6 jam. Baterai `uji-tahap13c.mjs` 119/119 + YAML 5/5 + jq sim 6/6. Run live Actions belum diuji (0 run). |
+| Flag belum ditegakkan | **TERTUTUP di kode** | `ingestion_aktif`/`pipeline_editorial_aktif` → 503; `pendaftaran_terbuka` → form disembunyikan; `mode_pemeliharaan` → banner. Penegakan penuh pendaftaran (nonaktifkan signup di dashboard Supabase) wewenang pemilik. |
+| Arsip `pf_questions` anon SELECT = 0 baris (utang policy arsip publik, §9.6) | **TETAP TERBUKA** | Tidak dikerjakan Tahap 13–17; arsip dibaca via service role. Perlu migrasi policy bila arsip publik mau dibaca anon. |
+| Integrasi artikel ↔ cerita ↔ negara | **TERTUTUP di kode** | Tahap 14: `getCeritaUntukArtikel()` + `negara_kode` + bar konteks di `/artikel/[slug]`. Baterai `uji-integrasi14.mjs` 27/27. |
+
+**Regression Tahap 15:** 19 baterai, **1.365/1.365 asersi**,
+0 gagal (satu-satunya kegagalan = GDELT 429 eksternal di
+uji-ingestion). Build EXIT 0 (147/147, BUILD_ID
+`NyTEjrq_2Hs81joEYhase`). Smoke `next start`: 12× 200 +
+8× 404, log 0 error. **Bug kritis ditemukan + diperbaiki:**
+build EXIT 1 akibat `headers()` di root layout (CSP nonce)
+→ skrip tema kini pakai hash sha256.
+
+**Keputusan Tahap 13–17: SELESAI DI KODE, terverifikasi
+lokal.** 14/14 area berfungsi (12 penuh, 2 sebagian dengan
+batas jujur: Podcast tanpa MP3 server, Admin tanpa Traffic
+Analytics). Produksi tetap terblokir (migrasi v1–v12 +
+Vercel 403 butuh otorisasi pemilik). Sisa terbuka jujur:
+T6 penutupan penuh, CSRF sebagian, flag cookie sesi belum
+diuji, run live Actions 0, uji responsif visual + a11y penuh
+belum diuji, uji login + klik browser nyata belum diuji.

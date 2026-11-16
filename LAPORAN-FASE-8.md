@@ -1690,3 +1690,462 @@ push oleh agen utama). Berkas berubah: **122**
 (+25.450/−183), termasuk migrasi v10 + 7 baterai baru +
 LAPORAN-FASE-8.md §13 + AUDIT-EXPANSION.md §9.6–§9.7 +
 CUTOVER.md v10 + README.md.
+
+## 14. Tahap 13–17 — Keamanan, Scheduler, Integrasi, Regression, Readiness (16 Nov 2026)
+
+Bab ini menutup Master Autonomous Execution Directive: Tahap 13
+(keamanan T3/T10/T4/T6/CSP + scheduler, §14.1–14.5), Tahap 14
+(integrasi 14 area, §14.6), Tahap 15 (audit menyeluruh +
+regression semua fase, §14.7), Tahap 16 (final production
+readiness, §14.8), Tahap 17 (deployment + cutover untuk
+persetujuan pemilik, §14.9). Semua perubahan di kode + workflow
++ migrasi v11–v12, terverifikasi lokal. **Tidak ada migrasi yang
+dijalankan di produksi, tidak ada deploy, tidak ada perubahan
+data produksi.** Publikasi otomatis **TETAP MATI**. Laporan
+akhir proyek: `FINAL-PROJECT-COMPLETION.md` (28 bagian).
+
+### 14.1 Tahap 13A — T3 rate limit lintas instance, T10 audit CRUD sumber, T4 akun nonaktif
+
+Pekerja: subagen Tahap 13A (koordinator memverifikasi).
+Masalah awal: limiter `Map` in-memory per instance serverless
+(hilang tiap cold start; tidak terbagi antar instance) + IP dari
+entri KIRI `x-forwarded-for` (bisa dimanipulasi klien).
+
+| Temuan | Status | Perubahan (berkas) |
+|---|---|---|
+| T3 — limiter in-memory + IP kiri XFF | **TERTUTUP di kode, TERBUKA di produksi sampai v11 diterapkan** | Migrasi v11 (`20261116_pf_v11_rate_limit_audit.sql`): tabel `pf_rate_limits` (RLS, 0 policy — akses hanya lewat RPC) + RPC `SECURITY DEFINER pf_rate_limit_check` (increment atomik `INSERT...ON CONFLICT`, jendela tetap) + CHECK audit diperluas ke 53 aksi + GRANT eksplisit. `src/lib/ai/route-auth.ts` ditulis ulang: IP = entri pertama `x-vercel-forwarded-for` bila ada, bila tidak entri TERAKHIR `x-forwarded-for`; kunci `user:<id>` bila login. Limiter Map in-memory dihapus; sapuan ke 74 berkas / 109 call site; 7 Map lokal diganti. |
+| T10 — CRUD sumber tanpa audit; route admin baru 0 audit | **TERTUTUP di kode** | Helper bersama `src/lib/admin/audit.ts` (`catatAuditWajib`, fail-closed) + audit CRUD sumber + route admin cerita/event/negara/tanya/podcast (sebelumnya 0 audit) + Academy best-effort → fail-closed. |
+| T4 — akun nonaktif tidak konsisten | **TERTUTUP di kode** | 13 berkas / 20 handler diperbaiki. Sengaja TIDAK dicek: laporan/laporan-publik/tanya POST/kuis-jawab POST (login opsional — tidak ada akun untuk dinonaktifkan). |
+| T5/T8/T1 — perbaikan Fase 7 dipertahankan | **TERTUTUP, regression lolos** | Uji-fase7 87/87 (1 asersi T3 diperbarui: pola lama `batasi(ipDariRequest(req))` → `await batasi(req)`). |
+
+Verifikasi: `node scripts/uji-tahap13a.mjs` (baru) → **126/126 LOLOS, EXIT 0**; fase7 87/87; gel1 159/159; editorial LOLOS; tsc/lint EXIT 0.
+
+Caveat jujur: limiter **fail-open** bila RPC gagal (v11 belum diterapkan di produksi — sampai v11 jalan, limiter DB tidak aktif dan log mencatat "Rate limit DB gagal" tiap panggilan; terverifikasi di smoke test Tahap 15: log server mencatat `PGRST202 pf_rate_limit_check tidak ditemukan` karena RPC belum ada di produksi). Audit dipanggil sesudah mutasi (baris tetap ada bila audit lalu gagal, tapi respons 500/503). NAT/CGNAT berbagi ember. Vote tanya masih Map in-memory (bukan limiter auth).
+
+### 14.2 Tahap 13B — T6 DNS rebinding + CSP + audit penuh
+
+Pekerja: subagen Tahap 13B (koordinator memverifikasi + memperbaiki build, lihat §14.2.3).
+
+#### 14.2.1 T6 — SSRF / DNS rebinding
+
+`src/lib/ingestion/ssrf.ts` ditulis ulang (~470 baris): `fetchTerpin` (stdlib `node:http/https`, koneksi langsung ke IP tervalidasi, Host+SNI = hostname asli), `periksaUlangResolusi` (buang respons bila IP berubah sesudah fetch), allowlist feed 8 host (`src/lib/ingestion/feed-allowlist.ts`). Celah nyata ditutup: **GDELT sebelumnya `fetch` mentah tanpa pelindung SSRF**.
+
+Status: **T6 DIPERSEMPIT, TIDAK tertutup penuh.** Pinning TIDAK BISA tersambung dari VM (middlebox egress menjawab DNS `198.18/15` palsu); fallback + re-resolusi adalah perilaku benar di VM. Penutupan penuh butuh verifikasi pinning HTTPS live dari egress langsung (Vercel/staging) — **belum diuji**.
+
+#### 14.2.2 CSP
+
+CSP terimplementasi + terverifikasi live via `next dev` port 3199 dan `next start` port 3101 (smoke Tahap 15): nonce unik per request, header hadir di `/`, `/kebijakan/privasi`, `/api/health`, 404 rewrite; semua `<script>` framework bawa nonce; script-src produksi tanpa unsafe-inline/unsafe-eval; style-src unsafe-inline terdokumentasi (atribut style React).
+
+#### 14.2.3 Perbaikan build Tahap 14 — skrip tema pakai hash (bukan nonce)
+
+**Bug kritis ditemukan Tahap 15:** `npm run build` **EXIT 1** — prerender `/_not-found` dan `/kategori/[slug]` gagal ("encountered uncached or runtime data during prerendering"). Akar: 13B membaca `headers()` di root layout untuk nonce skrip tema → seluruh halaman dinamis + prerender pecah.
+
+Perbaikan (koordinator): skrip tema anti-kedip isinya STATIS, jadi diizinkan lewat hash sha256 (`HASH_SKRIP_TEMA` di `src/lib/csp.ts` = `'sha256-kbdpuUr7+zlKwp6cjPtYWBBvdrWG3dqbGKfss460j9I='`); `src/app/layout.tsx` tidak lagi membaca `headers()`; nonce tetap dipakai JSON-LD di `/artikel/[slug]` dan `/pengetahuan/[slug]` (keduanya sudah dinamis via `instant = false`). Baterai 13B §J (6 asersi baru): hash di header = sha256 isi skrip di layout.tsx (dihitung ulang tiap run baterai).
+
+Verifikasi: `node scripts/uji-tahap13b.mjs` → **107/107 LOLOS, EXIT 0** (101 sebelum perbaikan + 6 §J); tsc/lint EXIT 0; sapuan secret 0 temuan; uji-ingestion 3 run, terakhir hanya GDELT 429 (eksternal).
+
+#### 14.2.4 Audit penuh (Tahap 13B)
+
+Auth/authz/RLS/grants/secret/SQLi/XSS/prompt injection **aman** (bukti: baterai 13B + sapuan secret + grep sumber). CSRF **sebagian** (tanpa cek Origin, bersandar SameSite Lax — belum diuji live). Flag cookie sesi **belum diuji**. Validasi input tanpa pustaka skema. 7 route masih limiter Map lama (sudah dikerjakan 13A). GET publik tanpa limiter (disengaja — baca publik; abuse GET dicatat sebagai sisa risiko).
+
+### 14.3 Tahap 13C — Scheduler + feature flags (16 Nov 2026)
+
+Pekerjaan Tahap 13C (scheduler §10.3 F2–F13 + penegakan
+feature flags §13.3.6/§13.5). Semua perubahan di kode +
+workflow, terverifikasi lokal. **Tidak ada migrasi baru
+(pada saat itu — seed 5 job kemudian masuk migrasi v12,
+§14.4), tidak ada perubahan produksi, tidak ada deploy.**
+Publikasi otomatis **TETAP MATI**: pipeline selalu
+`draft`; terbitkan-terjadwal hanya menerbitkan item yang
+dijadwalkan editor + lolos gate verifikasi; tidak ada jalur
+baru yang menerbitkan draf mentah.
+
+### 14.3.1 Per temuan — apa yang diubah
+
+| Temuan | Status | Perubahan (berkas) |
+|---|---|---|
+| F2 — dispatch `keduanya` tidak menjalankan terbitkan-terjadwal | **TERTUTUP dengan bukti** | `editorial.yml` DIHAPUS, dipecah jadi 3 workflow (lihat F4). Tidak ada lagi input `tugas` yang bisa salah petakan. Cara menjalankan keduanya didokumentasikan di header tiap workflow + §14.3.4. |
+| F3 — tanpa `concurrency` group, tanpa lock server-side | **TERTUTUP dengan bukti** | `concurrency` group per workflow (5 group berbeda, `cancel-in-progress: false`) di 5 workflow. Lock server-side di `src/lib/scheduler/jobs.ts` (`klaimJob`/`selesaikanJob`, memakai kolom `pf_scheduled_jobs` yang sudah ada: `status_terakhir='berjalan'` + `terakhir_jalan`, timeout basi 30 menit) + diklaim di 5 endpoint cron (409 jujur bila lock dipegang run lain). |
+| F4 — gating string `github.event.schedule == '...'` | **TERTUTUP dengan bukti** | Pecah `editorial.yml` jadi `editorial-pipeline.yml` (cron `0 0,6,12,18 * * *`), `daily-brief.yml` (cron `0 22 * * *`), `terbitkan-terjadwal.yml` (cron `0 * * * *`). Tiap workflow punya `workflow_dispatch` sendiri; 0 baris kode memakai `github.event.schedule`. |
+| F5 — sukses palsu parsial (HTTP 200 + `ok:true` meski `gagal > 0`) | **TERTUTUP dengan bukti** | Tiap workflow menyimpan respons curl ke berkas lalu `jq -e` assert: ingestion `.total.gagal == 0`, pipeline `(.gagal // 0) == 0`, brief `ok + briefId`, data-analysis `(.gagal // 0) == 0`, terbitkan `ok + .diterbitkan array`. `curl --fail-with-body` tetap ada. |
+| F6 — `terakhir_jalan` tidak diperbarui run cron | **TERTUTUP dengan bukti** | `selesaikanJob()` di `finally` tiap endpoint cron (berhasil maupun gagal): `terakhir_jalan=now()` + `status_terakhir` + `error_terakhir`. Klaim lock juga mengisi `terakhir_jalan` di awal run. Teks `CATATAN_F6` di kendali diperbarui. |
+| F7 — seed 3 job; pemicu manual tak memetakan `data-analysis`/`terbitkan-terjadwal` | **TERTUTUP dengan bukti** | Seed SQL 5 job di §14.3.2 (sudah masuk migrasi v12, §14.4). `NamaJob` dilebarkan 3 → 5 nilai (`src/lib/admin/types.ts`); `TUJUAN_JOB` di `src/app/api/admin/sistem/jobs/[nama]/route.ts` + `ROUTE_JOB` di `src/lib/admin/kendali.ts` kini memetakan 5 job. `digest`/`podcast`/`riset` tetap 400 jujur (belum ada endpoint pemicu). |
+| F8 — tanpa retry | **TERTUTUP dengan bukti** | `--retry 2 --retry-delay 10` pada curl di 5 workflow (mencoba ulang galat sementara jaringan/HTTP 408/429/5xx). |
+| F12 — artikel gagal gate dicoba tiap jam tanpa backoff | **TERTUTUP dengan bukti** | Backoff 6 jam di `src/lib/admin/editorial.ts` (`BACKOFF_GATE_JAM = 6`): upaya gate yang gagal ditulis sebagai penanda audit aksi `sistem.job`, entitas `pf_articles`, `sesudah {gagal_gate:true, alasan}` (aksi sudah ada di CHECK v8/v9 — tanpa kolom baru, tanpa migrasi); run berikutnya menunda artikel itu (`ditunda_backoff`, BUKAN error, tanpa penanda baru). Hanya kegagalan GATE yang menandai backoff (galat teknis tetap dicoba jam berikutnya). SQL kolom khusus (rapi jangka panjang) di §14.3.3. |
+| Locking/idempotency/failure recovery | **TERTUTUP dengan bukti** | Lock server-side (F3 di atas) + respons JSON divalidasi jq di workflow (F5) + `selesaikanJob` mencatat gagal + `error_terakhir` (F6). Idempotency yang sudah ada tidak diubah: ingestion dedup `hash_url`, pipeline hanya UNCONFIRMED, brief upsert per tanggal, terbitkan hanya `terjadwal` + lewat waktu + gate (maks 100/jam). |
+| Feature flags belum ditegakkan | **TERTUTUP dengan bukti** | `src/lib/scheduler/flags.ts` (`bacaFlag`/`uraiNilaiFlag`/`bacaPemeliharaan`/`bacaPendaftaranTerbuka`, fail-open ke bawaan, tidak pernah melempar). Ditegakkan: `ingestion_aktif` → POST `/api/ingestion/jalankan` 503; `pipeline_editorial_aktif` → POST `/api/ai/jalankan` 503; `pendaftaran_terbuka` → `/daftar` menampilkan "Pendaftaran ditutup" tanpa form (form pindah ke `src/components/DaftarForm.tsx`); `mode_pemeliharaan` + `pengumuman_pemeliharaan` → banner di `src/components/Header.tsx` + CSS `.pengumuman-pemeliharaan`. Deskripsi flag di `src/lib/admin/kendali.ts` diperbarui (tidak lagi mengklaim "BELUM disambungkan"). |
+
+### 14.3.2 SQL seed 5 job — SUDAH MASUK migrasi v12 (§14.4)
+
+**Catatan koordinator (Tahap 16):** seed di bawah ini sudah
+dimasukkan ke migrasi v12 (`20261116_pf_v12_seed_jobs.sql`) —
+tidak perlu dijalankan terpisah. SQL di sini dipertahankan
+sebagai dokumentasi isi seed (sama persis dengan v12).
+
+Jalankan di Supabase produksi bersama migrasi v1–v10
+(idempoten — `on conflict do nothing`; 3 baris v5 tidak
+berubah, 2 baris baru ditambahkan):
+
+```sql
+insert into public.pf_scheduled_jobs (nama, jadwal_cron, deskripsi) values
+  ('ingestion', '*/30 * * * *', 'Ingestion RSS + GDELT setiap 30 menit'),
+  ('editorial', '0 0,6,12,18 * * *', 'Pipeline editorial AI setiap 6 jam'),
+  ('brief', '0 22 * * *', 'Daily Brief harian 05.00 WIB'),
+  ('data-analysis', '0 1 * * 1', 'Data Analysis mingguan Senin 08.00 WIB'),
+  ('terbitkan-terjadwal', '0 * * * *', 'Terbitkan artikel terjadwal setiap jam')
+on conflict (nama) do nothing;
+```
+
+Verifikasi sesudah menjalankan:
+
+```sql
+select nama, jadwal_cron, aktif, terakhir_jalan, status_terakhir
+  from public.pf_scheduled_jobs order by nama;
+-- Ekspektasi: 5 baris; status_terakhir 'belum_pernah' sampai run pertama.
+```
+
+### 14.3.3 SQL usulan — kolom backoff khusus artikel (migrasi lanjutan, OPSIONAL)
+
+Backoff F12 saat ini memakai penanda audit (tanpa migrasi)
+dan sudah berfungsi. Bila koordinator menginginkan
+penanda khusus yang lebih rapi + tidak membebani
+`pf_audit_logs`, migrasi lanjutan dapat menambahkan:
+
+```sql
+-- Penanda upaya gate terakhir per artikel (NULL = belum pernah
+-- gagal gate). Dipakai terbitkanTerjadwal sebagai pengganti
+-- penanda audit 'sistem.job' bila kolom ini ada.
+alter table public.pf_articles
+  add column if not exists gate_gagal_terakhir timestamptz,
+  add column if not exists gate_gagal_alasan text;
+create index if not exists pf_articles_gate_gagal_idx
+  on public.pf_articles (gate_gagal_terakhir);
+```
+
+Catatan: bila kolom ini ditambahkan, `terbitkanTerjadwal`
+perlu diubah membaca/menulis kolom ini (bukan audit) —
+pekerjaan lanjutan, BUKAN bagian Tahap 13C. Tanpa migrasi
+ini pun backoff tetap jalan (penanda audit).
+
+### 14.3.4 Cara dispatch "keduanya" sesudah pemecahan (F2)
+
+Tidak ada lagi satu input `tugas=keduanya`. Untuk
+menjalankan pipeline + terbitkan-terjadwal bersamaan:
+
+1. GitHub Actions → workflow `Pipeline Editorial PRATA
+   FAKTA` → Run workflow (isi `limit` bila perlu), LALU
+   workflow `Terbitkan Terjadwal PRATA FAKTA` → Run workflow;
+   ATAU
+2. `/admin/kendali` (super_admin) → tombol "Jalankan
+   Pipeline editorial AI sekarang" lalu "Jalankan Terbitkan
+   terjadwal sekarang" (pemicu manual memanggil route yang
+   sama dengan workflow, + lock server-side mencegah
+   tumpang tindih).
+
+### 14.3.5 Alerting — yang tersedia dan yang belum ada
+
+Tersedia (tanpa layanan luar): log run tiap workflow di tab
+GitHub Actions (termasuk isi respons + pesan ASSERT GAGAL
+bila jq assert gagal); badge workflow; tabel run
+(`pf_ingestion_runs`, `pf_ai_runs`, `pf_daily_briefs`,
+`pf_audit_logs` aksi `artikel.terbit`); `pf_scheduled_jobs`
+(`status_terakhir` + `error_terakhir` + `terakhir_jalan`
+per job, diperbarui tiap run — F6); halaman
+`/admin/kendali` (status scheduler) + `/admin/monitoring`.
+
+Belum ada: notifikasi push/email/Slack/WhatsApp saat job
+gagal (butuh layanan + secret baru + keputusan pemilik);
+peringatan bila job TIDAK jalan sesuai jadwal (dead-man
+switch — butuh pemeriksa eksternal seperti healthchecks.io
+atau cron Muse); dashboard uptime. Sampai ada, kegagalan
+hanya terlihat bila seseorang membuka tab Actions /
+halaman kendali — dicatat jujur di sini, bukan diklaim
+ada.
+
+### 14.3.6 Batas + sisa risiko (jujur)
+
+- Lock fail-open: bila baris/tabel `pf_scheduled_jobs`
+  belum ada (seed §14.3.2 / migrasi v12 belum diterapkan), route TETAP
+  BERJALAN tanpa lock dan mencatatnya di respons (`lock:
+  "tidak-tersedia (...)"`). Lock hanya penuh sesudah seed
+  diterapkan.
+- Lock memakai satu UPDATE bersyarat lewat Supabase JS;
+  tidak ada transaksi multi-pernyataan. Dua run yang
+  benar-benar bersamaan diserialkan Postgres pada baris
+  yang sama (yang kedua mendapat 0 baris → 409).
+- Backoff F12 membaca 100 baris audit `sistem.job` /
+  `pf_articles` terbaru; bila >100 kegagalan gate menumpuk
+  dalam waktu singkat, penanda lama bisa terlewat dan
+  artikel dicoba lagi lebih awal (arah aman: hanya lebih
+  berisik, bukan data salah). Kolom §14.3.3 menghilangkan
+  batas ini.
+- `mode_pemeliharaan`: banner dibaca Header saat render;
+  halaman yang di-prerender statis saat build membakukan
+  banner apa adanya saat itu — banner terbaru muncul penuh
+  di halaman dinamis / sesudah revalidasi. Mode ini BUKAN
+  pemblokiran situs penuh (pembaca tetap bisa membaca).
+- `pendaftaran_terbuka`: penegakan di lapisan aplikasi
+  (form tidak tampil). Pendaftaran langsung lewat Supabase
+  Auth API oleh klien yang nekat tetap mungkin; penegakan
+  penuh = nonaktifkan signup di dashboard Supabase Auth
+  (wewenang pemilik).
+- Flag fail-open: bila tabel `pf_system_settings` belum ada
+  (v10 belum jalan), semua flag memakai bawaan (situs jalan
+  seperti sebelum flag ada).
+- Workflow `jq` assert mengasumsikan `jq` tersedia di
+  runner `ubuntu-latest` (sudah dipakai `ingestion.yml`
+  sejak Fase 3 untuk menyusun body — bukan dependensi baru).
+- Verifikasi live (run Actions nyata, lock antar-run
+  bersamaan di produksi, banner di browser nyata) BELUM
+  diuji — butuh migrasi + deploy + secret (blokir §11).
+
+### 14.3.7 Verifikasi Tahap 13C (angka nyata)
+
+Perintah dijalankan 16 Nov 2026 (lokal, PGlite + Node 24;
+PGlite dipasang di `/tmp/pf-sqlcheck` — `/tmp` tidak
+persisten, pasang ulang bila hilang: `npm i
+@electric-sql/pglite` di `/tmp/pf-sqlcheck`):
+
+- `node scripts/uji-tahap13c.mjs` (baru) → **119/119 LOLOS,
+  EXIT 0** (dijalankan 2×, hasil sama). Rincian: (A) YAML 5/5
+  valid + 5 cron §10.1 terjaga + concurrency 5/5 unik +
+  retry/assert jq 5/5 + simulasi gating lama membuktikan bug
+  F2 (dispatch `keduanya` → terbitkan=false) dan F4 (run
+  00:00 UTC → terbitkan=false); (B) lock SQL: klaim 1 →
+  klaim 2 ditolak 0 baris → selesai `berhasil` → `terakhir_jalan`
+  diperbarui tiap run (ts2 > ts1) → lock basi 31 mnt direbut →
+  lock segar ditolak → run gagal tercatat → job tanpa baris
+  0 baris (fail-open); (C) seed 5 job dieksekusi, 5 baris +
+  cron = `JADWAL_CRON_JOB`; (D) F12 perilaku nyata: run 1
+  VERIFIED terbit + UNCONFIRMED dilewati + 1 penanda; run 2
+  langsung → `ditunda_backoff` 1, penanda tetap 1; penanda
+  dibackdate 7 jam → run 3 dicoba lagi, penanda jadi 2;
+  (E) pemicu manual: 5 job `ok:true` + POST ke route yang
+  benar (server HTTP lokal), `digest`/`podcast`/`riset`
+  melempar "belum bisa dipicu" (route → 400), job tak dikenal
+  "tidak dikenal"; (F) `uraiNilaiFlag` 10/10 kasus + wiring
+  flag 8/8 statis.
+- Validasi YAML independen (`python3 -c yaml.safe_load`) →
+  **5/5 valid** (cron + concurrency group terkonfirmasi).
+- Simulasi assert `jq` dengan payload contoh → **6/6 sesuai
+  harapan** (lolos saat `gagal=0`, gagal assert saat `gagal>0`
+  / tanpa `briefId`).
+- `npx tsc --noEmit` → **EXIT 0** (0 error). Catatan: di
+  tengah pengerjaan tsc sempat 87 error — semuanya di pola
+  `lolosRateLimit(ipDariRequest(req))` akibat refactor
+  limiter pekerja paralel Tahap 13 lain yang sedang berjalan
+  di tree yang sama; 0 error dari berkas Tahap 13C. Sesudah
+  pekerja itu selesai, tsc kembali 0.
+- `npm run lint` → **EXIT 0 (0 error, 0 warning)**.
+- Regresi: `uji-fase5.mjs` → **LOLOS (EXIT 0)**;
+  `uji-fase8-gel2-admin.mjs` → **83/83 LOLOS (EXIT 0)**;
+  `uji-fase7.mjs` → **83 lolos, 4 gagal (EXIT 1)** — keempatnya
+  asersi T3 limiter di `bookmark`/`notifikasi`/`riwayat`/`topik`
+  (berkas milik pekerja paralel lain, bukan Tahap 13C;
+  refactor limiter mereka mengubah pola yang diharapkan
+  baterai lama). Bukan regresi Tahap 13C. **Catatan koordinator
+  (Tahap 15): sesudah semua pekerja selesai, uji-fase7
+  kembali 87/87 — lihat regression penuh §14.7.**
+- Belum diuji: run live GitHub Actions (0 run), HTTP
+  end-to-end lewat server Next, klik browser / login staf.
+
+### 14.3.8 Berkas Tahap 13C
+
+- Baru: `src/lib/scheduler/jobs.ts` (lock + F6),
+  `src/lib/scheduler/flags.ts` (baca flag),
+  `src/components/DaftarForm.tsx` (form daftar),
+  `.github/workflows/editorial-pipeline.yml`,
+  `.github/workflows/daily-brief.yml`,
+  `.github/workflows/terbitkan-terjadwal.yml`,
+  `scripts/uji-tahap13c.mjs` (+ `uji-tahap13c-loader.mjs`,
+  `uji-tahap13c-next-headers-stub.mjs` — hanya untuk baterai).
+- Diubah: 5 workflow/route cron (lock + F6 + flag),
+  `src/lib/admin/editorial.ts` (backoff F12),
+  `src/lib/admin/kendali.ts` + `src/app/admin/kendali/page.tsx`
+  (teks F6/F7/flag), `src/lib/admin/types.ts` (`NamaJob` 3→5),
+  `src/app/api/admin/sistem/jobs/[nama]/route.ts` (F7),
+  `src/app/daftar/page.tsx` (server gate flag),
+  `src/components/Header.tsx` + `src/app/globals.css` (banner),
+  `.github/workflows/ingestion.yml` + `data-analysis.yml`
+  (F3/F5/F8).
+- Dihapus: `.github/workflows/editorial.yml` (dipecah).
+- TIDAK disentuh: migrasi v1–v10, `src/lib/ai/route-auth.ts`,
+  `src/lib/ingestion/ssrf.ts`, `src/proxy.ts`,
+  `next.config.ts`, `src/app/layout.tsx`,
+  `src/app/api/sumber/**` (milik pekerja Tahap 13 lain).
+
+### 14.4 Migrasi v11 + v12 — verifikasi gabungan (koordinator)
+
+Ditemukan koordinator saat Tahap 13: CHECK nama job di migrasi v5
+hanya mengizinkan 3 nama job, padahal Tahap 13C melebarkan
+`NamaJob` ke 5 nilai — seed 5 job akan DITOLAK CHECK bila
+dijalankan apa adanya. Dibuat **migrasi v12**
+(`20261116_pf_v12_seed_jobs.sql`): perluas CHECK ke 5 nama +
+seed 5 job (isi sama dengan §14.3.2).
+
+Baterai baru `scripts/uji-tahap13-migrasi.mjs` → **15/15 LOLOS,
+EXIT 0**: migrasi v1–v12 dua kali berturut-turut (idempoten)
+TANPA blanket grant: **54 tabel / RLS 54/54 / policy 106**;
+seed cron benar; nama job bogus ditolak CHECK; RPC v11
+`pf_rate_limit_check` berfungsi (increment atomik, jendela
+tetap). `npx tsc --noEmit` EXIT 0; `npm run lint` EXIT 0.
+
+Keadaan migrasi sesudah Tahap 13: **v1–v12, 54 tabel, RLS
+54/54, policy 106, GRANT eksplisit di semua migrasi
+(v9–v12; v1–v8 diperbaiki v9).** Skrip backup diperbarui
+37 → 54 tabel (`scripts/backup-pf.mjs`), diverifikasi cocok
+persis dengan migrasi (54 unik, 0 selisih).
+
+### 14.5 Status tegas keamanan sesudah Tahap 13
+
+| Temuan | Status sesudah Tahap 13 | Bukti / alasan |
+|---|---|---|
+| T3 rate limit | **TERTUTUP di kode; TERBUKA di produksi sampai v11 diterapkan** | RPC + limiter DB (uji-tahap13a 126/126). Fail-open bila RPC gagal — terverifikasi di smoke Tahap 15 (log `PGRST202` karena RPC belum ada di produksi). |
+| T10 audit CRUD sumber | **TERTUTUP di kode** | Helper `catatAuditWajib` fail-closed + audit semua route admin baru (uji-tahap13a 126/126). |
+| T4 akun nonaktif | **TERTUTUP di kode** | 13 berkas / 20 handler; pengecualian login-opsional didokumentasikan (§14.1). |
+| T6 DNS rebinding | **DIPERSEMPIT, TIDAK tertutup penuh** | Pinning + re-resolusi (uji-tahap13b 107/107). Penutupan penuh butuh verifikasi pinning HTTPS dari egress langsung — belum diuji. |
+| CSP | **TERIMPLEMENTASI, terverifikasi live lokal** | Header + nonce unik + hash skrip tema (smoke Tahap 15: 2 nonce berbeda, hash HTML = hash header). Eksekusi skrip tema di browser nyata belum diuji. |
+| T5/T8/T1 | **TERTUTUP, regression lolos** | Uji-fase7 87/87, gel1 159/159, multisource 71/71. |
+| CSRF | **SEBAGIAN** | Tanpa cek Origin, bersandar SameSite Lax — belum diuji live. |
+| Flag cookie sesi | **BELUM DIUJI** | Belum ada pemeriksaan flag cookie sesi di browser. |
+| Scheduler F2/F3/F4/F5/F6/F7/F8/F12 | **TERTUTUP di kode** | Uji-tahap13c 119/119 + YAML 5/5 + jq sim 6/6. Run live Actions belum diuji (0 run). |
+| Publikasi otomatis | **TETAP MATI** | Tidak ada jalur yang menerbitkan draf mentah; gate + review manusia wajib. |
+
+### 14.6 Tahap 14 — Integrasi 14 area
+
+Baterai baru `scripts/uji-integrasi14.mjs` — run pertama
+19/27: 4 bug ekspektasi baterai (prefix `/api` ganda, nav
+Jejak Fakta/Multi-Source/Admin yang salah kaprah) + **2 celah
+nyata**:
+
+1. Artikel tidak terhubung ke cerita: tidak ada fungsi yang
+   mengambil cerita untuk satu artikel. Diperbaiki:
+   `getCeritaUntukArtikel()` baru di `src/lib/cerita.ts`
+   (hanya cerita terbit, gagal-aman).
+2. Artikel tidak terhubung ke negara: `negara_kode` tidak ada
+   di kolom artikel lengkap. Diperbaiki: `negara_kode`
+   ditambahkan ke `KOLOM_ARTIKEL_LENGKAP` + tipe
+   `PfArtikelLengkap` + return mapping di `src/lib/data.ts`.
+
+Halaman `/artikel/[slug]` kini mengambil cerita + negara (via
+`getNegara`) dan merender bar konteks "Bagian dari cerita: …"
++ "Negara: …" (tautan `/cerita/[slug]`, `/negara/[kode]`).
+
+Run ulang: **27/27 LOLOS, EXIT 0** — 48 tautan internal
+statis hidup; nav menautkan 12 area; sitemap menyebut 5 tabel
+dinamis; login terjangkau via `/saya` → redirect `/masuk`
+(Header/Footer memang tanpa tautan `/masuk` — disengaja,
+bukan bug).
+
+### 14.7 Tahap 15 — Audit menyeluruh + regression semua fase
+
+Dijalankan 16 Nov 2026 ±09.00–10.00 WIB (lokal, PGlite +
+Node 24). **17 dari 18 baterai EXIT 0, 0 gagal:**
+
+| Baterai | Hasil |
+|---|---|
+| uji-fase5 | LOLOS |
+| uji-fase6 | 53/53 |
+| uji-fase7 | 87/87 |
+| uji-fase8-gel1 | 159/159 |
+| uji-remediasi-multisource | 71/71 |
+| uji-remediasi-integrasi | 17/17 |
+| uji-editorial | LOLOS (28/28) |
+| uji-fase8-gel2-migrasi | 28/28 |
+| uji-fase8-gel2-cerita | 66/66 |
+| uji-fase8-gel2-akademi | 106/106 |
+| uji-fase8-gel2-riset | 71/71 |
+| uji-fase8-gel2-negara | 77/77 |
+| uji-fase8-gel2-tanya-podcast | 72/72 |
+| uji-fase8-gel2-admin | 83/83 |
+| uji-tahap13a | 126/126 |
+| uji-tahap13b | 107/107 (101 + 6 §J hash tema) |
+| uji-tahap13c | 119/119 |
+| uji-tahap13-migrasi | 15/15 |
+| uji-integrasi14 | 27/27 |
+| uji-ingestion (live) | **1 KEGAGALAN — GDELT HTTP 429** (eksternal, pola flake sejak Fase 3). RSS: 355 baru / 1 duplikat, dedup terbukti. Bukan regresi kode. |
+
+Total asersi terhitung: **1.365** (fase5 53 + fase6 53 + fase7 87
++ gel1 159 + multisource 71 + integrasi 17 + editorial 28 +
+gel2-migrasi 28 + cerita 66 + akademi 106 + riset 71 + negara 77
++ tanya-podcast 72 + admin 83 + tahap13a 126 + tahap13b 107 +
+tahap13c 119 + tahap13-migrasi 15 + integrasi14 27 — jumlah
+dihitung dari keluaran tiap baterai; fase5 53 dan editorial 28
+dari catatan gate/remediasi karena run Tahap 15 hanya mencetak
+"SEMUA LOLOS" tanpa angka).
+
+**Build (Tahap 15):** `npm run build` → **EXIT 0, 147/147
+halaman, BUILD_ID `NyTEjrq_2Hs81joEYhase`** (4,9 dtk generate).
+Komposisi: ~14 statis (○) + mayoritas dinamis (ƒ, baca data
+per request — arsitektur aplikasi sejak Fase 1–7, bukan
+regresi CSP) + sub-rute partial-prerender (◐). **Bug kritis
+ditemukan + diperbaiki di tahap ini: build EXIT 1 akibat
+`headers()` di root layout (CSP nonce) — lihat §14.2.3.**
+Sesudah perbaikan, build lolos dan 14 halaman statis kembali
+di-prerender.
+
+**Smoke test `next start` port 3101 (Tahap 15):** 12× 200
+(`/`, `/cerita`, `/riset`, `/negara`, `/akademi`, `/podcast`,
+`/tanya`, `/laporkan`, `/sitemap.xml`, `/robots.txt`,
+`/rss.xml`, `/api/health`); 8× 404 jujur (`/cerita`,
+`/riset`, `/akademi`, `/podcast`, `/negara/XX`,
+`/pengetahuan`, `/artikel`, `/kategori` + slug tak ada).
+CSP: header hadir di `/` + 404, nonce unik per request (2
+nonce berbeda terverifikasi), script-src berisi nonce +
+strict-dynamic + hash tema, tanpa unsafe-inline/unsafe-eval.
+Skrip tema di HTML terverifikasi sha256-nya sama persis
+dengan hash di header CSP. Satu-satunya `<script>` tanpa
+nonce = skrip tema (diizinkan hash, disengaja); 12 skrip
+framework bawa nonce. `/api/health`: 200, `{"ok":false,
+"status":"degraded","db":"belum_tersedia"}` — jujur (migrasi
+belum dijalankan di produksi). Log server: **0 baris
+"error"**; satu peringatan fail-open rate limit (`PGRST202
+pf_rate_limit_check tidak ditemukan`) — perilaku benar
+sampai v11 diterapkan.
+
+**Aksesibilitas (spot-check, bukan audit penuh):**
+`<html lang="id">` ✓; satu-satunya `<img>` punya alt
+(`Ilustrasi: <judul>`) ✓; 177 `<label>` / 115 `<input>` /
+97 `<button>` — pasangan label-input dan nama aksesibel
+tombol TIDAK diverifikasi via grep. Audit penuh (screen
+reader, keyboard, kontras) **belum diuji**. Uji responsif
+visual (320–1920px) **belum diuji** — browser tidak tersedia
+di subagen; TIDAK diklaim sudah diuji.
+
+### 14.8 Tahap 16 — Final production readiness
+
+- Supabase: migrasi v1–v12 siap (54 tabel / RLS 54/54 /
+  policy 106, idempoten 2×, tanpa blanket grant);
+  `supabase/CUTOVER.md` diperbarui ke v1–v12 (tahap 3A–3F,
+  §3.11 v11, §3.12 v12, checklist, backup pasca-migrasi
+  54/54); `supabase/README.md` ditambah bagian v10/v11/v12;
+  skrip backup 54 tabel, cocok persis dengan migrasi.
+- Vercel: koneksi di Muse connected (akun `prataava`) tapi
+  deploy 403 akses tim — audit di `DEPLOY.md` (opsi A
+  hubungkan ulang / B import manual / C ZIP sumber). TIDAK
+  dibuat proyek produksi duplikat.
+- GitHub Actions: 5 workflow valid (YAML 5/5), cron WIB
+  benar, concurrency + retry + assert jq; 3 secret masih
+  harus diisi pemilik (nama saja, nilai tidak lewat chat).
+- Env vars: 6 env Vercel + 3 secret Actions — daftar nama di
+  `DEPLOY.md`; nilai TIDAK PERNAH lewat chat.
+- SEO: sitemap dinamis, robots, RSS 2.0, JSON-LD,
+  canonical/OG, noindex admin (Fase 7, regression lolos).
+- Monitoring: `/api/health` (degraded jujur bila DB belum
+  ada), `/admin/monitoring`, audit log 53 aksi, scheduler
+  `pf_scheduled_jobs` (status + error terakhir).
+- Sisa blokir pemilik: migrasi v1–v12, deploy Vercel 403,
+  env/secret, backup baseline, super_admin pertama,
+  verifikasi live (login, klik browser, HP/desktop, pinning
+  T6 dari egress langsung, CSRF + flag cookie sesi).
+
+### 14.9 Tahap 17 — Deployment + cutover (untuk persetujuan pemilik)
+
+`supabase/CUTOVER.md` (§3, tahap 3A–3F) + `DEPLOY.md`
+diperbarui ke keadaan Tahap 16: urutan v1–v12 + validasi
+54/54/106 + rollback + instruksi konkret pemilik (tanpa
+meminta secret lewat chat). **BATAS OTORISASI (tetap):**
+tanpa migrasi/deploy/ubah secret/ubah akun admin/ubah data
+produksi tanpa persetujuan eksplisit pemilik. **Situs BELUM
+LIVE** — jangan disebut live sebelum deployment benar-benar
+berhasil + diuji (login + klik browser nyata + HP/desktop).
