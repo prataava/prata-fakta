@@ -511,7 +511,7 @@ policy — lihat §23.
 | `5d3b17b` | Gelombang 2 — 10 area Advanced Intelligence (122 berkas) |
 | `d5cfaad` | Tahap 13 — Keamanan + Scheduler (T3/T10/T4/T6/CSP; v11+v12) |
 | `63dd17b` | Tahap 14 — Integrasi 14 area (artikel ↔ cerita ↔ negara) |
-| *(Tahap 15–17)* | Tahap 15–17 — regression + readiness + dokumentasi *(hash menyusul — commit Tahap 15–17, lihat `git log`)* |
+| `7ff50f0` | Tahap 15–17 — regression + readiness + dokumentasi |
 
 Catatan: koordinator (subagen) hanya commit lokal; push
 dilakukan agen utama.
