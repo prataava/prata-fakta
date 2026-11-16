@@ -1,7 +1,12 @@
 # AUDIT EXPANSION — PRATA FAKTA Fase 8: Advanced Intelligence
 
 **Tanggal:** 16 November 2026
-**Status:** Audit selesai (read-only). Pembangunan belum dimulai.
+**Status:** Audit selesai (read-only). Gelombang 1 selesai &
+terverifikasi (commit `f1e68d6`, uji 120/120, build 94/94).
+Gelombang 2 DIMULAI lalu DIBATALKAN atas perintah pemilik
+16 Nov 2026 ±06.29 WIB — prioritas dialihkan ke Audit &
+Production Readiness Gate (lihat §9). Pembangunan 14 area
+DITUNDA sampai gate lolos.
 **Metode:** Dua auditor paralel (A: aplikasi/API/AI; B: database/desain) +
 sintesis koordinator dari `ARSITEKTUR.md` (948 baris),
 `LAPORAN-AKHIR.md` Fase 7, `supabase/README.md`, dan
@@ -564,11 +569,19 @@ ukuran sesudah tulis; regression sesudah tiap area.
 ## 8. Blokir yang tetap (di luar kode Fase 8)
 
 1. Migrasi v1–v8 belum dijalankan di Supabase produksi
-   (butuh pemilik via SQL Editor) — semua halaman baru
+   (butuh pemilik via SQL Editor) — prosedur lengkap ada di
+   `supabase/CUTOVER.md` (gate Fase 8). Semua halaman baru
    menampilkan empty state jujur / 503 jujur sampai migrasi
-   dijalankan.
+   dijalankan. Urutan wajib: backup → v1–v7 → deploy →
+   v8 (v8 sesudah deploy karena mencabut policy insert
+   anonim T5).
 2. Deploy Vercel masih blokir 403 akses tim `prataava` —
-   workflow + endpoint baru belum bisa aktif.
+   workflow + endpoint baru belum bisa aktif. Diverifikasi
+   ulang 16 Nov 2026: `list_projects` 403; temuan baru —
+   `authorize_team_access` (pemulihan yang disarankan API)
+   TIDAK ADA di tool konektor Vercel; hanya pemilik yang
+   bisa memperbaiki (opsi A/B/C di `CUTOVER.md` §5.2 +
+   `DEPLOY.md`).
 3. Uji browser nyata (klik, login, peta, TTS, responsif)
    belum bisa — butuh migrasi + deploy + akun produksi.
 4. Keputusan audio Podcast (rekaman vs TTS server vs TTS
@@ -581,3 +594,220 @@ ukuran sesudah tulis; regression sesudah tiap area.
 *Audit Fase 8 selesai — 16 November 2026. Dokumen ini adalah
 deliverable Langkah 1; pembangunan (Langkah 2) mengikuti
 rencana gelombang §7.*
+
+## 9. Audit Gate Fase 8 (16 Nov 2026 ±06.29–07.00 WIB)
+
+Pengalihan prioritas pemilik 16 Nov 2026 ±06.29 WIB:
+HENTIKAN pembangunan 14 area; prioritas = Audit &
+Production Readiness Gate. Gelombang 2 (area 2, 4, 5, 10,
+11, 12) sudah dimulai koordinatornya lalu ditutup; working
+tree dikembalikan ke titik aman `f1e68d6` (`git checkout
+-- .` + hapus 11 direktori untracked Gelombang 2 — rencana
+tetap di §5/§7, dapat dibangun ulang). Gate dikerjakan 4
+agen paralel (Keamanan, Cutover, Scheduler, Regression +
+Kesiapan Redaksi) + sintesis koordinator. Detail penuh:
+`LAPORAN-FASE-8.md`; catatan agen di
+`/tmp/pf-gate-security/laporan-keamanan.md`,
+`/tmp/pf-gate-scheduler/laporan-scheduler.md`,
+`/tmp/pf-gate-regression/laporan-regression.md` (/tmp =
+ephemera, hilang saat restart runtime).
+
+### 9.1 Ringkasan hasil gate
+
+| Jalur gate | Hasil |
+|---|---|
+| Keamanan (T3/T4/T5/T6/T8/T10/T1-sisa) | T5/T8/T1-sisa TERTUTUP (PGlite 34/34); T6: 3 celah nyata ditemukan + diperbaiki (SSRF 43/43); T4: 6 jalur staf diperbaiki; T3 TERBUKA; T10: 1 celah kelengkapan baru (CRUD sumber tak teraudit) |
+| Cutover | `supabase/CUTOVER.md` (38.627 byte) + `DEPLOY.md` + `LAPORAN-AKHIR.md` §11/§12 + `backup-pf.mjs` 37 tabel; Vercel 403 diverifikasi ulang + temuan baru `authorize_team_access` tidak ada di konektor |
+| Scheduler | 3 berkas / 5 jadwal terverifikasi (WIB benar); dry-run 5 alur LOLOS (ingestion 356/354, editorial 200/5 draf, brief draft 10 entri, analisis data, terbitkan-terjadwal gate terbukti); gate publikasi otomatis: TIDAK; temuan F2–F13 |
+| Regression + redaksi | tsc/lint/build EXIT 0 (94/94, BUILD_ID `rVaLmIi2bkpf0FCW-y_UF`); uji-fase5 53/53, fase6 53/53, fase7 87/87, fase8-gel1 120/120, editorial 10/10, ingestion 10/11 (GDELT 429 eksternal); alur redaksi (a)–(j) berfungsi dengan data nyata; 5 draf VERIFIED TIDAK layak terbit tanpa review |
+
+### 9.2 Audit gate per area (8 pertanyaan)
+
+**1. Jejak Fakta — DIBANGUN Gelombang 1, terverifikasi lokal.**
+Sudah ada: ya (seksi/route jejak + policy baca publik
+terbatas, v8). Serupa: rantai klaim→bukti Fase 4/5 sudah
+ada. DB: didukung (v8 policy, tanpa tabel baru). API: ada.
+Muse AI: tidak langsung (tampilan atas data verifikasi
+Fase 4). Migrasi: sudah di v8. Risiko: rendah (baca
+publik terbatas artikel terbit; T8 terverifikasi).
+Tanpa rusak: ya — regression 120/120 + 87/87. Belum
+diuji: tampilan publik dengan artikel terbit nyata
+(butuh Supabase + akun).
+
+**2. Story Tracker — BELUM dibangun (Gelombang 2 dibatalkan).**
+Sudah ada: tidak. Serupa: `/timeline` (kronologi umum,
+bukan per-cerita). DB: sebagian — butuh `pf_stories` +
+`pf_story_events` + `pf_story_articles` +
+`pf_story_followers` (baru). API: belum ada
+(`GET/POST /api/cerita*`). Muse AI: pengelompokan
+event→cerita oleh Muse/editor (bukan otomatis
+deterministik). Migrasi: ya, tabel baru (rencana
+v8-append dibatalkan — harus dibuat ulang). Risiko:
+sedang — prasyarat `/admin/event` tidak ada (blokir
+operasional); T5: jangan tambah insert anon. Tanpa
+rusak: ya, bila dibangun di atas `pf_events` tanpa
+mengubahnya.
+
+**3. Multi-Source View — DIBANGUN Gelombang 1,
+terverifikasi lokal.** Sudah ada: ya (komponen
+perbandingan + kolom `peran`/`kutipan`, v8). Serupa:
+seksi Sumber & Referensi + tier 90/75/60. DB: didukung
+(v8 kolom). API: ada (`lib/data.ts`). Muse AI: tidak
+langsung (data tier/koroborasi Fase 4). Migrasi: sudah
+di v8. Risiko: rendah; bobot bukti eksplisit (tanpa
+kesetaraan palsu). Tanpa rusak: ya — regression lolos.
+Belum diuji: tampilan dengan artikel terbit nyata.
+
+**4. Explain the World — BELUM dibangun.** Sudah ada:
+tidak. Serupa: `/pengetahuan` + `[slug]` (artikel
+pengetahuan umum, bukan format explainer berlapis).
+DB: sebagian — butuh kolom `jenis`/`tingkat`/
+`estimasi_baca_menit`/`seri_slug`. API: belum ada admin
+pengetahuan (`GET/POST/PATCH /api/admin/pengetahuan`).
+Muse AI: draf explainer via `writing.ts` + review
+Muse/editor. Migrasi: ya, kolom baru. Risiko:
+rendah–sedang; tanpa admin UI, konten hanya bisa lewat
+DB langsung. Tanpa rusak: ya (kolom baru, halaman lama
+tak berubah).
+
+**5. Reality Check — BELUM dibangun (pengembangan /data).**
+Sudah ada: tidak. Serupa: `/data` Fase 6 (grafik SVG
+statis). DB: didukung tahap pertama (tanpa tabel baru;
+kolom `cakupan`/`frekuensi_update` opsional). API: ada
+(`/api/ai/data-analysis` + data). Muse AI: agen Data
+Analysis ke-10 (deterministik). Migrasi: tidak tahap
+pertama. Risiko: rendah; JANGAN angka palsu — indikator
+1 titik dilewati (terbukti dry-run). Tanpa rusak: ya.
+
+**6. Ask the World — BELUM dibangun.** Sudah ada: tidak.
+Serupa: `/tanya` Fase 6 (korpus artikel+pengetahuan
+saja). DB: sebagian — butuh kolom `publik`/`kategori`/
+`membantu` di `pf_questions`. API: sebagian — perlu
+`GET /api/tanya/arsip` + penjawab antrean. Muse AI:
+retrieval + penjawab antrean via cron Muse (tanpa SLA).
+Migrasi: ya, kolom baru. Risiko: sedang — jawaban tanpa
+referensi harus akui keterbatasan (mekanisme jujur); T5:
+insert `pf_questions` sudah service-role (terverifikasi
+gate). Tanpa rusak: ya.
+
+**7. My Prata — DIBANGUN Gelombang 1, terverifikasi
+lokal.** Sudah ada: ya (`/saya` + pengaturan + ekspor +
+`pf_user_preferences`, v8). Serupa: `/feed-saya` +
+`/profil`. DB: didukung (v8 tabel baru). API: ada
+(`GET/PATCH /api/saya/preferensi`,
+`GET /api/saya/ekspor`). Muse AI: tidak (digest dari
+brief + topik). Migrasi: sudah di v8. Risiko: rendah;
+ekspor/hapus akun = data milik sendiri via RLS. Tanpa
+rusak: ya — regression lolos. Belum diuji: redirect
+`/saya`→`/masuk` ujungnya tanpa browser (smoke: shell
+200 PPR + RSC 307 tak terselesaikan via curl).
+
+**8. PRATA Academy — BELUM dibangun (NIHIL, grep 0).**
+Sudah ada: tidak. Serupa: tidak ada (hanya bahan mentah
+`/pengetahuan`, `/kuis`, `/rutin`, auth/peran). DB:
+tidak — butuh `pf_courses` + modules + lessons +
+progress (baru). API: belum ada. Muse AI: materi/quiz
+via Muse + review. Migrasi: ya, 4 tabel baru. Risiko:
+sedang — kunci jawaban JANGAN baca publik (pola T1;
+gate membuktikan empiris: GRANT tabel membuka kunci
+lagi). Tanpa rusak: ya (tabel baru, tak sentuh yang
+lama). Upaya besar; sertifikat/diskusi ditunda.
+
+**9. PRATA Podcast — BELUM dibangun (NIHIL).** Sudah
+ada: tidak. Serupa: tidak ada (hanya TTS browser
+`PembacaSuara` + naskah `/brief` + pola `rss.xml`).
+DB: tidak — butuh `pf_podcast_episodes` +
+`pf_podcast_subscriptions`. API: belum ada. Muse AI:
+naskah brief/episode mingguan dari kompilasi brief
+(Muse). Migrasi: ya, 2 tabel baru (+ bucket Storage
+bila file audio — repo belum pakai Storage sama
+sekali). Risiko: sedang — hak penggunaan (hanya artikel
+sendiri); pembuatan file audio = BELUM BISA tanpa
+layanan TTS server gratis (keputusan audio belum ada).
+Tanpa rusak: ya (fitur baru terpisah; pemutaran TTS
+browser sudah ada dan tak berubah).
+
+**10. PRATA Research — BELUM dibangun.** Sudah ada:
+tidak. Serupa: `/data` (pemasok angka, bukan produk
+riset). DB: tidak — butuh `pf_research_reports` +
+`pf_documents`. API: belum ada. Muse AI: laporan
+disusun Muse/editor, JANGAN auto-terbit. Migrasi: ya,
+2 tabel baru. Risiko: rendah–sedang — dokumen metadata
++ tautan saja, JANGAN salin isi berhak cipta. Tanpa
+rusak: ya.
+
+**11. Country Profile — BELUM dibangun.** Sudah ada:
+tidak. Serupa: `/peta` (marker berkoordinat). DB:
+tidak — butuh `pf_countries` + `pf_country_facts`.
+API: belum ada. Muse AI: tidak langsung (data dari
+sumber resmi). Migrasi: ya, 2 tabel + kolom
+`negara_kode` FK. Risiko: sedang — data awal hanya
+Indonesia dari sumber resmi; tanpa angka karangan;
+validasi target topik negara (D3). Tanpa rusak: ya.
+Utang: topik GDELT hardcoded "Indonesia".
+
+**12. Historical Archive — BELUM dibangun.** Sudah ada:
+tidak. Serupa: `/arsip` (filter umum, bukan produk
+sejarah). DB: sebagian — butuh kolom `era`+`penting` di
+`pf_events`. API: belum ada (`/sejarah`). Muse AI:
+tidak langsung. Migrasi: ya, kolom baru. Risiko:
+rendah. Tanpa rusak: ya. Prasyarat: `/admin/event`
+(blokir operasional, sama seperti area 2).
+
+**13. Public Report — DIBANGUN Gelombang 1,
+terverifikasi lokal.** Sudah ada: ya (`/laporkan` +
+lacak status + `POST /api/laporan-publik` + perluasan
+CHECK jenis + `nomor_lacak`). Serupa:
+`pf_correction_reports` + `/admin/koreksi`. DB:
+didukung (v8 CHECK + kolom). API: ada. Muse AI: tidak
+(moderasi manusia). Migrasi: sudah di v8. Risiko:
+rendah — T5 terverifikasi (insert via service role,
+anon ditolak); semua laporan wajib dimoderasi. Tanpa
+rusak: ya — smoke: `/laporkan` 200 (form lengkap),
+`/laporkan/lacak` 200, `POST /api/laporan-publik` → 400
+(validasi jalan).
+
+**14. Advanced Admin Control Center — BELUM dibangun
+(fondasi terkuat).** Sudah ada: tidak. Serupa: `/admin`
+13 halaman + 21 route `/api/admin/*` (bukan control
+center terpadu). DB: sebagian — butuh
+`pf_system_settings` + `pf_error_logs` + perluasan
+CHECK enum (sudah di v8 sebagian: audit 46 aksi, jobs
+8 nama, `ai_runs` 13 agen). API: sebagian — perlu
+`/api/admin/kendali/*` + admin konten Fase 6. Muse AI:
+AI Agent Logs dari `pf_ai_runs` nyata. Migrasi: ya
+(tabel baru + CHECK). Risiko: sedang — temuan gate: F6
+(`terakhir_jalan` cron tak diperbarui), F7 (seed 3 job,
+pemicu manual tak memetakan data-analysis/
+terbitkan-terjadwal), F12 (retry tiap jam tanpa
+backoff), T10 (CRUD sumber tak masuk audit log — celah
+baru), T3 (rate limit in-memory — kontrol dari UI belum
+ada), CSP belum dipasang. Tanpa rusak: ya bila dibangun
+sebagai halaman/route baru + agregat atas tabel yang
+ada; Traffic Analytics HANYA bila tersedia (tampilkan
+"belum tersedia" bila tidak).
+
+### 9.3 Status akhir per area sesudah gate
+
+| # | Area | Status gate |
+|---|---|---|
+| 1 | Jejak Fakta | Selesai Gelombang 1 — terverifikasi lokal |
+| 2 | Story Tracker | Belum dibangun — rencana §5.2 tetap berlaku |
+| 3 | Multi-Source View | Selesai Gelombang 1 — terverifikasi lokal |
+| 4 | Explain the World | Belum dibangun — rencana §5.4 tetap berlaku |
+| 5 | Reality Check | Belum dibangun — rencana §5.5 tetap berlaku |
+| 6 | Ask the World | Belum dibangun — rencana §5.6 tetap berlaku |
+| 7 | My Prata | Selesai Gelombang 1 — terverifikasi lokal |
+| 8 | PRATA Academy | Belum dibangun — rencana §5.8 tetap berlaku |
+| 9 | PRATA Podcast | Belum dibangun — rencana §5.9 tetap berlaku |
+| 10 | PRATA Research | Belum dibangun — rencana §5.10 tetap berlaku |
+| 11 | Country Profile | Belum dibangun — rencana §5.11 tetap berlaku |
+| 12 | Historical Archive | Belum dibangun — rencana §5.12 tetap berlaku |
+| 13 | Public Report | Selesai Gelombang 1 — terverifikasi lokal |
+| 14 | Admin Control Center | Belum dibangun — rencana §5.14 tetap berlaku |
+
+**Tidak ada duplikat yang dibuat gate ini:** semua yang
+sudah ada dicatat sebagai pengembangan (§9.2), bukan
+bangun baru. Migrasi v8 TIDAK diubah selama gate
+(0 baris diff) — perbaikan keamanan gate berupa patch
+kode + dokumentasi, bukan migrasi baru.

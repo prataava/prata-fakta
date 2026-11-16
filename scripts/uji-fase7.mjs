@@ -1,10 +1,10 @@
 // Uji Fase 7 PRATA FAKTA -> PGlite + pemeriksaan statis berkas.
-// Langkah: (a) PGlite + stub auth + migrasi v1..v7 (v7 2x);
+// Langkah: (a) PGlite + stub auth + migrasi v1..v8 (v7 2x, v8 2x);
 // (b) hitung tabel/RLS/policy; (c) skenario pf_quiz_scores
 // (insert, upsert, unique, check, FK, trigger); (d) pemeriksaan
 // statis: proxy 404 pengetahuan/kategori, rute SEO (sitemap,
 // robots, RSS, health), JSON-LD + canonical, noindex admin,
-// skrip backup mencakup 36 tabel; (e) perbaikan keamanan audit
+// skrip backup mencakup 37 tabel; (e) perbaikan keamanan audit
 // Fase 7: T1 (kunci kuis server-side), T3 (rate limit 4 route),
 // T4 (nonaktif di autentikasiStaf), T6 (pelindung SSRF),
 // T7 (search_path fungsi SECURITY DEFINER), T9 (timing-safe
@@ -79,6 +79,10 @@ await db.exec(
 await db.exec(
   `create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;`,
 );
+// Role Supabase (wajib ada sebelum v8: REVOKE/GRANT FROM anon,
+// authenticated di §4 T1-sisa). Pola sama seperti uji-fase8-gel1.
+await db.exec(`create role anon nologin;`);
+await db.exec(`create role authenticated nologin;`);
 
 let ok = await jalankan("v1", baca("20261116_pf_v1_foundation.sql"));
 if (ok) ok = await jalankan("v2", baca("20261116_pf_v2_articles.sql"));
@@ -88,6 +92,12 @@ if (ok) ok = await jalankan("v5", baca("20261116_pf_v5_editorial.sql"));
 if (ok) ok = await jalankan("v6", baca("20261116_pf_v6_advanced.sql"));
 if (ok) ok = await jalankan("v7 putaran 1", baca("20261116_pf_v7_quiz_scores.sql"));
 if (ok) ok = await jalankan("v7 putaran 2 (idempotensi)", baca("20261116_pf_v7_quiz_scores.sql"));
+// v8 (Fase 8 Gelombang 1) diterapkan di sini agar baterai ini
+// menguji skrip backup terhadap skema repo saat ini (37 tabel):
+// backup-pf.mjs mendaftar 37 tabel pasca-v8, jadi DB uji harus
+// v1–v8 — bukan v1–v7 — supaya perbandingan daftar = DB jujur.
+if (ok) ok = await jalankan("v8 putaran 1", baca("20261116_pf_v8_expansion.sql"));
+if (ok) ok = await jalankan("v8 putaran 2 (idempotensi)", baca("20261116_pf_v8_expansion.sql"));
 if (!ok) {
   console.log("HASIL: MIGRASI GAGAL");
   process.exit(1);
@@ -97,24 +107,24 @@ const hitung = async (sql, params = []) =>
   Number((await db.query(sql, params)).rows[0].n);
 
 cek(
-  "tabel pf_* = 36",
+  "tabel pf_* = 37",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%'`,
-  )) === 36,
-  "35 (v1-v6) + 1 (v7)",
+  )) === 37,
+  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences)",
 );
 cek(
-  "RLS 36/36",
+  "RLS 37/37",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
-  )) === 36,
+  )) === 37,
 );
 cek(
   "policy total = 79",
   (await hitung(
     `select count(*) n from pg_policies where schemaname='public' and tablename like 'pf_%'`,
   )) === 79,
-  "76 (v1-v6) + 3 (v7)",
+  "76 (v1-v6) + 3 (v7) + 0 bersih (v8: -3 insert anonim T5 + 3 pf_user_preferences; penggantian T8 net 0)",
 );
 cek(
   "policy pf_quiz_scores = 3",
@@ -303,11 +313,11 @@ cek(
   bacaRepo("src/components/peta/PetaDuniaLazy.tsx").includes("leaflet/dist/leaflet.css"),
 );
 
-// Skrip backup mencakup semua 36 tabel.
+// Skrip backup mencakup semua 37 tabel.
 const backup = bacaRepo("scripts/backup-pf.mjs");
 const daftarTabel = [...backup.matchAll(/"(pf_[a-z_]+)"/g)].map((m) => m[1]);
 const unikTabel = [...new Set(daftarTabel)];
-cek("backup: 36 tabel unik", unikTabel.length === 36, `${unikTabel.length} ditemukan`);
+cek("backup: 37 tabel unik", unikTabel.length === 37, `${unikTabel.length} ditemukan`);
 const tabelDb = (
   await db.query(
     `select tablename from pg_tables where schemaname='public' and tablename like 'pf_%'`,
