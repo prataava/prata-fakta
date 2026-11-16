@@ -4,8 +4,9 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 // Tindak lanjut laporan koreksi pembaca: terima (laporan benar,
-// artikel diperbaiki) atau tolak. Catatan wajib — menjadi alasan
-// tertulis yang tercatat di audit.
+// artikel diperbaiki), tandai ditinjau (laporan sedang ditinjau
+// redaksi — termasuk laporan umum tanpa artikel), atau tolak.
+// Catatan wajib — menjadi alasan tertulis yang tercatat di audit.
 export default function FormKoreksi({
   laporanId,
 }: {
@@ -18,7 +19,7 @@ export default function FormKoreksi({
   const [pesan, setPesan] = useState("");
   const router = useRouter();
 
-  async function kirim(aksi: "terima" | "tolak", e: FormEvent) {
+  async function kirim(aksi: "terima" | "tolak" | "ditinjau", e: FormEvent) {
     e.preventDefault();
     if (!catatan.trim()) {
       setStatus("error");
@@ -48,7 +49,9 @@ export default function FormKoreksi({
       setPesan(
         aksi === "terima"
           ? "Laporan diterima — artikel ditandai perlu diperbaiki."
-          : "Laporan ditolak.",
+          : aksi === "ditinjau"
+            ? "Laporan ditandai sedang ditinjau."
+            : "Laporan ditolak.",
       );
       router.refresh();
     } catch {
@@ -80,7 +83,7 @@ export default function FormKoreksi({
           rows={2}
           value={catatan}
           onChange={(e) => setCatatan(e.target.value)}
-          placeholder="Alasan menerima / menolak laporan ini."
+          placeholder="Alasan menerima / meninjau / menolak laporan ini."
         />
       </label>
       <div className="admin-aksi">
@@ -90,6 +93,14 @@ export default function FormKoreksi({
           disabled={status === "loading"}
         >
           {status === "loading" ? "Memproses…" : "Terima laporan"}
+        </button>
+        <button
+          className="tombol"
+          type="button"
+          disabled={status === "loading"}
+          onClick={(e) => kirim("ditinjau", e)}
+        >
+          Tandai ditinjau
         </button>
         <button
           className="tombol"

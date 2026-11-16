@@ -1,7 +1,11 @@
 // POST /api/admin/koreksi/[id] — tindak lanjuti laporan koreksi.
-// Body {aksi: 'terima'|'tolak', catatan}.
-// Terima: laporan 'diperbaiki' + versi baru + artikel CORRECTED +
-// verification record CORRECTED agen 'editor'. Tolak: 'ditolak'.
+// Body {aksi: 'terima'|'tolak'|'ditinjau', catatan}.
+// Terima (dengan artikel): laporan 'diperbaiki' + versi baru +
+// artikel CORRECTED + verification record CORRECTED agen 'editor'.
+// Terima (tanpa artikel_id): laporan umum diterima untuk ditinjau
+// redaksi — status 'ditinjau', tanpa artikel yang dikoreksi.
+// 'ditinjau': tandai laporan baru sedang ditinjau (status 'ditinjau').
+// Tolak: 'ditolak'. Terima/tolak diizinkan dari 'baru' maupun 'ditinjau'.
 // Editor/fact_checker/super_admin. Rate limit 30/menit/IP.
 import { NextResponse } from "next/server";
 import {
@@ -32,9 +36,9 @@ export async function POST(
   if (!body) return responBodyTakValid();
   const aksi = typeof body.aksi === "string" ? body.aksi : "";
   const catatan = typeof body.catatan === "string" ? body.catatan : "";
-  if (aksi !== "terima" && aksi !== "tolak") {
+  if (aksi !== "terima" && aksi !== "tolak" && aksi !== "ditinjau") {
     return NextResponse.json(
-      { ok: false, error: "Aksi tidak valid (terima atau tolak)." },
+      { ok: false, error: "Aksi tidak valid (terima, tolak, atau ditinjau)." },
       { status: 400 },
     );
   }

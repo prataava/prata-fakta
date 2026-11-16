@@ -25,6 +25,7 @@ const { PGlite } = require("@electric-sql/pglite");
 
 import { jalankanIngestion } from "../src/lib/ingestion/engine.ts";
 import { polaPencarianInti } from "../src/lib/ai/research.ts";
+import { tindaklanjutiKoreksi } from "../src/lib/admin/editorial.ts";
 import {
   analisisTren,
   jalankanBriefHarian,
@@ -469,6 +470,115 @@ async function hitung(db, sql, params = []) {
   return Number(r.rows[0]?.n ?? 0);
 }
 
+// ---------- Adapter mock: tindak lanjut koreksi (F1/F2, remediasi Gel. 1) ----------
+// Mock AdminAdapter in-memory — hanya method yang dipakai
+// tindaklanjutiKoreksi. Mendukung status 'ditinjau' (status itu
+// disimpan apa adanya di map, seperti perbaruiKoreksi adapter asli).
+class AdapterMockKoreksi {
+  constructor(koreksiAwal, artikelAda = true) {
+    this.koreksi = new Map(koreksiAwal.map((k) => [k.id, { ...k }]));
+    this.artikelAda = artikelAda;
+    this.audit = [];
+    this.versiDisimpan = 0;
+    this.verifikasiDisimpan = [];
+  }
+  async getKoreksi({ id }) {
+    const k = this.koreksi.get(id);
+    return k ? { ...k } : null;
+  }
+  async perbaruiKoreksi({ id, status }) {
+    const k = this.koreksi.get(id);
+    if (!k) return null;
+    k.status = status;
+    return { ...k };
+  }
+  async catatAudit(input) {
+    this.audit.push({ ...input });
+  }
+  async getArtikel({ id }) {
+    if (!this.artikelAda) return null;
+    return {
+      id,
+      slug: "artikel-uji",
+      judul: "Artikel Uji",
+      subjudul: null,
+      ringkasan: "Ringkasan uji.",
+      isi: "Isi artikel uji.",
+      kategori_slug: "nasional",
+      subkategori_slug: null,
+      status_verifikasi: "VERIFIED",
+      status: "terbit",
+      penulis_nama: null,
+      penulis_id: null,
+      sumber_url: null,
+      gambar_url: null,
+      estimasi_baca_menit: 1,
+      kronologi: null,
+      fakta_penting: null,
+      data_pendukung: null,
+      mengapa_penting: null,
+      dampak: null,
+      belum_diketahui: null,
+      dijadwalkan_pada: null,
+      diterbitkan_pada: null,
+      diterbitkan_oleh: null,
+      dibuat_pada: new Date().toISOString(),
+      diperbarui_pada: new Date().toISOString(),
+    };
+  }
+  async getVersiTerakhir() {
+    return null;
+  }
+  async simpanVersi() {
+    this.versiDisimpan++;
+    return {
+      id: "v1", artikel_id: "a1", versi: 1, judul: null, isi: null,
+      dibuat_oleh: null, dibuat_pada: new Date().toISOString(), catatan: null,
+    };
+  }
+  async simpanVerification(input) {
+    this.verifikasiDisimpan.push({ ...input });
+    return {
+      id: "ver1", artikel_id: input.artikel_id, raw_item_id: null,
+      agen: input.agen, keputusan: input.keputusan, catatan: input.catatan,
+      bukti: input.bukti ?? [], dibuat_oleh: input.dibuat_oleh,
+      dibuat_pada: new Date().toISOString(),
+    };
+  }
+  async ubahStatusVerifikasiArtikel({ id }) {
+    return this.getArtikel({ id });
+  }
+}
+
+function buatKoreksi(id, status, artikelId) {
+  return {
+    id,
+    artikel_id: artikelId ?? null,
+    pelapor_id: null,
+    nama: "Pelapor Uji",
+    email: null,
+    pelapor_email: "uji@contoh.id",
+    jenis: "fakta_salah",
+    pesan: "Ada kesalahan fakta pada laporan ini.",
+    status,
+    nomor_lacak: "PF-12345678",
+    tautan_artikel: null,
+    dibuat_pada: new Date().toISOString(),
+  };
+}
+
+const AKTOR_UJI = { id: "editor-uji", email: "editor@contoh.id", ip: null };
+
+async function cekLempar(label, fn, polaPesan) {
+  try {
+    await fn();
+    cek(label, false, "tidak melempar (seharusnya melempar)");
+  } catch (e) {
+    const pesan = e instanceof Error ? e.message : String(e);
+    cek(label, pesan.includes(polaPesan), `pesan: "${pesan}"`);
+  }
+}
+
 // ---------- Alur utama ----------
 const db = new PGlite();
 const adapterIng = new AdapterPGliteIngestion(db);
@@ -497,6 +607,60 @@ try {
     }
   }
   if (gagal > 0) throw new Error("Migrasi gagal, dry-run dihentikan.");
+
+  // (a2) Tindak lanjut koreksi — mock adapter (F1/F2, remediasi Gel. 1).
+  // Berjalan SEBELUM bagian live (RSS) agar asersi ini tetap diuji
+  // walau fetch feed gagal. 10 kasus:
+  console.log(`\n--- TINDAK LANJUT KOREKSI (mock adapter) ---`);
+  {
+    // 1. F2: terima laporan TANPA artikel_id -> 'ditinjau', BUKAN throw.
+    const m1 = new AdapterMockKoreksi([buatKoreksi("k1", "baru", null)]);
+    const h1 = await tindaklanjutiKoreksi(m1, { koreksi_id: "k1", aksi: "terima", catatan: "Laporan umum valid." }, AKTOR_UJI);
+    cek("F2 terima tanpa artikel -> 'ditinjau' (bukan throw)", h1.status === "ditinjau", `status=${h1.status}`);
+    cek("F2 tanpa artikel: tidak ada versi/verifikasi artikel dibuat", m1.versiDisimpan === 0 && m1.verifikasiDisimpan.length === 0);
+    cek("F2 tanpa artikel: audit memakai aksi yang diizinkan CHECK v8", m1.audit[0]?.aksi === "koreksi.terima" && m1.audit[0]?.sesudah?.status === "ditinjau", `aksi=${m1.audit[0]?.aksi}, sesudah=${JSON.stringify(m1.audit[0]?.sesudah)}`);
+
+    // 2. Terima DENGAN artikel -> 'diperbaiki' (perilaku lama tetap).
+    const m2 = new AdapterMockKoreksi([buatKoreksi("k2", "baru", "a1")]);
+    const h2 = await tindaklanjutiKoreksi(m2, { koreksi_id: "k2", aksi: "terima", catatan: "Fakta memang salah." }, AKTOR_UJI);
+    cek("Terima dengan artikel -> 'diperbaiki'", h2.status === "diperbaiki", `status=${h2.status}`);
+    cek("Terima dengan artikel: versi baru + verification CORRECTED", m2.versiDisimpan === 1 && m2.verifikasiDisimpan[0]?.keputusan === "CORRECTED");
+
+    // 3. F1: tandai 'ditinjau' dari 'baru' -> 'ditinjau'.
+    const m3 = new AdapterMockKoreksi([buatKoreksi("k3", "baru", "a1")]);
+    const h3 = await tindaklanjutiKoreksi(m3, { koreksi_id: "k3", aksi: "ditinjau", catatan: "Sedang diperiksa redaksi." }, AKTOR_UJI);
+    cek("F1 tandai ditinjau dari 'baru' -> 'ditinjau'", h3.status === "ditinjau", `status=${h3.status}`);
+    cek("F1 tandai ditinjau: audit 'koreksi.terima' + sesudah.status 'ditinjau'", m3.audit[0]?.aksi === "koreksi.terima" && m3.audit[0]?.sesudah?.status === "ditinjau");
+
+    // 4. F1: tandai 'ditinjau' dari 'ditinjau' -> error.
+    const m4 = new AdapterMockKoreksi([buatKoreksi("k4", "ditinjau", "a1")]);
+    await cekLempar("F1 tandai ditinjau dari 'ditinjau' -> error", () => tindaklanjutiKoreksi(m4, { koreksi_id: "k4", aksi: "ditinjau", catatan: "Sekali lagi." }, AKTOR_UJI), "sudah ditinjau");
+
+    // 5. Terima dari 'ditinjau' (dengan artikel) -> boleh -> 'diperbaiki'.
+    const m5 = new AdapterMockKoreksi([buatKoreksi("k5", "ditinjau", "a1")]);
+    const h5 = await tindaklanjutiKoreksi(m5, { koreksi_id: "k5", aksi: "terima", catatan: "Selesai diperiksa, diterima." }, AKTOR_UJI);
+    cek("Terima dari 'ditinjau' -> 'diperbaiki' (diizinkan)", h5.status === "diperbaiki", `status=${h5.status}`);
+
+    // 6. Tolak dari 'ditinjau' -> boleh -> 'ditolak'.
+    const m6 = new AdapterMockKoreksi([buatKoreksi("k6", "ditinjau", "a1")]);
+    const h6 = await tindaklanjutiKoreksi(m6, { koreksi_id: "k6", aksi: "tolak", catatan: "Tidak terbukti." }, AKTOR_UJI);
+    cek("Tolak dari 'ditinjau' -> 'ditolak' (diizinkan)", h6.status === "ditolak", `status=${h6.status}`);
+
+    // 7. Terima/tolak dari terminal -> error.
+    const m7a = new AdapterMockKoreksi([buatKoreksi("k7a", "diperbaiki", "a1")]);
+    await cekLempar("Terima dari 'diperbaiki' (terminal) -> error", () => tindaklanjutiKoreksi(m7a, { koreksi_id: "k7a", aksi: "terima", catatan: "Lagi." }, AKTOR_UJI), "sudah ditindaklanjuti");
+    const m7b = new AdapterMockKoreksi([buatKoreksi("k7b", "ditolak", "a1")]);
+    await cekLempar("Tolak dari 'ditolak' (terminal) -> error", () => tindaklanjutiKoreksi(m7b, { koreksi_id: "k7b", aksi: "tolak", catatan: "Lagi." }, AKTOR_UJI), "sudah ditindaklanjuti");
+
+    // 8. Tolak tanpa artikel -> 'ditolak' (sudah begitu sebelum perbaikan).
+    const m8 = new AdapterMockKoreksi([buatKoreksi("k8", "baru", null)]);
+    const h8 = await tindaklanjutiKoreksi(m8, { koreksi_id: "k8", aksi: "tolak", catatan: "Laporan tidak berdasar." }, AKTOR_UJI);
+    cek("Tolak tanpa artikel -> 'ditolak'", h8.status === "ditolak", `status=${h8.status}`);
+
+    // 9. Pesan error lama hanya bila artikel_id ADA tapi barisnya tak ada.
+    const m9 = new AdapterMockKoreksi([buatKoreksi("k9", "baru", "a-hilang")], false);
+    await cekLempar("Terima, artikel_id ada tapi artikel tak ditemukan -> error", () => tindaklanjutiKoreksi(m9, { koreksi_id: "k9", aksi: "terima", catatan: "Cek." }, AKTOR_UJI), "Artikel laporan koreksi tidak ditemukan.");
+  }
 
   // (b) 3 sumber tier-1 dari pf_sources.
   const sumberRows = await db.query(

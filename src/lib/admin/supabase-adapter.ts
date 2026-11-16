@@ -340,7 +340,7 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     const { data, error } = await this.klien()
       .from("pf_correction_reports")
       .select(
-        "id,artikel_id,pelapor_id,nama,email,jenis,pesan,status,dibuat_pada",
+        "id,artikel_id,pelapor_id,nama,email,pelapor_email,jenis,pesan,status,nomor_lacak,tautan_artikel,dibuat_pada",
       )
       .eq("id", id)
       .maybeSingle();
@@ -354,7 +354,7 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     let q = this.klien()
       .from("pf_correction_reports")
       .select(
-        "id,artikel_id,pelapor_id,nama,email,jenis,pesan,status,dibuat_pada",
+        "id,artikel_id,pelapor_id,nama,email,pelapor_email,jenis,pesan,status,nomor_lacak,tautan_artikel,dibuat_pada",
       )
       .order("dibuat_pada", { ascending: false });
     if (input.status) q = q.eq("status", input.status);
@@ -375,7 +375,7 @@ export class SupabaseAdminAdapter implements AdminAdapter {
       .update({ status })
       .eq("id", id)
       .select(
-        "id,artikel_id,pelapor_id,nama,email,jenis,pesan,status,dibuat_pada",
+        "id,artikel_id,pelapor_id,nama,email,pelapor_email,jenis,pesan,status,nomor_lacak,tautan_artikel,dibuat_pada",
       )
       .maybeSingle();
     if (error) this.lempar("perbaruiKoreksi", error);

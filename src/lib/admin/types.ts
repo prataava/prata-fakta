@@ -43,6 +43,11 @@ export type AksiAudit =
   | "verifikasi.ubah"
   | "koreksi.terima"
   | "koreksi.tolak"
+  // CATATAN: 'koreksi.ditinjau' BELUM ada di sini maupun di CHECK
+  // pf_audit_logs_aksi_check_v8 (migrasi v8) — penandaan 'ditinjau'
+  // dicatat dengan 'koreksi.terima' + status di kolom detail
+  // (lihat tindaklanjutiKoreksi). Tambahkan aksi itu ke tipe DAN
+  // ke CHECK lewat migrasi lanjutan bila sudah diputuskan.
   | "pengguna.role"
   | "pengguna.nonaktif"
   | "pengguna.aktifkan"
@@ -212,13 +217,20 @@ export interface VerificationInput {
 
 export interface Koreksi {
   id: string;
-  artikel_id: string;
+  /** null bila laporan masyarakat tanpa artikel (nullable sejak migrasi v8). */
+  artikel_id: string | null;
   pelapor_id: string | null;
   nama: string | null;
   email: string | null;
+  /** Email pelapor laporan masyarakat (kolom v8; null untuk laporan lama). */
+  pelapor_email: string | null;
   jenis: string;
   pesan: string;
   status: StatusKoreksi;
+  /** Kode lacak laporan masyarakat (kolom v8; null untuk laporan lama). */
+  nomor_lacak: string | null;
+  /** Tautan artikel yang dilaporkan (kolom v8; null bila tidak ada). */
+  tautan_artikel: string | null;
   dibuat_pada: string;
 }
 

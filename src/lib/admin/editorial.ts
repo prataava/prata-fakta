@@ -419,7 +419,7 @@ export async function ubahStatusVerifikasi(
 
 export async function tindaklanjutiKoreksi(
   adapter: AdminAdapter,
-  input: { koreksi_id: string; aksi: "terima" | "tolak"; catatan: string },
+  input: { koreksi_id: string; aksi: "terima" | "tolak" | "ditinjau"; catatan: string },
   aktor: Aktor,
 ): Promise<{ status: string }> {
   const catatan = wajibTeks(input.catatan, "Catatan tindak lanjut", 2000);
@@ -430,12 +430,42 @@ export async function tindaklanjutiKoreksi(
       `Laporan koreksi ini sudah ditindaklanjuti (status: '${koreksi.status}').`,
     );
   }
+  // AKSI AUDIT: tidak ada 'koreksi.ditinjau' di CHECK
+  // pf_audit_logs_aksi_check_v8 (migrasi v8: 46 aksi, hanya
+  // 'koreksi.terima'/'koreksi.tolak') — jadi penandaan 'ditinjau'
+  // dicatat dengan aksi 'koreksi.terima' yang sudah diizinkan dan
+  // status 'ditinjau' tertulis eksplisit di kolom detail (sesudah).
+  // Aksi audit 'koreksi.ditinjau' yang eksplisit butuh migrasi
+  // lanjutan (v9) yang memperluas CHECK tersebut.
+  if (input.aksi === "ditinjau") {
+    if (koreksi.status === "ditinjau") {
+      throw new Error("Laporan koreksi ini sudah ditinjau.");
+    }
+    await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
+    await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
+      status: koreksi.status,
+    }, { status: "ditinjau", catatan });
+    return { status: "ditinjau" };
+  }
   if (input.aksi === "tolak") {
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditolak" });
     await catat(adapter, aktor, "koreksi.tolak", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditolak", catatan });
     return { status: "ditolak" };
+  }
+  // Terima laporan UMUM tanpa artikel_id (laporan masyarakat,
+  // artikel_id nullable sejak migrasi v8): tidak ada artikel yang
+  // dikoreksi — diterima untuk ditinjau redaksi, status 'ditinjau'.
+  if (!koreksi.artikel_id) {
+    const catatanUmum =
+      "Laporan umum tanpa artikel — diterima untuk ditinjau redaksi, " +
+      "tidak ada artikel yang dikoreksi.";
+    await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
+    await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
+      status: koreksi.status,
+    }, { status: "ditinjau", catatan: catatanUmum, catatan_moderator: catatan });
+    return { status: "ditinjau" };
   }
   // Terima: laporan 'diperbaiki' + versi baru + artikel CORRECTED +
   // verification record CORRECTED agen 'editor'.
