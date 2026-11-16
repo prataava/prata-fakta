@@ -249,6 +249,7 @@ export default async function Beranda() {
         </div>
         {pengguna == null ? (
           <EmptyState
+            varian="izin"
             judul="Masuk untuk rekomendasi personal"
             pesan="Rekomendasi disusun dari kategori yang Anda ikuti dan riwayat baca Anda. Buat akun gratis, pilih minat Anda, dan rekomendasi akan muncul di sini."
             aksi={

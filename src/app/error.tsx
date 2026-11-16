@@ -19,7 +19,7 @@ export default function Error({
 
   return (
     <div className="wadah">
-      <div className="kartu-form" role="alert">
+      <div className="kartu-form kartu-form--error" role="alert">
         <h1>Terjadi kesalahan</h1>
         <p>
           Maaf, halaman ini gagal dimuat. Coba muat lagi — bila masih

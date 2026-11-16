@@ -5,7 +5,7 @@ import Link from "next/link";
 export default function NotFound() {
   return (
     <div className="wadah">
-      <div className="kartu-form">
+      <div className="kartu-form kartu-form--tak-tersedia">
         <h1>Halaman tidak ditemukan</h1>
         <p>
           Alamat yang Anda buka tidak ada atau sudah dipindahkan.

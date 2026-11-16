@@ -50,7 +50,8 @@
   --elevated: #172235;
   --ink: #f1f5f9;
   --ink-2: #a0aec0;
-  --muted: #738197;
+  --muted: #7a8aa0; /* brief #738197 → dicerahkan agar kontras AA
+    pada --surface (4.38:1 → 4.92:1; diukur Fase 11, 16 Nov 2026) */
   --border: rgba(255, 255, 255, 0.1);
   --glass-bg: rgba(17, 27, 42, 0.72);
   --glass-border: rgba(255, 255, 255, 0.18);
@@ -125,6 +126,19 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Fokus keyboard terlihat (Fase 11 aksesibilitas): cincin aksen
+ * pada semua elemen interaktif, di kedua mode. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
@@ -359,8 +373,20 @@ main.konten {
   color: var(--muted);
 }
 
+/* Tagline hanya tampil bila ada ruang (≥1024px): di tablet
+ * 768–1023px wordmark + tagline + pencarian + aksi tidak muat
+ * sebaris (diukur CDP: Daftar terpotong 89px di 768px). */
+@media (max-width: 1023px) {
+  .logo-tag {
+    display: none;
+  }
+}
+
 .header-cari {
   flex: 1;
+  min-width: 0; /* WAJIB: tanpa ini flex item tidak mau menyusut di
+    bawah min-content form pencarian (diukur CDP: baris 768px
+    meluap 26px karena .header-cari macet di 340px). */
   display: none;
 }
 
@@ -413,10 +439,6 @@ main.konten {
     letter-spacing: 0;
   }
 
-  .logo-tag {
-    display: none;
-  }
-
   .header-aksi {
     gap: 4px;
   }
@@ -441,6 +463,14 @@ main.konten {
 }
 
 @media (max-width: 360px) {
+  .logo-nama {
+    font-size: 0.95rem;
+  }
+
+  .header-aksi .tombol {
+    padding: 6px 9px;
+  }
+
   .header-aksi .tombol-cari {
     display: none;
   }
@@ -467,7 +497,7 @@ main.konten {
 
 .nav-kategori a {
   flex-shrink: 0;
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 600;
@@ -531,6 +561,11 @@ main.konten {
 .tombol:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow);
+}
+
+/* Umpan balik tekan (Fase 8 micro-interaction). */
+.tombol:active {
+  transform: scale(0.97);
 }
 
 .tombol-primer {
@@ -840,6 +875,63 @@ a.kartu:hover {
   color: var(--ink);
   font-size: 1.2rem;
   margin-bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Titik aksen di depan judul empty state (pola hero-label). */
+.kosong h3::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Varian empty state premium (Fase 9): tiap jenis dibedakan lewat
+ * warna aksen + garis batas. Tanpa data palsu. */
+.kosong--error {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.kosong--error h3::before {
+  background: var(--danger);
+}
+
+.kosong--izin {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+}
+
+.kosong--izin h3::before {
+  background: var(--purple);
+}
+
+.kosong--tak-tersedia {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--cyan) 45%, transparent);
+}
+
+.kosong--tak-tersedia h3::before {
+  background: var(--cyan);
+}
+
+.kosong--memuat h3::before {
+  animation: denyut 1.4s ease-in-out infinite;
+}
+
+@keyframes denyut {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .kosong p {
@@ -938,6 +1030,16 @@ a.kartu:hover {
   font-family: var(--font-serif);
   font-size: 1.6rem;
   margin-bottom: 6px;
+}
+
+/* Panel form error / tak-tersedia (Fase 9): aksen atas membedakan
+ * halaman error (danger) dari 404 (cyan). */
+.kartu-form--error {
+  border-top: 3px solid var(--danger);
+}
+
+.kartu-form--tak-tersedia {
+  border-top: 3px solid var(--cyan);
 }
 
 .kartu-form > p {
@@ -1335,7 +1437,7 @@ a.kartu:hover {
 }
 
 .chip {
-  padding: 7px 14px;
+  padding: 9px 16px;
   border-radius: 999px;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
