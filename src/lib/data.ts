@@ -271,6 +271,9 @@ export type PfArtikelLengkap = {
    *  artikel publik. */
   koreksi_pada: string | null;
   kategori_nama: string | null;
+  /** Kode negara ISO-2 (kolom v10, FK ke pf_countries.kode) —
+   *  dipakai tautan artikel → profil negara (Tahap 14). */
+  negara_kode: string | null;
   tags: { slug: string; nama: string }[];
   sumber_list: { nama: string; url: string }[];
 };
@@ -284,7 +287,7 @@ export type PfVersiArtikel = {
 };
 
 const KOLOM_ARTIKEL_LENGKAP =
-  "id, slug, judul, subjudul, ringkasan, isi, kategori_slug, subkategori_slug, status_verifikasi, status, penulis_nama, penulis_id, sumber_url, gambar_url, estimasi_baca_menit, kronologi, fakta_penting, data_pendukung, mengapa_penting, dampak, belum_diketahui, dijadwalkan_pada, diterbitkan_pada, dibuat_pada, diperbarui_pada";
+  "id, slug, judul, subjudul, ringkasan, isi, kategori_slug, subkategori_slug, status_verifikasi, status, penulis_nama, penulis_id, sumber_url, gambar_url, estimasi_baca_menit, kronologi, fakta_penting, data_pendukung, mengapa_penting, dampak, belum_diketahui, dijadwalkan_pada, diterbitkan_pada, dibuat_pada, diperbarui_pada, negara_kode";
 
 const KOLOM_ARTIKEL_RINGKAS =
   "id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada";
@@ -410,6 +413,10 @@ export async function getArtikelLengkap(
       kategori_nama:
         kat.data && !kat.error
           ? ((kat.data as { nama: string }).nama ?? null)
+          : null,
+      negara_kode:
+        typeof row.negara_kode === "string" && row.negara_kode
+          ? row.negara_kode
           : null,
       tags,
       sumber_list,

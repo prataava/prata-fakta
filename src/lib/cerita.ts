@@ -499,6 +499,49 @@ export async function getCerita(
   }
 }
 
+/** Cerita TERBIT yang memuat artikel ini (Tahap 14 — tautan
+ *  artikel → cerita). Satu artikel bisa ditautkan ke beberapa
+ *  cerita; yang dikembalikan adalah tautan terbaru. Hanya cerita
+ *  berstatus 'terbit' (join inner + filter status) — tautan ke
+ *  cerita draf TIDAK bocor. Gagal-aman: null bila tabel belum ada
+ *  atau query gagal; pemanggil menampilkan tanpa kartu cerita. */
+export type PfCeritaUntukArtikel = {
+  slug: string;
+  judul: string;
+  status_perkembangan: string;
+};
+
+export async function getCeritaUntukArtikel(
+  artikelId: string,
+): Promise<PfCeritaUntukArtikel | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("pf_story_articles")
+      .select("pf_stories!inner(slug, judul, status, status_perkembangan)")
+      .eq("artikel_id", artikelId)
+      .eq("pf_stories.status", "terbit")
+      .order("dibuat_pada", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const cerita = (data as unknown as Record<string, unknown>).pf_stories as
+      | { slug?: unknown; judul?: unknown; status_perkembangan?: unknown }
+      | null;
+    if (!cerita || typeof cerita.slug !== "string") return null;
+    return {
+      slug: cerita.slug,
+      judul: typeof cerita.judul === "string" ? cerita.judul : cerita.slug,
+      status_perkembangan:
+        typeof cerita.status_perkembangan === "string"
+          ? cerita.status_perkembangan
+          : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Cerita TERBIT yang diikuti pengguna, terbaru dulu. */
 export async function getCeritaDiikuti(
   userId: string,
