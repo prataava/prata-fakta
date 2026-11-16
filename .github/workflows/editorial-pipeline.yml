@@ -10,8 +10,9 @@
 # terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
 # dari endpoint (bukan error workflow).
 #
-# Jadwal: pipeline editorial setiap 6 jam (00, 06, 12, 18 UTC = 07, 13, 19,
-# 01 WIB): memproses 10 item UNCONFIRMED teratas dari antrean.
+# Jadwal: pipeline editorial setiap 2 jam: memproses sampai 50 item dari
+# antrean, dipecah jadi panggilan-panggilan kecil 10 item (satu panggilan
+# 50 item terbukti timeout 504 di gateway — run #2, 17 Nov 2026).
 # Artikel yang dihasilkan SELALU status='draft' — workflow ini TIDAK
 # PERNAH menerbitkan langsung.
 #
@@ -35,7 +36,7 @@
 # akhir run memperbaiki draf/tautan yatim). Memicu ulang endpoint
 # berarti memproses ulang antrean — itulah "mengulang seluruh job"
 # yang dilarang Tahap E. Bila POST ini gagal sementara, run cron
-# 6 jam berikutnya yang mengambil alih; kegagalan sebagian sudah
+# 2 jam berikutnya yang mengambil alih; kegagalan sebagian sudah
 # terlihat lewat assert di bawah + pf_ai_runs.
 # Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
 # `ok != true` atau `gagal > 0`, bukan hanya bila HTTP non-2xx.
@@ -67,19 +68,50 @@ concurrency:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Pemicu pipeline editorial
         run: |
-          LIMIT="${{ inputs.limit }}"
-          if [ -z "$LIMIT" ]; then LIMIT="50"; fi
-          RESP="$(mktemp)"
-          curl --fail-with-body -sS -X POST \
-            "${{ secrets.PF_SITE_URL }}/api/ai/jalankan" \
-            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"dipicu_oleh\":\"github_actions\",\"limit\":$LIMIT}" \
-            -o "$RESP"
-          echo "Respons pipeline: $(cat "$RESP")"
-          jq -e '.ok == true and (.gagal // 0) == 0' "$RESP" >/dev/null \
-            || { echo "ASSERT GAGAL: pipeline melaporkan gagal > 0 atau ok != true"; exit 1; }
+          # Batas gateway: satu panggilan sinkron yang memproses 50 item
+          # memakan waktu >~5 menit dan diputus 504 (terbukti run #2,
+          # 17 Nov 2026). Karena itu target dipecah jadi panggilan-
+          # panggilan kecil 10 item — ukuran yang terbukti selesai —
+          # maksimal 5 panggilan per run. Antrean dikuras bertahap
+          # tanpa satu panggilan pun melewati batas waktu gateway.
+          TARGET="${{ inputs.limit }}"
+          if [ -z "$TARGET" ]; then TARGET="50"; fi
+          TOTAL_DIPROSES=0
+          TOTAL_DRAF=0
+          TOTAL_GAGAL=0
+          PANGGILAN=0
+          while [ "$PANGGILAN" -lt 5 ] && [ "$TOTAL_DIPROSES" -lt "$TARGET" ]; do
+            PANGGILAN=$((PANGGILAN + 1))
+            SISA=$((TARGET - TOTAL_DIPROSES))
+            if [ "$SISA" -gt 10 ]; then SISA=10; fi
+            RESP="$(mktemp)"
+            curl --fail-with-body -sS -X POST \
+              "${{ secrets.PF_SITE_URL }}/api/ai/jalankan" \
+              -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"dipicu_oleh\":\"github_actions\",\"limit\":$SISA}" \
+              -o "$RESP"
+            echo "Respons pipeline panggilan $PANGGILAN: $(cat "$RESP")"
+            jq -e '.ok == true' "$RESP" >/dev/null \
+              || { echo "ASSERT GAGAL: pipeline panggilan $PANGGILAN melaporkan ok != true"; exit 1; }
+            DIPROSES="$(jq -r '.diproses // 0' "$RESP")"
+            DRAF="$(jq -r '.draf // 0' "$RESP")"
+            GAGAL="$(jq -r '.gagal // 0' "$RESP")"
+            TOTAL_DIPROSES=$((TOTAL_DIPROSES + DIPROSES))
+            TOTAL_DRAF=$((TOTAL_DRAF + DRAF))
+            TOTAL_GAGAL=$((TOTAL_GAGAL + GAGAL))
+            rm -f "$RESP"
+            if [ "$DIPROSES" -eq 0 ]; then
+              echo "Antrean kosong — berhenti sesudah $PANGGILAN panggilan."
+              break
+            fi
+          done
+          echo "Total: diproses=$TOTAL_DIPROSES draf=$TOTAL_DRAF gagal=$TOTAL_GAGAL (target=$TARGET, panggilan=$PANGGILAN)"
+          if [ "$TOTAL_GAGAL" -gt 0 ]; then
+            echo "ASSERT GAGAL: pipeline melaporkan gagal > 0"
+            exit 1
+          fi
