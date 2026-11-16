@@ -136,9 +136,19 @@ img {
 main.konten {
   flex: 1;
   width: 100%;
-  /* Ruang untuk bottom nav mobile: tinggi dock 66px + 12px mengambang
+  /* Ruang untuk bottom nav mobile: tinggi dock 68px + 10px mengambang
    * + safe area — konten terakhir tidak boleh tertutup nav. */
   padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 767px) {
+  /* Footer juga harus bebas dari dock: baris terakhir (hak cipta)
+   * sebelumnya tertutup lensa kaca saat gulir mentok (ditemukan
+   * verifikasi CDP V2, 16 Nov 2026) — footer bukan anak main,
+   * jadi padding main.konten tidak melindunginya. */
+  .footer {
+    padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 @media (min-width: 768px) {
