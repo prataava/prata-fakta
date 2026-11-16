@@ -8,7 +8,8 @@
 // sudah ada (tambah modul dulu lewat PATCH yang sama, lalu
 // pelajaran di panggilan berikutnya). Semua id diverifikasi
 // milik kursus ini sebelum ditulis. Aksi audit: 'akademi.kursus'
-// (field kursus) dan 'akademi.modul' (struktur isi) — CHECK v9 §6.
+// (field kursus) dan 'akademi.modul' (struktur isi) — CHECK v11 §3.
+// Audit FAIL-CLOSED (Tahap 13A, T10): gagal audit → operasi ditolak.
 import { NextResponse } from "next/server";
 import {
   autentikasiAdmin,
@@ -20,6 +21,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -307,30 +309,6 @@ export function validasiStruktur(
   return { ok: true, modul, pelajaran };
 }
 
-async function catatAuditAkademi(
-  service: ReturnType<typeof createServiceClient>,
-  aktor: { id: string; email?: string | null },
-  aksi: "akademi.kursus" | "akademi.modul",
-  entitasId: string | null,
-  sesudah: unknown,
-  ip: string | null,
-): Promise<void> {
-  try {
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktor.id,
-      aktor_email: aktor.email ?? null,
-      aksi,
-      entitas: "akademi",
-      entitas_id: entitasId,
-      sebelum: {},
-      sesudah: (sesudah ?? {}) as Record<string, unknown>,
-      ip,
-    });
-  } catch (err) {
-    console.error("Audit akademi gagal:", err);
-  }
-}
-
 async function muatDetail(
   service: ReturnType<typeof createServiceClient>,
   id: string,
@@ -365,7 +343,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -394,7 +372,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -583,27 +561,37 @@ export async function PATCH(
         }
         throw error;
       }
-      await catatAuditAkademi(
-        service,
-        auth.user,
-        "akademi.kursus",
-        id,
-        validKursus.data,
-        ipDariRequest(req),
-      );
+      // Audit FAIL-CLOSED (Tahap 13A, T10): helper lama best-effort
+      // (gagal insert hanya console.error) DIGANTI catatAuditWajib —
+      // gagal audit melempar dan route menjawab 500/503.
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "akademi.kursus",
+        entitas: "pf_courses",
+        entitas_id: id,
+        sebelum: null,
+        sesudah: validKursus.data,
+        ip: ipDariRequest(req),
+      });
     }
     if (
       validStruktur.modul.length > 0 ||
       validStruktur.pelajaran.length > 0
     ) {
-      await catatAuditAkademi(
-        service,
-        auth.user,
-        "akademi.modul",
-        id,
-        { modul: validStruktur.modul, pelajaran: validStruktur.pelajaran },
-        ipDariRequest(req),
-      );
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "akademi.modul",
+        entitas: "pf_course_modules",
+        entitas_id: id,
+        sebelum: null,
+        sesudah: {
+          modul: validStruktur.modul,
+          pelajaran: validStruktur.pelajaran,
+        },
+        ip: ipDariRequest(req),
+      });
     }
 
     const detailBaru = await muatDetail(service, id);
@@ -617,7 +605,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -642,14 +630,17 @@ export async function DELETE(
         { status: 404 },
       );
     }
-    await catatAuditAkademi(
-      service,
-      auth.user,
-      "akademi.kursus",
-      id,
-      data,
-      ipDariRequest(req),
-    );
+    // Audit FAIL-CLOSED (Tahap 13A, T10): lihat catatan di PATCH.
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "akademi.kursus",
+      entitas: "pf_courses",
+      entitas_id: id,
+      sebelum: data ?? null,
+      sesudah: null,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, kursus: data });
   } catch (err) {
     return responGalatAdmin(err);

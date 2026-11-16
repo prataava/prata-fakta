@@ -18,11 +18,13 @@ import {
 import { bandingkanSecret } from "@/lib/ai/route-auth";
 import { buatAdminAdapter } from "@/lib/admin/supabase-adapter";
 import { terbitkanTerjadwal } from "@/lib/admin/editorial";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 
 const lolosRateLimit = buatRateLimiterAdmin();
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const secretEnv = process.env.PF_AI_SECRET;
   const secretHeader = req.headers.get("x-pf-ai-secret");
@@ -83,14 +85,51 @@ export async function POST(req: Request) {
     aktor = { id: user.id, email: user.email ?? null };
   }
 
+  const adapter = buatAdminAdapter();
+
+  // --- Lock server-side (Tahap 13C, F3) + F6 ---
+  // Klaim dilakukan DI LUAR try/finally di bawah: bila lock
+  // dipegang run lain (409), finally TIDAK BOLEH menimpa status
+  // pemilik lock dengan 'gagal'.
+  const klienLock = cobaServiceClient();
+  const klaim = klienLock
+    ? await klaimJob(klienLock, "terbitkan-terjadwal")
+    : {
+        diklaim: false,
+        tersedia: false,
+        alasan: "service key belum diatur",
+      };
+  if (klaim.tersedia && !klaim.diklaim) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Job terbitkan-terjadwal sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+      },
+      { status: 409 },
+    );
+  }
+  const infoLock = klaim.diklaim
+    ? "diklaim"
+    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+
+  let okRun = false;
+  let galatRun: string | null = null;
   try {
-    const adapter = buatAdminAdapter();
     const hasil = await terbitkanTerjadwal(adapter, {
       ...aktor,
       ip: ipDariRequest(req),
     });
-    return NextResponse.json({ ok: true, ...hasil });
+    okRun = true;
+    return NextResponse.json({ ok: true, lock: infoLock, ...hasil });
   } catch (err) {
+    galatRun = err instanceof Error ? err.message : "galat tak dikenal";
     return responGalatAdmin(err);
+  } finally {
+    // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
+    // setiap run cron (berhasil maupun gagal).
+    if (klienLock) {
+      await selesaikanJob(klienLock, "terbitkan-terjadwal", okRun, galatRun);
+    }
   }
 }

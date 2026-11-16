@@ -5,7 +5,6 @@ import { NextResponse } from "next/server";
 import {
   autentikasiAdmin,
   buatRateLimiterAdmin,
-  ipDariRequest,
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
@@ -17,7 +16,7 @@ const lolosRateLimit = buatRateLimiterAdmin();
 const STATUS_VALID: StatusKoreksi[] = ["baru", "ditinjau", "diperbaiki", "ditolak"];
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
 

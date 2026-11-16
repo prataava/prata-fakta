@@ -2,27 +2,25 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import { fetchAman, tolakHostPrivat } from "@/lib/ingestion/ssrf";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+import {
+  catatAuditWajib,
+  responGalatAudit,
+} from "@/lib/admin/audit";
 
 // POST /api/sumber/[id]/cek — periksa koneksi sumber, HANYA super_admin/editor.
 // Mengambil URL sumber, mengukur waktu respons, dan menyimpan hasilnya ke
 // terakhir_cek + status_terakhir. Kegagalan koneksi sumber adalah HASIL
 // pemeriksaan (ok:false), bukan error server — tidak pernah 500 karenanya.
-// Rate limiting: 10 req/menit/IP (pola /api/langganan).
-const BATAS = 10;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+// Rate limiting: 10 req/menit (limiter database lintas instance,
+// Tahap 13A, T3). Audit fail-closed (Tahap 13A, T10): setiap
+// pemeriksaan menulis "sumber.cek" dengan admin + waktu + hasil;
+// gagal audit → operasi ditolak (bukan ok:false diam-diam).
+const batasi = buatRateLimiter(10);
 
 const TIMEOUT_MS = 10_000;
 
@@ -30,14 +28,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   const { id } = await params;
 
@@ -101,6 +92,41 @@ export async function POST(
   let http: number | null = null;
   let ok = false;
   let statusTerakhir: string;
+
+  // Audit fail-closed (Tahap 13A, T10): pemeriksaan sumber dicatat
+  // dengan admin + waktu + hasil. Mengembalikan respons penolakan
+  // (503/500) bila audit gagal, null bila tercatat.
+  // (aktor ditangkap ke const agar narrowing user lolos ke closure.)
+  const aktorId = user.id;
+  const aktorEmail = user.email ?? null;
+  async function auditHasil(
+    hasilOk: boolean,
+    hasilHttp: number | null,
+    hasilMs: number,
+    hasilStatus: string,
+  ): Promise<NextResponse | null> {
+    try {
+      await catatAuditWajib({
+        aktor_id: aktorId,
+        aktor_email: aktorEmail,
+        aksi: "sumber.cek",
+        entitas: "pf_sources",
+        entitas_id: id,
+        sebelum: null,
+        sesudah: {
+          nama: (sumber as { nama: string }).nama,
+          ok: hasilOk,
+          http: hasilHttp,
+          ms: hasilMs,
+          status_terakhir: hasilStatus,
+        },
+        ip: ipDariRequest(req),
+      });
+      return null;
+    } catch (err) {
+      return responGalatAudit(err);
+    }
+  }
   // Pelindung SSRF (Fase 7): tolak host privat sebelum fetch.
   const ditolak = await tolakHostPrivat(sumber.url as string);
   if (ditolak) {
@@ -113,6 +139,8 @@ export async function POST(
         status_terakhir: statusTerakhir,
       })
       .eq("id", id);
+    const auditGagal = await auditHasil(false, null, ms, statusTerakhir);
+    if (auditGagal) return auditGagal;
     return NextResponse.json({
       ok: false,
       http: null,
@@ -156,6 +184,9 @@ export async function POST(
       status_terakhir: statusTerakhir,
     })
     .eq("id", id);
+
+  const auditGagal = await auditHasil(ok, http, ms, statusTerakhir);
+  if (auditGagal) return auditGagal;
 
   return NextResponse.json({
     ok,

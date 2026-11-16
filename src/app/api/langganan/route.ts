@@ -1,41 +1,24 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  buatRateLimiter,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
 
 // POST /api/langganan — pendaftaran newsletter (email saja).
 // Validasi format email + dedupe lewat constraint unique di database.
-// Rate limiting: dibatasi 5 request/menit/IP lewat header sederhana di sini
-// (Fase 7: pindahkan ke Upstash/edge bila volume naik).
+// Rate limiting: 5 request/menit (limiter database lintas instance,
+// Tahap 13A, T3 — menggantikan Map in-memory per instance).
 // T5 (Fase 8 Gelombang 1): INSERT via service role — policy INSERT
 // anonim "pf_newsletter daftar publik" DICABUT di migrasi v8, jadi
 // session client tidak bisa lagi insert. 503 jujur bila service key
 // belum diatur.
-const BATAS = 5;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+const batasi = buatRateLimiter(5);
 
 const POLA_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   let email = "";
   try {

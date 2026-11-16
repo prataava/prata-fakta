@@ -10,7 +10,13 @@ import {
 } from "@/lib/ingestion/engine";
 import { buatSupabaseAdapter } from "@/lib/ingestion/supabase-adapter";
 import { fetchGdelt } from "@/lib/ingestion/gdelt";
-import { bandingkanSecret } from "@/lib/ai/route-auth";
+import {
+  bandingkanSecret,
+  buatRateLimiter,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
+import { bacaFlag } from "@/lib/scheduler/flags";
 
 // POST /api/ingestion/jalankan — memicu ingestion dari sumber aktif.
 // Autentikasi DUA jalur:
@@ -31,22 +37,9 @@ import { bandingkanSecret } from "@/lib/ai/route-auth";
 // topik; hasil ingestion GDELT yang sebenarnya dicatat engine sebagai
 // run sumber 'GDELT DOC API' (bila sumber itu terdaftar). Bila sumber
 // itu tidak ada, hasil pemeriksaan dilewati dengan catatan di respons.
-// Rate limiting: 10 req/menit/IP (pola /api/langganan).
-const BATAS = 10;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+// Rate limiting: 10 req/menit (limiter database lintas instance,
+// Tahap 13A, T3 — menggantikan Map in-memory per instance).
+const batasi = buatRateLimiter(10);
 
 type DipicuOleh = "manual" | "github_actions" | "cron_muse";
 
@@ -59,14 +52,7 @@ const TOTAL_KOSONG = {
 };
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   // --- Autentikasi dua jalur ---
   const secretEnv = process.env.PF_INGESTION_SECRET;
@@ -172,6 +158,21 @@ export async function POST(req: Request) {
     );
   }
 
+  // --- Penegakan flag (Tahap 13C): ingestion_aktif=false ->
+  // 503 jujur. Dibaca sesudah autentikasi (bukan sebelum) agar
+  // status flag tidak bocor ke pemanggil tak terautentikasi.
+  // Tabel flag belum ada -> bawaan true (jalan seperti semula).
+  if (!(await bacaFlag(service, "ingestion_aktif", true))) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Ingestion dinonaktifkan oleh admin (flag ingestion_aktif).",
+      },
+      { status: 503 },
+    );
+  }
+
   // --- Baca sumber aktif ---
   let query = service
     .from("pf_sources")
@@ -197,6 +198,26 @@ export async function POST(req: Request) {
     );
   }
 
+  // --- Lock server-side (Tahap 13C, F3): dua run bersamaan
+  // tidak memproses batch yang sama. Lock tak tersedia (baris/
+  // tabel job belum ada) -> jalan tanpa lock + dicatat di respons.
+  const klaim = await klaimJob(service, "ingestion");
+  if (klaim.tersedia && !klaim.diklaim) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Job ingestion sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+      },
+      { status: 409 },
+    );
+  }
+  const infoLock = klaim.diklaim
+    ? "diklaim"
+    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+
+  let okRun = false;
+  let galatRun: string | null = null;
   try {
     // --- GDELT per topik (bila diminta): fetch SATU kali, maks 5 ---
     let gdelt: {
@@ -253,20 +274,28 @@ export async function POST(req: Request) {
       gdelt.baru = runGdelt ? runGdelt.baru : 0;
     }
 
+    okRun = true;
     return NextResponse.json({
       ok: true,
       dipicu_oleh: dipicuOleh,
+      lock: infoLock,
       per_sumber: perSumber,
       total,
       ...(gdelt ? { gdelt } : {}),
     });
   } catch (err) {
+    galatRun =
+      err instanceof Error ? err.message : "kesalahan tidak diketahui";
     return NextResponse.json(
       {
         ok: false,
-        error: `Ingestion gagal: ${err instanceof Error ? err.message : "kesalahan tidak diketahui"}`,
+        error: `Ingestion gagal: ${galatRun}`,
       },
       { status: 500 },
     );
+  } finally {
+    // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
+    // setiap run cron (berhasil maupun gagal).
+    await selesaikanJob(service, "ingestion", okRun, galatRun);
   }
 }

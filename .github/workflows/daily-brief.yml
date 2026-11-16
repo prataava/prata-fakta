@@ -1,0 +1,65 @@
+# PRATA FAKTA — Daily Brief (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL   = URL deploy, mis. https://prata-fakta.vercel.app
+#                   (TANPA trailing slash)
+#   PF_AI_SECRET  = secret pemicu endpoint AI; nilainya HARUS sama dengan
+#                   env PF_AI_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
+# dari endpoint (bukan error workflow).
+#
+# Jadwal: Daily Brief setiap hari 22:00 UTC (= 05:00 WIB): menyusun brief
+# hari itu dari draf artikel terbaru + antrean. Brief disimpan sebagai
+# 'draft' (upsert per tanggal) — penerbitan tetap butuh persetujuan
+# editorial (Fase 5).
+#
+# Sejarah (Tahap 13C, F2/F4): file ini dulu bagian dari
+# `.github/workflows/editorial.yml` (3 jadwal, gating string
+# `github.event.schedule == '...'` yang rapuh). Kini workflow
+# sendiri — tanpa perbandingan string jadwal sama sekali.
+#
+# Concurrency (F3): satu run brief pada satu waktu
+# (cancel-in-progress false).
+# Retry (F8): curl --retry 2 --retry-delay 10 — Daily Brief hanya
+# 1x/hari, jadi satu kegagalan sementara tidak boleh menghilangkan
+# brief hari itu.
+# Assert respons (F5): job gagal bila `ok != true` atau respons
+# tidak memuat briefId.
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow) dan di tabel
+# pf_daily_briefs (tidak ada baris tanggal itu) /
+# pf_scheduled_jobs (status_terakhir='gagal', error_terakhir).
+# Lihat LAPORAN-FASE-8 §14.
+
+name: Daily Brief PRATA FAKTA
+
+on:
+  schedule:
+    # Daily Brief setiap hari 22:00 UTC (= 05:00 WIB).
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: prata-fakta-daily-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pemicu Daily Brief
+        run: |
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/ai/brief" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"dipicu_oleh":"github_actions"}' \
+            -o "$RESP"
+          echo "Respons brief: $(cat "$RESP")"
+          jq -e '.ok == true and (.briefId | type == "string")' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: brief melaporkan ok != true atau tanpa briefId"; exit 1; }

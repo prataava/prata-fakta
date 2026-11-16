@@ -14,6 +14,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -36,7 +37,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -163,6 +164,20 @@ export async function PATCH(
         { status: 404 },
       );
     }
+    // Audit fail-closed (Tahap 13A, T10): perubahan status ke
+    // terbit → podcast.terbit, perubahan lain → podcast.episode.
+    // Gagal audit → operasi ditolak (galat naik ke responGalatAdmin).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi:
+        patch.status === "terbit" ? "podcast.terbit" : "podcast.episode",
+      entitas: "pf_podcast_episodes",
+      entitas_id: id,
+      sebelum: null,
+      sesudah: patch,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, episode: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -173,7 +188,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -187,11 +202,27 @@ export async function DELETE(
     );
   }
   try {
-    const { error } = await service
+    const { data, error } = await service
       .from("pf_podcast_episodes")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .select("id, slug, judul, status");
     if (error) throw error;
+    // Audit fail-closed (Tahap 13A, T10): hapus episode dicatat
+    // sebagai podcast.episode (tidak ada aksi podcast.hapus —
+    // konvensi Gelombang 2). Hanya bila ada baris yang terhapus.
+    if (data && data.length > 0) {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "podcast.episode",
+        entitas: "pf_podcast_episodes",
+        entitas_id: id,
+        sebelum: data[0] ?? null,
+        sesudah: null,
+        ip: ipDariRequest(req),
+      });
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return responGalatAdmin(err);

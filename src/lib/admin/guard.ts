@@ -86,8 +86,13 @@ export function ambilIp(req: Request): string {
   return ipDariRequest(req);
 }
 
-/** Rate limiter bersama route admin: 30 req/menit/IP. */
-export function buatRateLimiterAdmin(): (ip: string) => boolean {
+/** Rate limiter bersama route admin: 30 req/menit (lintas instance,
+ * Tahap 13A, T3 — lihat src/lib/ai/route-auth.ts). Mengembalikan
+ * fungsi ASINKRON atas Request; pemanggil WAJIB await:
+ *   if (!(await lolosRateLimit(req))) return responRateLimit(); */
+export function buatRateLimiterAdmin(): (
+  req: Request,
+) => Promise<boolean> {
   return buatRateLimiter(30);
 }
 

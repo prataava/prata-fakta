@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  buatRateLimiter,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
 // Body: { soal_id: UUID, jawaban: 0..4 }
@@ -12,7 +16,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 // mengembalikan kunci soal ITU SAJA sesudah dijawab (pengguna
 // memang melihat kunci sesudah menjawab — itu perilaku kuis yang
 // benar). Pengambilan massal kunci tanpa bermain menjadi tidak
-// mungkin. Rate limit 20/menit/IP (5 soal + main ulang).
+// mungkin. Rate limit 20/menit (limiter database lintas instance,
+// Tahap 13A, T3; 5 soal + main ulang).
 // Boleh anonim (kuis bersifat publik). 503 jujur bila tabel belum
 // ada; 404 bila soal tidak ada atau bukan kuis hari ini/kemarin.
 // T1-sisa (Fase 8 Gelombang 1): kunci dibaca via service role —
@@ -22,21 +27,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const BATAS = 20;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+const batasi = buatRateLimiter(20);
 
 /** Validasi murni body permintaan (diekspos untuk uji). */
 export function validasiJawabanKuis(
@@ -78,15 +69,7 @@ function kemarinWib(tanggal: string): string {
 }
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   let body: unknown;
   try {

@@ -3,6 +3,7 @@
 // Hak cipta: yang disimpan hanya metadata + ringkasan sumber + URL;
 // JANGAN pernah menyalin isi penuh artikel media lain ke database.
 import { fetchAman, tolakHostPrivat } from "./ssrf.ts";
+import { tolakHostFeed, tolakHostFeedAman } from "./feed-allowlist.ts";
 
 export interface ItemMentah {
   url: string;
@@ -22,6 +23,11 @@ export interface OpsiFetchRss {
   timeoutMs?: number;
   // fetch pengganti (untuk pengujian / fallback curl di dry-run).
   fetchFn?: typeof fetch;
+  // Lewati allowlist host feed — HANYA untuk uji dengan fetch mock
+  // (sumber sintetis contoh.test di scripts/uji-ingestion.mjs).
+  // JANGAN PERNAH diisi di jalur produksi: allowlist adalah
+  // pertahanan lapis-2 SSRF untuk ingestion (Tahap 13B).
+  lewatiAllowlist?: boolean;
 }
 
 export interface HasilFetchRss {
@@ -229,6 +235,14 @@ export async function fetchRss(
   // URL yang sama akan ditolak baik di produksi maupun di uji.
   const ditolak = await tolakHostPrivat(url);
   if (ditolak) throw new Error(`Feed ditolak: ${ditolak}`);
+  // Tahap 13B (T6, lapis 2): feed ingestion HANYA dari host di
+  // allowlist (feed-allowlist.ts) — berlaku juga untuk target
+  // redirect (periksaHost diteruskan ke fetchAman untuk semua hop).
+  // lewatiAllowlist HANYA untuk uji mock; produksi selalu memeriksa.
+  if (!opsi.lewatiAllowlist) {
+    const ditolakAllowlist = tolakHostFeed(url);
+    if (ditolakAllowlist) throw new Error(`Feed ditolak: ${ditolakAllowlist}`);
+  }
   const ambil = opsi.fetchFn ?? fetch;
   let respons: Response;
   try {
@@ -244,6 +258,12 @@ export async function fetchRss(
         signal: AbortSignal.timeout(timeoutMs),
       },
       ambil,
+      opsi.lewatiAllowlist
+        ? {}
+        : {
+            periksaHost: tolakHostFeedAman,
+            periksaHopLanjutan: tolakHostFeedAman,
+          },
     );
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);

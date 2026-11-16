@@ -4,7 +4,6 @@ import { buatSupabaseAiAdapter } from "@/lib/ai/supabase-adapter";
 import {
   autentikasiStaf,
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 
@@ -23,7 +22,7 @@ import {
 const lolosRateLimit = buatRateLimiter(30);
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const galatAuth = await autentikasiStaf();
   if (galatAuth) return galatAuth;

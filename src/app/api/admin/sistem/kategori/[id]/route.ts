@@ -25,7 +25,7 @@ type Params = { params: Promise<{ id: string }> };
 const FIELD_PATCH = ["nama", "deskripsi", "induk_id", "urutan", "aktif"] as const;
 
 export async function PATCH(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -69,7 +69,7 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

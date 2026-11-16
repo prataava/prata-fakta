@@ -8,9 +8,9 @@ const nextConfig: NextConfig = {
     return [
       {
         // Header keamanan untuk semua rute (Fase 7).
-        // CSP belum dipasang — CSP butuh pengujian nonce/hash dan
-        // berisiko memblokir skrip tema anti-kedip di <head>;
-        // dicatat sebagai pekerjaan lanjutan di LAPORAN-AKHIR.md.
+        // CSP TIDAK di sini: butuh nonce unik per request, jadi
+        // dipasang di src/proxy.ts (Tahap 13B, lihat src/lib/csp.ts)
+        // — header statis di next.config tidak bisa membawa nonce.
         source: "/(.*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },

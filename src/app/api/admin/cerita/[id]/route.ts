@@ -14,6 +14,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 import { validasiCeritaInput } from "../route";
 import { isUuid } from "../../event/route";
@@ -36,7 +37,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -105,6 +106,23 @@ export async function PATCH(
             }
             throw error;
           }
+          // Audit fail-closed (Tahap 13A, T10): tautan event ke
+          // cerita dicatat sebagai cerita.ubah (entitas cerita).
+          await catatAuditWajib({
+            aktor_id: auth.user.id,
+            aktor_email: auth.user.email ?? null,
+            aksi: "cerita.ubah",
+            entitas: "pf_stories",
+            entitas_id: id,
+            sebelum: null,
+            sesudah: {
+              tautan: "tambah_event",
+              event_id: eventId,
+              urutan,
+              catatan,
+            },
+            ip: ipDariRequest(req),
+          });
           return NextResponse.json({ ok: true, tautan: data }, { status: 201 });
         }
         const { error } = await supabase
@@ -113,6 +131,16 @@ export async function PATCH(
           .eq("story_id", id)
           .eq("event_id", eventId);
         if (error) throw error;
+        await catatAuditWajib({
+          aktor_id: auth.user.id,
+          aktor_email: auth.user.email ?? null,
+          aksi: "cerita.ubah",
+          entitas: "pf_stories",
+          entitas_id: id,
+          sebelum: null,
+          sesudah: { tautan: "hapus_event", event_id: eventId },
+          ip: ipDariRequest(req),
+        });
         return NextResponse.json({ ok: true });
       }
       // tambah_artikel / hapus_artikel
@@ -150,6 +178,22 @@ export async function PATCH(
           }
           throw error;
         }
+        // Audit fail-closed (Tahap 13A, T10): tautan artikel ke
+        // cerita dicatat sebagai cerita.ubah (entitas cerita).
+        await catatAuditWajib({
+          aktor_id: auth.user.id,
+          aktor_email: auth.user.email ?? null,
+          aksi: "cerita.ubah",
+          entitas: "pf_stories",
+          entitas_id: id,
+          sebelum: null,
+          sesudah: {
+            tautan: "tambah_artikel",
+            artikel_id: artikelId,
+            peran,
+          },
+          ip: ipDariRequest(req),
+        });
         return NextResponse.json({ ok: true, tautan: data }, { status: 201 });
       }
       const { error } = await supabase
@@ -158,6 +202,16 @@ export async function PATCH(
         .eq("story_id", id)
         .eq("artikel_id", artikelId);
       if (error) throw error;
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "cerita.ubah",
+        entitas: "pf_stories",
+        entitas_id: id,
+        sebelum: null,
+        sesudah: { tautan: "hapus_artikel", artikel_id: artikelId },
+        ip: ipDariRequest(req),
+      });
       return NextResponse.json({ ok: true });
     }
 
@@ -193,6 +247,18 @@ export async function PATCH(
         { status: 404 },
       );
     }
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "cerita.ubah",
+      entitas: "pf_stories",
+      entitas_id: id,
+      sebelum: null,
+      sesudah: patch,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, cerita: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -203,7 +269,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -219,7 +285,7 @@ export async function DELETE(
       .from("pf_stories")
       .delete()
       .eq("id", id)
-      .select("id")
+      .select(KOLOM_CERITA)
       .maybeSingle();
     if (error) throw error;
     if (!data) {
@@ -228,6 +294,22 @@ export async function DELETE(
         { status: 404 },
       );
     }
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "cerita.hapus",
+      entitas: "pf_stories",
+      entitas_id: id,
+      sebelum: {
+        slug: (data as { slug: string }).slug,
+        judul: (data as { judul: string }).judul,
+        status: (data as { status: string }).status,
+      },
+      sesudah: null,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return responGalatAdmin(err);

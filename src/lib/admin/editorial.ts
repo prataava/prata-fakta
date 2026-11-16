@@ -305,13 +305,117 @@ export async function jadwalkanArtikel(
 export interface HasilTerbitkanTerjadwal {
   diterbitkan: { id: string; judul: string }[];
   dilewati: { id: string; judul: string; alasan: string }[];
+  /** Artikel yang gagal gate pada run sebelumnya dan masih dalam
+   *  masa backoff (F12) — TIDAK dicoba ulang run ini, dan TIDAK
+   *  dihitung sebagai error (bukan noise log tiap jam). */
+  ditunda_backoff: {
+    id: string;
+    judul: string;
+    alasan: string;
+    coba_lagi_pada: string;
+  }[];
+}
+
+/**
+ * Backoff gate (Tahap 13C, F12): artikel terjadwal yang gagal
+ * gate TIDAK dicoba ulang tiap jam. Jeda 6 jam sesudah upaya
+ * gate terakhir yang gagal — cukup lama untuk meredam noise
+ * log, cukup singkat agar artikel yang sudah diperbaiki editor
+ * tidak tertunda berhari-hari.
+ *
+ * Penanda upaya gagal = baris audit aksi 'sistem.job',
+ * entitas 'pf_articles', sesudah { gagal_gate:true, alasan }
+ * (aksi sudah ada di CHECK pf_audit_logs v8/v9 — tanpa kolom
+ * baru, tanpa migrasi). Penanda HANYA ditulis saat upaya
+ * SESUNGGUHNYA gagal gate; artikel yang ditunda karena backoff
+ * TIDAK menulis penanda baru (kalau tidak, backoff akan
+ * memperpanjang dirinya sendiri selamanya).
+ *
+ * Bila adapter tidak menyediakan listAudit/catatAudit atau
+ * tabel audit belum ada, backoff dilewati dengan aman (upaya
+ * tetap dicoba seperti sebelum Tahap 13C).
+ */
+export const BACKOFF_GATE_JAM = 6;
+
+async function periksaBackoffGate(
+  adapter: AdminAdapter,
+  artikelId: string,
+): Promise<{ alasan: string; coba_lagi_pada: string } | null> {
+  try {
+    if (typeof adapter.listAudit !== "function") return null;
+    const { log } = await adapter.listAudit({
+      aksi: "sistem.job",
+      entitas: "pf_articles",
+      page: 1,
+      limit: 100,
+    });
+    const penanda = (log ?? []).find(
+      (r) =>
+        r.entitas_id === artikelId &&
+        r.sesudah !== null &&
+        typeof r.sesudah === "object" &&
+        (r.sesudah as Record<string, unknown>).gagal_gate === true,
+    );
+    if (!penanda || !penanda.dibuat_pada) return null;
+    const terakhir = new Date(penanda.dibuat_pada).getTime();
+    if (Number.isNaN(terakhir)) return null;
+    const cobaLagi = terakhir + BACKOFF_GATE_JAM * 3_600_000;
+    if (Date.now() < cobaLagi) {
+      const alasanSebelumnya =
+        typeof penanda.sesudah === "object" &&
+        penanda.sesudah !== null &&
+        typeof (penanda.sesudah as Record<string, unknown>).alasan ===
+          "string"
+          ? ((penanda.sesudah as Record<string, unknown>).alasan as string)
+          : "tanpa keterangan";
+      return {
+        alasan: `Gagal gate sebelumnya (${alasanSebelumnya}) — dicoba lagi setelah ${new Date(cobaLagi).toISOString()}.`,
+        coba_lagi_pada: new Date(cobaLagi).toISOString(),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function catatUpayaGate(
+  adapter: AdminAdapter,
+  aktor: Aktor,
+  artikelId: string,
+  alasan: string,
+): Promise<void> {
+  try {
+    if (typeof adapter.catatAudit !== "function") return;
+    await adapter.catatAudit({
+      aktor_id: aktor.id,
+      aktor_email: aktor.email,
+      aksi: "sistem.job",
+      entitas: "pf_articles",
+      entitas_id: artikelId,
+      sebelum: null,
+      sesudah: {
+        gagal_gate: true,
+        alasan,
+        job: "terbitkan-terjadwal",
+      },
+      ip: aktor.ip ?? null,
+    });
+  } catch {
+    // Penanda backoff bersifat best-effort: kegagalan mencatat
+    // tidak boleh menggagalkan run terbitkan-terjadwal.
+  }
 }
 
 export async function terbitkanTerjadwal(
   adapter: AdminAdapter,
   aktor: Aktor,
 ): Promise<HasilTerbitkanTerjadwal> {
-  const hasil: HasilTerbitkanTerjadwal = { diterbitkan: [], dilewati: [] };
+  const hasil: HasilTerbitkanTerjadwal = {
+    diterbitkan: [],
+    dilewati: [],
+    ditunda_backoff: [],
+  };
   const sekarang = Date.now();
   // Ambil semua terjadwal (maks 100 per batch — cukup untuk antrean
   // editorial harian; sisanya terbit pada jam berikutnya).
@@ -330,6 +434,19 @@ export async function terbitkanTerjadwal(
       continue;
     }
     if (new Date(a.dijadwalkan_pada).getTime() > sekarang) continue;
+    // F12: masih dalam masa backoff sesudah gagal gate -> tunda
+    // tanpa mencoba ulang, tanpa menulis penanda baru, dan
+    // tanpa menghitungnya sebagai error.
+    const tunda = await periksaBackoffGate(adapter, a.id);
+    if (tunda) {
+      hasil.ditunda_backoff.push({
+        id: a.id,
+        judul: a.judul,
+        alasan: tunda.alasan,
+        coba_lagi_pada: tunda.coba_lagi_pada,
+      });
+      continue;
+    }
     try {
       await terbitkanArtikel(adapter, a.id, aktor);
       hasil.diterbitkan.push({ id: a.id, judul: a.judul });
@@ -341,6 +458,12 @@ export async function terbitkanTerjadwal(
             ? err.message
             : "gagal tanpa keterangan.";
       hasil.dilewati.push({ id: a.id, judul: a.judul, alasan });
+      // F12: hanya kegagalan GATE yang menandai backoff (bukan
+      // galat teknis lain), agar galat teknis tetap dicoba
+      // ulang jam berikutnya.
+      if (err instanceof GalatGateTerbit) {
+        await catatUpayaGate(adapter, aktor, a.id, alasan);
+      }
     }
   }
   return hasil;

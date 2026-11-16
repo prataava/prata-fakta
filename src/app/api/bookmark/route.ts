@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7 —
@@ -46,7 +46,7 @@ function respon503() {
 }
 
 export async function GET(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -54,6 +54,9 @@ export async function GET(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(await createClient(), pengguna.id);
+  if (ditolak) return ditolak;
   const artikelId = new URL(req.url).searchParams.get("artikel_id") ?? "";
   if (!POLA_UUID.test(artikelId)) {
     return NextResponse.json(
@@ -80,7 +83,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -88,6 +91,9 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(await createClient(), pengguna.id);
+  if (ditolak) return ditolak;
 
   let artikelId = "";
   try {

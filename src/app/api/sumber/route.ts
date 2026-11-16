@@ -1,39 +1,26 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+import {
+  catatAuditWajib,
+  responGalatAudit,
+} from "@/lib/admin/audit";
 
 // GET /api/sumber — daftar semua sumber (publik, untuk halaman manajemen).
 // POST /api/sumber — tambah sumber, HANYA super_admin/editor.
-// Rate limiting: 30 req/menit/IP untuk GET, 10 req/menit/IP untuk POST
-// (pola yang sama dengan /api/langganan).
+// Rate limiting: 30 req/menit untuk GET, 10 req/menit untuk POST —
+// limiter database lintas instance (Tahap 13A, T3), kunci per-akun
+// bila login, per-IP bila anonim.
 // 503 jujur bila tabel pf_sources belum ada (migrasi belum dijalankan).
-const BATAS_GET = 30;
-const BATAS_POST = 10;
-const JENDELA_MS = 60_000;
-const hitunganGet = new Map<string, { n: number; mulai: number }>();
-const hitunganPost = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(
-  ip: string,
-  hitungan: Map<string, { n: number; mulai: number }>,
-  batas: number,
-): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= batas) return false;
-  entri.n += 1;
-  return true;
-}
-
-function ipDari(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal"
-  );
-}
+// POST menulis audit fail-closed (Tahap 13A, T10): gagal audit →
+// operasi ditolak (503/500), bukan 201 diam-diam.
+const batasiGet = buatRateLimiter(30);
+const batasiPost = buatRateLimiter(10);
 
 const JENIS_VALID = ["rss", "api", "resmi", "manual"] as const;
 
@@ -41,13 +28,7 @@ const KOLOM_SUMBER =
   "id,nama,jenis,url,aktif,prioritas,terakhir_cek,status_terakhir,terakhir_diambil,jumlah_item";
 
 export async function GET(req: Request) {
-  const ip = ipDari(req);
-  if (!lolosRateLimit(ip, hitunganGet, BATAS_GET)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasiGet(req))) return responRateLimit();
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -69,13 +50,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const ip = ipDari(req);
-  if (!lolosRateLimit(ip, hitunganPost, BATAS_POST)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasiPost(req))) return responRateLimit();
 
   // Hanya super_admin/editor.
   const supabase = await createClient();
@@ -201,6 +176,26 @@ export async function POST(req: Request) {
       },
       { status: 503 },
     );
+  }
+
+  // Audit fail-closed (Tahap 13A, T10): sumber baru WAJIB tercatat
+  // dengan admin + waktu; gagal audit → operasi ditolak (bukan 201).
+  // Catatan jujur pola Fase 7: baris sumber sudah tersisip sebelum
+  // audit; bila audit gagal, respons tetap 500/503 (operasi
+  // dilaporkan gagal) dan tidak ada 201 diam-diam tanpa jejak.
+  try {
+    await catatAuditWajib({
+      aktor_id: user.id,
+      aktor_email: user.email ?? null,
+      aksi: "sumber.buat",
+      entitas: "pf_sources",
+      entitas_id: (data as { id: string }).id,
+      sebelum: null,
+      sesudah: { nama, jenis, url, prioritas, aktif: true },
+      ip: ipDariRequest(req),
+    });
+  } catch (err) {
+    return responGalatAudit(err);
   }
 
   return NextResponse.json({ ok: true, sumber: data }, { status: 201 });

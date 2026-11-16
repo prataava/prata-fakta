@@ -3,8 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
@@ -99,7 +99,7 @@ export async function negaraAda(target: string): Promise<boolean> {
 }
 
 export async function GET(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -108,6 +108,9 @@ export async function GET(req: Request) {
     );
   }
   const supabase = await createClient();
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, pengguna.id);
+  if (ditolak) return ditolak;
   const { data, error } = await supabase
     .from("pf_followed_topics")
     .select("id, user_id, tipe, target, dibuat_pada")
@@ -124,7 +127,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -132,6 +135,9 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(await createClient(), pengguna.id);
+  if (ditolak) return ditolak;
   let body: { tipe?: unknown; target?: unknown };
   try {
     body = (await req.json()) as typeof body;
@@ -180,7 +186,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -188,6 +194,9 @@ export async function DELETE(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(await createClient(), pengguna.id);
+  if (ditolak) return ditolak;
   let body: { id?: unknown; tipe?: unknown; target?: unknown };
   try {
     body = (await req.json()) as typeof body;

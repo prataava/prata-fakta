@@ -34,13 +34,21 @@ export const metadata: Metadata = {
 };
 
 /** Skrip tema anti-kedip: dipasang sebelum render agar tema tersimpan
- *  (localStorage) diterapkan sebelum CSS pertama kali dilukis. */
+ *  (localStorage) diterapkan sebelum CSS pertama kali dilukis.
+ *  Diizinkan CSP lewat HASH sha256 (konstanta HASH_SKRIP_TEMA di
+ *  src/lib/csp.ts) — BUKAN nonce: membaca nonce di layout ini
+ *  (headers()) memaksa SEMUA halaman dinamis dan mematahkan build
+ *  (prerender /_not-found + /kategori/[slug] gagal, Tahap 14).
+ *  Isi skrip ini STATIS — bila diubah satu karakter saja, hitung
+ *  ulang hash-nya (lihat komentar di csp.ts) dan perbarui konstanta;
+ *  bila tidak, CSP memblokir skrip ini dan halaman membuka dengan
+ *  tema salah (kedip). */
 function TemaInit() {
   const kode = `(function(){try{var t=localStorage.getItem('pf-tema');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`;
   return <script dangerouslySetInnerHTML={{ __html: kode }} />;
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (

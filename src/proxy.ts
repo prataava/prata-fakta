@@ -5,6 +5,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { cariKategori } from "@/lib/categories";
+import { buatHeaderCsp, buatNonce } from "@/lib/csp";
 
 // Pemeriksaan keberadaan slug di tabel Supabase lewat REST publik.
 // Mengembalikan true bila slug PASTI tidak ada (hasil kosong, atau
@@ -85,6 +86,31 @@ async function kodeNegaraTidakAda(kode: string): Promise<boolean> {
 }
 
 export default async function proxy(request: NextRequest) {
+  // CSP nonce per request (Tahap 13B — menutup utang CSP Fase 7).
+  // Nonce dipasang di header CSP respons DAN di header request
+  // (`x-nonce` + `Content-Security-Policy`) agar Next mengekstraknya
+  // untuk skrip framework-nya sendiri dan layout/halaman bisa
+  // membacanya lewat headers(). Semua respons di bawah (termasuk
+  // rewrite 404) membawa header CSP yang sama.
+  const nonce = buatNonce();
+  const csp = buatHeaderCsp(nonce, {
+    isDev: process.env.NODE_ENV !== "production",
+    supabaseOrigin: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  });
+  const headerRequest = new Headers(request.headers);
+  headerRequest.set("x-nonce", nonce);
+  headerRequest.set("Content-Security-Policy", csp);
+  const denganCsp = (res: NextResponse) => {
+    res.headers.set("Content-Security-Policy", csp);
+    return res;
+  };
+  const rewriteDenganCsp = (tujuan: string) =>
+    denganCsp(
+      NextResponse.rewrite(new URL(tujuan, request.url), {
+        request: { headers: headerRequest },
+      }),
+    );
+
   // Negara tidak ada → 404 SEBELUM halaman dirender (Fase 8
   // Gelombang 2, Area 11 — pola yang sama dengan
   // /pengetahuan/[slug] Fase 7). pf_countries tidak punya
@@ -94,7 +120,7 @@ export default async function proxy(request: NextRequest) {
   if (cocokNegara) {
     const kode = decodeURIComponent(cocokNegara[1]).toUpperCase();
     if (await kodeNegaraTidakAda(kode)) {
-      return NextResponse.rewrite(new URL("/_not-found", request.url));
+      return rewriteDenganCsp("/_not-found");
     }
   }
 
@@ -103,7 +129,7 @@ export default async function proxy(request: NextRequest) {
   if (cocokArtikel) {
     const slug = decodeURIComponent(cocokArtikel[1]);
     if (await slugTidakAda("pf_articles", slug)) {
-      return NextResponse.rewrite(new URL("/_not-found", request.url));
+      return rewriteDenganCsp("/_not-found");
     }
   }
 
@@ -120,7 +146,7 @@ export default async function proxy(request: NextRequest) {
   if (cocokPengetahuan) {
     const slug = decodeURIComponent(cocokPengetahuan[1]);
     if (await slugTidakAda("pf_knowledge_articles", slug)) {
-      return NextResponse.rewrite(new URL("/_not-found", request.url));
+      return rewriteDenganCsp("/_not-found");
     }
   }
 
@@ -144,7 +170,7 @@ export default async function proxy(request: NextRequest) {
     if (cocok) {
       const slug = decodeURIComponent(cocok[1]);
       if (await slugTidakAda(tabel, slug)) {
-        return NextResponse.rewrite(new URL("/_not-found", request.url));
+        return rewriteDenganCsp("/_not-found");
       }
       break;
     }
@@ -161,11 +187,16 @@ export default async function proxy(request: NextRequest) {
   if (cocokKategori) {
     const slug = decodeURIComponent(cocokKategori[1]);
     if (!cariKategori(slug)) {
-      return NextResponse.rewrite(new URL("/_not-found", request.url));
+      return rewriteDenganCsp("/_not-found");
     }
   }
 
-  let supabaseResponse = NextResponse.next({ request });
+  // Teruskan header request yang sudah berisi nonce ke render
+  // berikutnya; header CSP dipasang pada respons yang dikembalikan
+  // (termasuk bila setAll di bawah membuat ulang responsnya).
+  let supabaseResponse = denganCsp(
+    NextResponse.next({ request: { headers: headerRequest } }),
+  );
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -179,7 +210,9 @@ export default async function proxy(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = denganCsp(
+            NextResponse.next({ request: { headers: headerRequest } }),
+          );
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
           );

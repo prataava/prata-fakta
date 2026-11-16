@@ -1,40 +1,31 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
+import {
+  buatRateLimiter,
+  ipDariRequest,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
+import {
+  catatAuditWajib,
+  responGalatAudit,
+} from "@/lib/admin/audit";
 
 // PATCH /api/sumber/[id] — ubah sumber, HANYA super_admin/editor.
 // DELETE /api/sumber/[id] — hapus sumber, HANYA super_admin.
 // Menghapus sumber TIDAK menghapus raw item (FK set null).
-// Rate limiting: 10 req/menit/IP untuk PATCH/DELETE (pola /api/langganan).
-const BATAS = 10;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
-
-function ipDari(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal"
-  );
-}
+// Rate limiting: 10 req/menit (limiter database lintas instance,
+// Tahap 13A, T3). Audit fail-closed (Tahap 13A, T10): PATCH/DELETE
+// menulis audit dengan admin + waktu; gagal audit → operasi ditolak.
+const batasi = buatRateLimiter(10);
 
 const KOLOM_SUMBER =
   "id,nama,jenis,url,aktif,prioritas,terakhir_cek,status_terakhir,terakhir_diambil,jumlah_item";
 
-/** Guard sesi + peran. Mengembalikan user id bila lolos, atau respons error. */
+/** Guard sesi + peran. Mengembalikan id + email user bila lolos, atau respons error. */
 async function guard(
   butuhSuperAdmin: boolean,
-): Promise<{ userId: string } | NextResponse> {
+): Promise<{ userId: string; email: string | null } | NextResponse> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -72,20 +63,14 @@ async function guard(
       { status: 403 },
     );
   }
-  return { userId: user.id };
+  return { userId: user.id, email: user.email ?? null };
 }
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const ip = ipDari(req);
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   const { id } = await params;
   const hasilGuard = await guard(false);
@@ -163,10 +148,11 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  // 404 bila id tidak ada (cek dulu).
+  // 404 bila id tidak ada (cek dulu) — sekalian ambil keadaan lama
+  // untuk kolom `sebelum` audit (Tahap 13A, T10).
   const { data: ada, error: errCek } = await supabase
     .from("pf_sources")
-    .select("id")
+    .select("id,nama,jenis,url,aktif,prioritas")
     .eq("id", id)
     .maybeSingle();
   if (errCek) {
@@ -203,6 +189,45 @@ export async function PATCH(
     );
   }
 
+  // Audit fail-closed (Tahap 13A, T10): ubah konfigurasi →
+  // "sumber.ubah"; bila SATU-SATUNYA yang berubah adalah status
+  // aktif/nonaktif → "sumber.aktif" (mudah dilacak di /admin/audit).
+  // Gagal audit → operasi ditolak (bukan 200 diam-diam).
+  const lama = ada as {
+    nama: string;
+    jenis: string;
+    url: string;
+    aktif: boolean;
+    prioritas: number;
+  };
+  const hanyaAktif = Object.keys(patch).length === 1 && "aktif" in patch;
+  try {
+    await catatAuditWajib({
+      aktor_id: hasilGuard.userId,
+      aktor_email: hasilGuard.email,
+      aksi: hanyaAktif ? "sumber.aktif" : "sumber.ubah",
+      entitas: "pf_sources",
+      entitas_id: id,
+      sebelum: {
+        nama: lama.nama,
+        jenis: lama.jenis,
+        url: lama.url,
+        aktif: lama.aktif,
+        prioritas: lama.prioritas,
+      },
+      sesudah: {
+        nama: (data as { nama: string }).nama,
+        jenis: (data as { jenis: string }).jenis,
+        url: (data as { url: string }).url,
+        aktif: (data as { aktif: boolean }).aktif,
+        prioritas: (data as { prioritas: number }).prioritas,
+      },
+      ip: ipDariRequest(req),
+    });
+  } catch (err) {
+    return responGalatAudit(err);
+  }
+
   return NextResponse.json({ ok: true, sumber: data });
 }
 
@@ -210,13 +235,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const ip = ipDari(req);
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   const { id } = await params;
   const hasilGuard = await guard(true);
@@ -224,9 +243,11 @@ export async function DELETE(
 
   const supabase = await createClient();
 
+  // 404 bila id tidak ada (cek dulu) — sekalian ambil keadaan lama
+  // untuk kolom `sebelum` audit (Tahap 13A, T10).
   const { data: ada, error: errCek } = await supabase
     .from("pf_sources")
-    .select("id")
+    .select("id,nama,jenis,url,aktif,prioritas")
     .eq("id", id)
     .maybeSingle();
   if (errCek) {
@@ -256,6 +277,36 @@ export async function DELETE(
       },
       { status: 500 },
     );
+  }
+
+  // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+  // ditolak (bukan 200 diam-diam).
+  const lama = ada as {
+    nama: string;
+    jenis: string;
+    url: string;
+    aktif: boolean;
+    prioritas: number;
+  };
+  try {
+    await catatAuditWajib({
+      aktor_id: hasilGuard.userId,
+      aktor_email: hasilGuard.email,
+      aksi: "sumber.hapus",
+      entitas: "pf_sources",
+      entitas_id: id,
+      sebelum: {
+        nama: lama.nama,
+        jenis: lama.jenis,
+        url: lama.url,
+        aktif: lama.aktif,
+        prioritas: lama.prioritas,
+      },
+      sesudah: null,
+      ip: ipDariRequest(req),
+    });
+  } catch (err) {
+    return responGalatAudit(err);
   }
 
   return NextResponse.json({ ok: true });

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
@@ -17,7 +17,7 @@ const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const supabase = await createClient();
   let pengguna = null;
   try {
@@ -32,6 +32,9 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, pengguna.id);
+  if (ditolak) return ditolak;
 
   let body: { artikel_id?: unknown; durasi_detik?: unknown };
   try {

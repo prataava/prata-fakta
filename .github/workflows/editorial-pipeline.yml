@@ -1,0 +1,77 @@
+# PRATA FAKTA — Pipeline editorial AI (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL   = URL deploy, mis. https://prata-fakta.vercel.app
+#                   (TANPA trailing slash)
+#   PF_AI_SECRET  = secret pemicu endpoint AI; nilainya HARUS sama dengan
+#                   env PF_AI_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
+# dari endpoint (bukan error workflow).
+#
+# Jadwal: pipeline editorial setiap 6 jam (00, 06, 12, 18 UTC = 07, 13, 19,
+# 01 WIB): memproses 10 item UNCONFIRMED teratas dari antrean.
+# Artikel yang dihasilkan SELALU status='draft' — workflow ini TIDAK
+# PERNAH menerbitkan langsung.
+#
+# Sejarah (Tahap 13C, F2/F4): file ini dulu bagian dari
+# `.github/workflows/editorial.yml` yang menggabungkan 3 jadwal dalam
+# satu workflow dengan gating string
+# `github.event.schedule == '...'` (rapuh, F4) dan input dispatch
+# `tugas=keduanya` yang TIDAK menjalankan terbitkan-terjadwal (F2).
+# Kini tiap jadwal punya workflow sendiri — tanpa perbandingan
+# string jadwal sama sekali. Untuk menjalankan pipeline +
+# terbitkan-terjadwal bersamaan, dispatch workflow ini DAN
+# `terbitkan-terjadwal.yml` (atau picu keduanya dari /admin/kendali).
+#
+# Concurrency (F3): satu run pipeline pada satu waktu
+# (cancel-in-progress false — run yang sedang jalan tidak dibatalkan,
+# run baru menunggu giliran Actions).
+# Retry (F8): curl --retry 2 --retry-delay 10 (gagal jaringan /
+# HTTP 408/429/5xx sementara dicoba ulang 2x).
+# Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
+# `ok != true` atau `gagal > 0`, bukan hanya bila HTTP non-2xx.
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow) dan di tabel
+# pf_ai_runs / pf_scheduled_jobs (status_terakhir='gagal',
+# error_terakhir). Lihat LAPORAN-FASE-8 §14.
+
+name: Pipeline Editorial PRATA FAKTA
+
+on:
+  schedule:
+    # Pipeline editorial setiap 6 jam.
+    - cron: "0 0,6,12,18 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Jumlah item yang diproses pipeline (1-50)"
+        required: false
+        default: "10"
+        type: string
+
+concurrency:
+  group: prata-fakta-editorial-pipeline
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pemicu pipeline editorial
+        run: |
+          LIMIT="${{ inputs.limit }}"
+          if [ -z "$LIMIT" ]; then LIMIT="10"; fi
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/ai/jalankan" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"dipicu_oleh\":\"github_actions\",\"limit\":$LIMIT}" \
+            -o "$RESP"
+          echo "Respons pipeline: $(cat "$RESP")"
+          jq -e '.ok == true and (.gagal // 0) == 0' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: pipeline melaporkan gagal > 0 atau ok != true"; exit 1; }

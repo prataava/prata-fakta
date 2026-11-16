@@ -51,6 +51,22 @@ const TUJUAN_JOB: Record<
     headerSecret: "x-pf-ai-secret",
     body: JSON.stringify({ dipicu_oleh: "manual" }),
   },
+  // Tahap 13C (F7): data-analysis + terbitkan-terjadwal kini bisa
+  // dipicu ulang dari sini, sama seperti dari /admin/kendali.
+  // digest/podcast/riset tetap tidak ada di sini — belum punya
+  // endpoint pemicu (400 jujur di /api/admin/kendali/jalankan).
+  "data-analysis": {
+    path: "/api/ai/data-analysis",
+    envSecret: "PF_AI_SECRET",
+    headerSecret: "x-pf-ai-secret",
+    body: JSON.stringify({ dipicu_oleh: "manual" }),
+  },
+  "terbitkan-terjadwal": {
+    path: "/api/admin/artikel/terbitkan-terjadwal",
+    envSecret: "PF_AI_SECRET",
+    headerSecret: "x-pf-ai-secret",
+    body: JSON.stringify({ dipicu_oleh: "manual" }),
+  },
 };
 
 function namaValid(nama: string): nama is NamaJob {
@@ -58,7 +74,7 @@ function namaValid(nama: string): nama is NamaJob {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { nama } = await params;
@@ -117,7 +133,7 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function POST(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { nama } = await params;

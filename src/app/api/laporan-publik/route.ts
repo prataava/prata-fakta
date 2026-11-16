@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 import {
@@ -39,7 +38,7 @@ function respon503(pesan: string) {
 }
 
 export async function POST(req: Request) {
-  if (!batasiKirim(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasiKirim(req))) return responRateLimit();
 
   let body: {
     jenis?: unknown;
@@ -202,7 +201,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  if (!batasiLacak(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasiLacak(req))) return responRateLimit();
   const nomor = new URL(req.url).searchParams.get("nomor") ?? "";
   if (!nomorLacakValid(nomor)) {
     return NextResponse.json(

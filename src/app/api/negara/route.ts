@@ -6,14 +6,13 @@ import { NextResponse } from "next/server";
 import { getDaftarNegara } from "@/lib/negara";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 
 const batasi = buatRateLimiter(30);
 
 export async function GET(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const negara = await getDaftarNegara();
   return NextResponse.json({ ok: true, negara });
 }

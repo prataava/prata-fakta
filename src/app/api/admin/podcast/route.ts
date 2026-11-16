@@ -17,6 +17,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { buatSlug } from "@/lib/ai/slug";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -37,7 +38,7 @@ function uuidValid(s: string): boolean {
 }
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
   let service;
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const body = await bacaBody(req);
@@ -199,6 +200,23 @@ export async function POST(req: Request) {
       .select(KOLOM)
       .maybeSingle();
     if (error) throw error;
+    // Audit fail-closed (Tahap 13A, T10): episode dibuat langsung
+    // terbit → podcast.terbit, bila tidak → podcast.episode.
+    // Gagal audit → operasi ditolak (galat naik ke responGalatAdmin).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: status === "terbit" ? "podcast.terbit" : "podcast.episode",
+      entitas: "pf_podcast_episodes",
+      entitas_id: (data as { id: string } | null)?.id ?? null,
+      sebelum: null,
+      sesudah: {
+        judul: (data as { judul: string }).judul,
+        jenis: (data as { jenis: string }).jenis,
+        status: (data as { status: string }).status,
+      },
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, episode: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

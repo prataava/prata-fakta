@@ -4,10 +4,11 @@ import { jalankanBriefHarian } from "@/lib/ai/pipeline";
 import {
   autentikasiPemicuAi,
   buatRateLimiter,
-  ipDariRequest,
   normalisasiDipicuOleh,
   responRateLimit,
 } from "@/lib/ai/route-auth";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 
 // POST /api/ai/brief — memicu Daily Brief hari ini.
 // Autentikasi DUA jalur:
@@ -26,7 +27,7 @@ const lolosRateLimit = buatRateLimiter(10);
 const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;
@@ -69,14 +70,42 @@ export async function POST(req: Request) {
     );
   }
 
+  // --- Lock server-side (Tahap 13C, F3) + F6 ---
+  const klienLock = cobaServiceClient();
+  const klaim = klienLock
+    ? await klaimJob(klienLock, "brief")
+    : { diklaim: false, tersedia: false, alasan: "service key belum diatur" };
+  if (klaim.tersedia && !klaim.diklaim) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Job Daily Brief sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+      },
+      { status: 409 },
+    );
+  }
+  const infoLock = klaim.diklaim
+    ? "diklaim"
+    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+
+  let okRun = false;
+  let galatRun: string | null = null;
   try {
     const hasil = await jalankanBriefHarian(adapter, {
       tanggal,
       dipicu_oleh: dipicuOleh,
     });
-    return NextResponse.json({ ok: true, dipicu_oleh: dipicuOleh, ...hasil });
+    okRun = true;
+    return NextResponse.json({
+      ok: true,
+      dipicu_oleh: dipicuOleh,
+      lock: infoLock,
+      ...hasil,
+    });
   } catch (err) {
     const pesan = err instanceof Error ? err.message : "kesalahan tidak diketahui";
+    galatRun = pesan;
     if (
       pesan.includes("pf_daily_briefs") ||
       pesan.includes("pf_raw_items") ||
@@ -97,5 +126,11 @@ export async function POST(req: Request) {
       { ok: false, error: `Daily Brief gagal: ${pesan}` },
       { status: 500 },
     );
+  } finally {
+    // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
+    // setiap run cron (berhasil maupun gagal).
+    if (klienLock) {
+      await selesaikanJob(klienLock, "brief", okRun, galatRun);
+    }
   }
 }

@@ -4,25 +4,25 @@
 // dan ekspor CSV audit log.
 //
 // Prinsip:
-// - Flag HANYA dicatat di pf_system_settings. Penegakan otomatis
-//   flag di route ingestion/pipeline BELUM disambungkan (route itu
-//   milik Fase 3/4 dan tidak disentuh di sini) — halaman kendali
-//   menyatakan itu secara jujur, bukan mengklaim flag sudah
-//   menonaktifkan job.
-// - Pemicu manual TIDAK menduplikasi logika ingestion/AI: ia
-//   memanggil route internal yang sudah ada (POST
-//   /api/ingestion/jalankan, /api/ai/jalankan, /api/ai/brief,
-//   /api/ai/data-analysis, /api/admin/artikel/terbitkan-terjadwal)
-//   dengan cookie sesi yang sama, lalu memperbarui baris
-//   pf_scheduled_jobs bila ada.
-// - Temuan scheduler gate yang RELEVAN dan BELUM diperbaiki
-//   (LAPORAN-FASE-8 §10.3) dinyatakan di halaman, bukan
-//   disembunyikan: F6 (terakhir_jalan tidak diperbarui run cron —
-//   pemicu manual dari UI ini MEMPERBARUINYA, run GitHub Actions
-//   tetap tidak), F7 (seed hanya 3 job; digest/podcast/riset
-//   belum punya endpoint pemicu), F2 (dispatch 'keduanya' tidak
-//   menjalankan terbitkan-terjadwal), F3/F4/F5/F8/F12 (di luar
-//   kendali UI ini).
+// - Flag DITEGAKKAN di route terkait (Tahap 13C): ingestion_aktif
+//   di POST /api/ingestion/jalankan, pipeline_editorial_aktif di
+//   POST /api/ai/jalankan (keduanya 503 jujur bila nonaktif),
+//   pendaftaran_terbuka di halaman /daftar (form tidak tampil
+//   bila ditutup), mode_pemeliharaan + pengumuman_pemeliharaan
+//   dibaca Header di semua halaman. Penegakan penuh pendaftaran
+//   di sisi Supabase Auth (nonaktifkan signup di dashboard)
+//   tetap wewenang pemilik — lihat LAPORAN-FASE-8 §14.
+// - Temuan scheduler gate yang RELEVAN (LAPORAN-FASE-8 §10.3)
+//   sesudah Tahap 13C: F6 TERTUTUP (terakhir_jalan diperbarui
+//   run cron lewat klaim + selesai job di tiap endpoint);
+//   F7 TERTUTUP untuk 5 job cron (seed 5 job di §14; pemicu
+//   manual 8 job — digest/podcast/riset tetap 400 jujur karena
+//   belum ada endpoint pemicu); F2 TERTUTUP (editorial.yml
+//   dipecah jadi 3 workflow; 'keduanya' diganti dispatch
+//   per-workflow — lihat header tiap workflow); F12 TERTUTUP
+//   (backoff gate 6 jam via penanda audit 'sistem.job').
+//   Sisa: digest/podcast/riset belum punya endpoint pemicu;
+//   kolom backoff khusus artikel masih berupa SQL usulan (§14).
 // - Aksi audit yang dipakai ('sistem.flag', 'sistem.job') SUDAH
 //   ada di CHECK pf_audit_logs sejak migrasi v8 (47 aksi di v9)
 //   — tidak ada aksi audit baru yang butuh migrasi.
@@ -69,7 +69,7 @@ export const DAFTAR_FLAG: DefinisiFlag[] = [
     kunci: "ingestion_aktif",
     label: "Ingestion aktif",
     deskripsi:
-      "Penanda operasional: ingestion dari sumber RSS/GDELT diizinkan berjalan. Penegakan otomatis di route ingestion BELUM disambungkan — flag ini belum menonaktifkan ingestion.",
+      "Bila nonaktif, POST /api/ingestion/jalankan menolak dengan 503 jujur (ditegakkan Tahap 13C). Bila flag belum disetel, ingestion berjalan (bawaan aktif).",
     jenis: "boolean",
     bawaan: true,
   },
@@ -77,7 +77,7 @@ export const DAFTAR_FLAG: DefinisiFlag[] = [
     kunci: "pipeline_editorial_aktif",
     label: "Pipeline editorial aktif",
     deskripsi:
-      "Penanda operasional: pipeline editorial AI diizinkan berjalan. Penegakan otomatis di route pipeline BELUM disambungkan — flag ini belum menonaktifkan pipeline.",
+      "Bila nonaktif, POST /api/ai/jalankan menolak dengan 503 jujur (ditegakkan Tahap 13C). Bila flag belum disetel, pipeline berjalan (bawaan aktif).",
     jenis: "boolean",
     bawaan: true,
   },
@@ -85,7 +85,7 @@ export const DAFTAR_FLAG: DefinisiFlag[] = [
     kunci: "pendaftaran_terbuka",
     label: "Pendaftaran terbuka",
     deskripsi:
-      "Penanda operasional: pendaftaran akun baru dibuka. Penegakan otomatis di route akun BELUM disambungkan.",
+      "Bila nonaktif, halaman /daftar menampilkan pesan pendaftaran ditutup dan form tidak tampil (ditegakkan Tahap 13C). Penegakan penuh di sisi Supabase Auth (nonaktifkan signup di dashboard) tetap wewenang pemilik.",
     jenis: "boolean",
     bawaan: true,
   },
@@ -286,8 +286,10 @@ export interface JobDikenal {
 }
 
 /** 8 nama job yang diizinkan CHECK pf_scheduled_jobs (v8 §5b).
- *  Seed v5 hanya berisi 3 baris (ingestion, editorial, brief) —
- *  sisanya belum tercatat sampai admin/workflow membuatnya (F7). */
+ *  Seed v5 berisi 3 baris (ingestion, editorial, brief); seed
+ *  5 job (tambah data-analysis + terbitkan-terjadwal) ada di
+ *  LAPORAN-FASE-8 §14 — Tahap 13C (F7 tertutup untuk job cron).
+ *  digest/podcast/riset tetap tanpa endpoint pemicu. */
 export const DAFTAR_JOB_DIKENAL: JobDikenal[] = [
   {
     nama: "ingestion",
@@ -359,9 +361,9 @@ export interface StatusScheduler {
   })[];
 }
 
-/** Catatan jujur F6 — ditampilkan di halaman kendali. */
+/** Catatan F6 — diperbarui Tahap 13C. */
 export const CATATAN_F6 =
-  "Kolom terakhir_jalan HANYA diperbarui oleh pemicu manual dari halaman ini. Run cron GitHub Actions tidak memperbaruinya (temuan F6, LAPORAN-FASE-8 §10.3 — belum diperbaiki), jadi job yang hanya jalan lewat cron akan tetap tampil 'belum pernah jalan' di sini.";
+  "Kolom terakhir_jalan diperbarui oleh SETIAP run — run cron GitHub Actions (klaim lock + selesai job di tiap endpoint, Tahap 13C) maupun pemicu manual dari halaman ini. Bila sebuah job tetap tampil 'belum pernah jalan', berarti run-nya belum pernah sampai ke endpoint (mis. workflow gagal sebelum curl) atau baris job-nya belum ada di tabel (seed 5 job — lihat LAPORAN-FASE-8 §14).";
 
 async function ambilStatusScheduler(
   klien: SupabaseClient,
@@ -522,7 +524,7 @@ export async function pemicuJobManual(
     baris_job_diperbarui: barisDiperbarui,
     catatan: barisDiperbarui
       ? null
-      : "Baris job belum tercatat di pf_scheduled_jobs (seed hanya 3 job — temuan F7); status terakhir tidak tersimpan di tabel.",
+      : "Baris job belum tercatat di pf_scheduled_jobs (seed 5 job belum diterapkan — lihat LAPORAN-FASE-8 §14); status terakhir tidak tersimpan di tabel.",
   };
 }
 

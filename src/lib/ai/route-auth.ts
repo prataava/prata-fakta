@@ -1,10 +1,31 @@
-// Helper autentikasi + rate limit untuk route /api/ai/*.
+// Helper autentikasi + rate limit untuk route /api/ai/* dan
+// route pengguna lain (bookmark, riwayat, topik, kuis, ...).
 // Mengikuti pola route ingestion (dua jalur autentikasi untuk POST:
 // header secret jadwal ATAU sesi login staf; GET hanya sesi staf).
+//
+// TAHAP 13A (T3 — rate limiter lintas serverless instance):
+// limiter Map in-memory per instance (tanpa eviction, tanpa
+// store bersama) DIGANTI limiter database: tabel pf_rate_limits
+// + RPC SECURITY DEFINER pf_rate_limit_check (migrasi v11).
+// Satu pernyataan INSERT ... ON CONFLICT DO UPDATE yang atomik
+// membuat batas berlaku di semua instance sekaligus; dua
+// panggilan bersamaan tidak bisa lolos dua-duanya melewati batas.
+// Kunci: pengguna login dibatasi PER AKUN ("user:<id>"), anon
+// per IP ("ip:<alamat>") — lihat kunciRateLimit.
+//
+// KEPUTUSAN FAIL-OPEN (didokumentasikan, bukan diam-diam): bila
+// RPC gagal (mis. migrasi v11 belum dijalankan di lingkungan
+// itu, atau database tidak terjangkau), limiter MENGIZINKAN
+// permintaan dan mencatat console.error — bukan memblokir semua
+// trafik dengan 429. Rate limit adalah pelindung ketersediaan;
+// mematikannya sementara lebih aman daripada mematikan situs.
+// Kegagalan RPC mudah ketahuan: log server + baterai
+// scripts/uji-tahap13a.mjs menguji RPC langsung.
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DipicuOleh } from "./types.ts";
 
 // Bandingkan secret dengan timing-safe equal (temuan T9 audit
@@ -22,26 +43,110 @@ export function bandingkanSecret(
   return timingSafeEqual(a, b);
 }
 
-// Rate limiter per-IP dalam memori (pola /api/langganan).
-export function buatRateLimiter(batas: number, jendelaMs = 60_000) {
-  const hitungan = new Map<string, { n: number; mulai: number }>();
-  return (ip: string): boolean => {
-    const sekarang = Date.now();
-    const entri = hitungan.get(ip);
-    if (!entri || sekarang - entri.mulai > jendelaMs) {
-      hitungan.set(ip, { n: 1, mulai: sekarang });
-      return true;
-    }
-    if (entri.n >= batas) return false;
-    entri.n += 1;
-    return true;
-  };
+// IP klien yang dapat dipercaya (temuan T3 audit keamanan Fase 8,
+// diperbaiki Tahap 13A).
+//
+// JANGAN PERNAH percaya entri KIRI `x-forwarded-for`: rantai itu
+// ditulis klien sendiri — siapa pun bisa menulis
+// "X-Forwarded-For: 1.2.3.4" dan mendapat ember limit baru
+// (bypass rate limit dengan satu header palsu). Yang dipakai:
+//   1. `x-vercel-forwarded-for` bila ada — header ini ditulis
+//      edge Vercel, bukan klien (entri pertama = IP asli);
+//   2. bila tidak ada, entri TERAKHIR `x-forwarded-for` —
+//      entri terakhir ditambahkan oleh proxy tepercaya terakhir
+//      (edge) sebelum mencapai server, jadi klien tidak bisa
+//      memalsukannya tanpa melewati edge;
+//   3. bila keduanya kosong, "tak-dikenal" (semua pemanggil
+//      tanpa IP berbagi satu ember — sengaja, agar tidak ada
+//      yang lolos tanpa kunci).
+//
+// SISA RISIKO (jujur): entri terakhir XFF hanya tepercaya bila
+// rantai proxy di depan aplikasi memang tepercaya (Vercel edge);
+// di luar Vercel, proxy yang tidak tepercaya di tengah rantai
+// bisa menulis entri palsu. NAT bersama (kantor/kampus/CGNAT)
+// membuat banyak pengguna berbagi satu IP dan satu ember limit —
+// pengguna login tidak kena ini (kunci per-akun, lihat
+// kunciRateLimit). Bila butuh bukti IP yang lebih kuat, jalankan
+// rate limit di edge (Vercel Firewall / Upstash), bukan di sini.
+export function ipDariRequest(req: Request): string {
+  const dariVercel = req.headers
+    .get("x-vercel-forwarded-for")
+    ?.split(",")[0]
+    ?.trim();
+  if (dariVercel) return dariVercel;
+  const rantai = req.headers
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (rantai && rantai.length > 0) return rantai[rantai.length - 1];
+  return "tak-dikenal";
 }
 
-export function ipDariRequest(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal"
-  );
+/**
+ * Kunci rate limit untuk satu permintaan: pengguna login dibatasi
+ * PER AKUN ("user:<id>") — IP bersama (NAT) tidak membuat akun
+ * yang satu memblokir akun yang lain, dan penyerang tidak bisa
+ * menghindari limit dengan mengganti IP. Anonim dibatasi per IP
+ * ("ip:<alamat>") dari ipDariRequest.
+ */
+export async function kunciRateLimit(req: Request): Promise<string> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) return `user:${user.id}`;
+  } catch {
+    // Tanpa sesi (atau sesi tidak terbaca) → kunci IP di bawah.
+  }
+  return `ip:${ipDariRequest(req)}`;
+}
+
+/**
+ * Panggil RPC pf_rate_limit_check (migrasi v11). Mengembalikan
+ * true bila permintaan ini masih dalam batas. FAIL-OPEN bila RPC
+ * gagal (lihat catatan di atas berkas): izinkan + catat error.
+ */
+export async function cekRateLimitDb(
+  kunci: string,
+  batas: number,
+  jendelaDetik = 60,
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("pf_rate_limit_check", {
+      p_kunci: kunci,
+      p_batas: batas,
+      p_jendela_detik: jendelaDetik,
+    });
+    if (error) throw error;
+    return data === true;
+  } catch (err) {
+    console.error(
+      "Rate limit DB gagal (fail-open, migrasi v11 mungkin belum dijalankan):",
+      err,
+    );
+    return true;
+  }
+}
+
+// Rate limiter lintas serverless instance (Tahap 13A, T3):
+// tiap panggilan memeriksa RPC pf_rate_limit_check dengan kunci
+// dari kunciRateLimit (per-akun bila login, per-IP bila anonim).
+// Mengembalikan fungsi ASINKRON — pemanggil WAJIB await:
+//   if (!(await batasi(req))) return responRateLimit();
+// (Versi lama mengembalikan fungsi sinkron atas Map in-memory;
+// pola lama itu sudah tidak ada — jangan kembalikan.)
+export function buatRateLimiter(
+  batas: number,
+  jendelaMs = 60_000,
+): (req: Request) => Promise<boolean> {
+  const jendelaDetik = Math.max(1, Math.round(jendelaMs / 1000));
+  return async (req: Request): Promise<boolean> => {
+    const kunci = await kunciRateLimit(req);
+    return cekRateLimitDb(kunci, batas, jendelaDetik);
+  };
 }
 
 export function responRateLimit() {
@@ -49,6 +154,38 @@ export function responRateLimit() {
     { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
     { status: 429 },
   );
+}
+
+/**
+ * Tolak akun dibatasi (nonaktif) — helper bersama T4 (Tahap 13A).
+ * Dipakai SEMUA route pengguna + staf yang memeriksa sesi login
+ * sendiri (bukan lewat autentikasiAdmin/autentikasiStaf, yang
+ * sudah memeriksa di dalam). Mengembalikan NextResponse 403 bila
+ * akun nonaktif, null bila lolos. FAIL-OPEN bila tabel profil
+ * belum ada / query gagal — konsisten dengan guard yang sudah
+ * ada (route menjawab 503 yang jujur di langkah berikutnya bila
+ * memang layanannya belum siap).
+ */
+export async function tolakAkunNonaktif(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<NextResponse | null> {
+  try {
+    const { data: profil } = await supabase
+      .from("pf_profiles")
+      .select("nonaktif")
+      .eq("id", userId)
+      .maybeSingle();
+    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
+      return NextResponse.json(
+        { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
+        { status: 403 },
+      );
+    }
+  } catch {
+    // Lanjut — tabel profil belum ada bukan alasan memblokir di sini.
+  }
+  return null;
 }
 
 // Autentikasi staf (GET): harus login + punya role editor/fact_checker
@@ -67,23 +204,9 @@ export async function autentikasiStaf(): Promise<NextResponse | null> {
   }
   // Akun dibatasi (nonaktif) tidak boleh memakai fitur AI editorial
   // (temuan T4 audit keamanan Fase 7 — sebelumnya hanya guard admin
-  // yang memeriksa nonaktif). Bila tabel profil belum ada, jangan
-  // blokir di sini — route akan menjawab 503 yang jujur di bawah.
-  try {
-    const { data: profil } = await supabase
-      .from("pf_profiles")
-      .select("nonaktif")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
-      return NextResponse.json(
-        { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
-        { status: 403 },
-      );
-    }
-  } catch {
-    // Lanjut ke pemeriksaan role.
-  }
+  // yang memeriksa nonaktif).
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) return ditolak;
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR, ROLES.FACT_CHECKER)) {
     return NextResponse.json(
@@ -140,25 +263,10 @@ export async function autentikasiPemicuAi(
   }
   // Gate Fase 8 (T4): akun dibatasi (nonaktif) tidak boleh memicu job
   // AI editorial — sebelumnya hanya autentikasiStaf (GET) yang
-  // memeriksa nonaktif, jalur pemicu POST ini lolos. Fail-open bila
-  // tabel profil belum ada (route menjawab 503 jujur di bawah).
-  try {
-    const { data: profil } = await supabase
-      .from("pf_profiles")
-      .select("nonaktif")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (profil && (profil as { nonaktif: boolean }).nonaktif) {
-      return {
-        ok: false,
-        respon: NextResponse.json(
-          { ok: false, error: "Akun Anda dibatasi. Hubungi administrator." },
-          { status: 403 },
-        ),
-      };
-    }
-  } catch {
-    // Lanjut ke pemeriksaan role.
+  // memeriksa nonaktif, jalur pemicu POST ini lolos.
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) {
+    return { ok: false, respon: ditolak };
   }
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR)) {

@@ -5,6 +5,8 @@
 // Hanya memakai fetch global — tanpa library tambahan.
 
 import type { ItemMentah } from "./rss.ts";
+import { fetchAman, tolakHostPrivat } from "./ssrf.ts";
+import { tolakHostFeedAman } from "./feed-allowlist.ts";
 
 export interface OpsiFetchGdelt {
   maxRecords?: number;
@@ -63,14 +65,27 @@ export async function fetchGdelt(
 
   let respons: Response;
   try {
-    respons = await ambil(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PRATA-FAKTA-Ingestion/1.0",
-        Accept: "application/json",
+    // Tahap 13B (T6): SEBELUMNYA fetch mentah tanpa pelindung SSRF
+    // sama sekali — URL tetap (api.gdeltproject.org) tetapi redirect
+    // diikuti buta ke host mana pun. Sekarang fetchAman: hop pertama
+    // HARUS host GDELT di allowlist (+ lolos cek privat), hop
+    // redirect berikutnya lolos cek privat.
+    respons = await fetchAman(
+      url,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PRATA-FAKTA-Ingestion/1.0",
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(timeoutMs),
       },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+      ambil,
+      {
+        periksaHost: tolakHostFeedAman,
+        periksaHopLanjutan: tolakHostPrivat,
+      },
+    );
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);
     throw new Error(

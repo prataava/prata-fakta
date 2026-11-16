@@ -7,14 +7,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserRoles } from "@/lib/auth/roles";
 import {
   buatRateLimiterAdmin,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/admin/guard";
 
 const lolosRateLimit = buatRateLimiterAdmin();
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const supabase = await createClient();
   const {

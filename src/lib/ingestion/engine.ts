@@ -114,6 +114,10 @@ export interface OpsiIngestion {
   // hardcoded "Indonesia" di bawah — utang audit §5.11).
   // Default tetap "Indonesia" agar perilaku lama tidak berubah.
   topikGdelt?: string;
+  // Lewati allowlist host feed — HANYA untuk uji dengan fetch mock
+  // (sumber sintetis contoh.test di scripts/uji-ingestion.mjs).
+  // JANGAN PERNAH diisi di jalur produksi.
+  lewatiAllowlistFeed?: boolean;
 }
 
 const PANJANG_JUDUL_MINIMAL = 5;
@@ -182,6 +186,7 @@ async function prosesSatuSumber(
       const rss = await fetchRss(sumber.url, {
         timeoutMs,
         fetchFn: opsi.fetchFn,
+        lewatiAllowlist: opsi.lewatiAllowlistFeed,
       });
       items = rss.items;
       httpStatus = rss.httpStatus;

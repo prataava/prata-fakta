@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buatRateLimiter,
+  responRateLimit,
+  tolakAkunNonaktif,
+} from "@/lib/ai/route-auth";
 
 // POST /api/kuis/skor — simpan skor kuis harian pengguna login.
 // Body: { tanggal: "YYYY-MM-DD", benar: 0..5, total: 1..10 }
@@ -8,24 +13,11 @@ import { createClient } from "@/lib/supabase/server";
 // skor anonim tidak disimpan (tidak dapat ditampilkan kembali dan
 // tidak dapat dihapus pemiliknya). Satu skor per pengguna per
 // tanggal; main ulang di hari yang sama menimpa skor sebelumnya
-// (upsert). Rate limit 5 request/menit/IP. 401 bila belum login;
+// (upsert). Rate limit 5 request/menit (limiter database lintas
+// instance, Tahap 13A, T3). 401 bila belum login;
 // 503 jujur bila tabel pf_quiz_scores belum ada (migrasi v7 belum
 // dijalankan).
-const BATAS = 5;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+const batasi = buatRateLimiter(5);
 
 function tanggalWibHariIni(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -43,15 +35,7 @@ function kemarinWib(tanggal: string): string {
 }
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   const supabase = await createClient();
   const {
@@ -63,6 +47,9 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) return ditolak;
 
   let body: unknown;
   try {

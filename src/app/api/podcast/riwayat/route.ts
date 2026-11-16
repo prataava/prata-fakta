@@ -6,6 +6,7 @@
 // PemutarPodcast); posisi detik presisi hanya untuk <audio>.
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { tolakAkunNonaktif } from "@/lib/ai/route-auth";
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -18,6 +19,10 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) return ditolak;
+
   let body: { episode_id?: unknown; posisi_detik?: unknown; selesai?: unknown };
   try {
     body = (await req.json()) as typeof body;

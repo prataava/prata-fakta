@@ -16,6 +16,16 @@
 #     nyata dan menulis ringkasan_tren (deterministik, tanpa LLM).
 # Agen TIDAK PERNAH mengarang angka: indikator dengan < 2 titik data
 # dilewati dengan alasan dan dicatat di pf_ai_runs.
+#
+# Concurrency (Tahap 13C, F3): satu run pada satu waktu
+# (cancel-in-progress false).
+# Retry (F8): curl --retry 2 --retry-delay 10.
+# Assert respons (F5): job gagal bila `ok != true` atau `gagal > 0`.
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow) dan di tabel
+# pf_ai_runs / pf_scheduled_jobs (status_terakhir='gagal',
+# error_terakhir). Lihat LAPORAN-FASE-8 §14.
 
 name: Data Analysis PRATA FAKTA
 
@@ -25,6 +35,10 @@ on:
     - cron: "0 1 * * 1"
   workflow_dispatch:
 
+concurrency:
+  group: prata-fakta-data-analysis
+  cancel-in-progress: false
+
 jobs:
   data-analysis:
     runs-on: ubuntu-latest
@@ -32,8 +46,13 @@ jobs:
     steps:
       - name: Pemicu agen Data Analysis
         run: |
-          curl --fail-with-body -sS -X POST \
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/ai/data-analysis" \
             -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d '{"dipicu_oleh":"github_actions"}'
+            -d '{"dipicu_oleh":"github_actions"}' \
+            -o "$RESP"
+          echo "Respons data-analysis: $(cat "$RESP")"
+          jq -e '.ok == true and (.gagal // 0) == 0' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: data-analysis melaporkan gagal > 0 atau ok != true"; exit 1; }

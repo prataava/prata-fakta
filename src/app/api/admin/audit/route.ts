@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import {
   autentikasiAdmin,
   buatRateLimiterAdmin,
-  ipDariRequest,
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
@@ -14,7 +13,7 @@ import { ROLES } from "@/lib/auth/roles";
 const lolosRateLimit = buatRateLimiterAdmin();
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
 

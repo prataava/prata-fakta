@@ -7,7 +7,6 @@ import { NextResponse } from "next/server";
 import { getNegara, normalisasiKode } from "@/lib/negara";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 
@@ -17,7 +16,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ kode: string }> },
 ) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const { kode } = await params;
   const profil = await getNegara(normalisasiKode(kode));
   if (!profil) {

@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   autentikasiStaf,
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 
@@ -31,7 +30,7 @@ const AGEN = [
 ] as const;
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const galatAuth = await autentikasiStaf();
   if (galatAuth) return galatAuth;

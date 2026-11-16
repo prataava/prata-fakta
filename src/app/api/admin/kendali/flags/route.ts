@@ -20,7 +20,7 @@ import { getFlagsLayanan, setFlag } from "@/lib/admin/kendali";
 const lolosRateLimit = buatRateLimiterAdmin();
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.SUPER_ADMIN);
   if (auth instanceof NextResponse) return auth;
   try {
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.SUPER_ADMIN);
   if (auth instanceof NextResponse) return auth;
   const body = await bacaBody(req);

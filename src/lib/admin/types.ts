@@ -30,8 +30,8 @@ export type KeputusanReview = "setuju" | "tolak" | "kembalikan";
 
 export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 
-// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v9
-// (migrasi v9 §6, 47 aksi). Sebelum Gelombang 2 tipe ini hanya 19
+// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v11
+// (migrasi v11 §3, 53 aksi). Sebelum Gelombang 2 tipe ini hanya 19
 // anggota sementara CHECK sudah 47 — route baru menulis audit via
 // insert service-client langsung karena tipenya tak memuat aksi
 // mereka. Jangan tambah aksi di sini tanpa menambahkannya dulu ke
@@ -72,6 +72,7 @@ export type AksiAudit =
   | "riset.hapus"
   | "negara.buat"
   | "negara.ubah"
+  | "negara.hapus"
   | "tanya.jawab"
   | "akademi.kursus"
   | "akademi.modul"
@@ -83,11 +84,27 @@ export type AksiAudit =
   | "kuis.buat"
   | "kuis.ubah"
   | "preferensi.ubah"
-  | "ekspor.data";
+  | "ekspor.data"
+  | "sumber.buat"
+  | "sumber.ubah"
+  | "sumber.hapus"
+  | "sumber.cek"
+  | "sumber.aktif";
 
-export type NamaJob = "ingestion" | "editorial" | "brief";
+export type NamaJob =
+  | "ingestion"
+  | "editorial"
+  | "brief"
+  | "data-analysis"
+  | "terbitkan-terjadwal";
 
-export const NAMA_JOB_VALID: NamaJob[] = ["ingestion", "editorial", "brief"];
+export const NAMA_JOB_VALID: NamaJob[] = [
+  "ingestion",
+  "editorial",
+  "brief",
+  "data-analysis",
+  "terbitkan-terjadwal",
+];
 
 export type StatusJobTerakhir =
   | "berhasil"

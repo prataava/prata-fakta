@@ -1,20 +1,57 @@
-// Pelindung SSRF (temuan T6 audit keamanan Fase 7): sebelum server
-// mem-fetch URL apa pun (feed RSS, cek sumber, teks halaman artikel
-// di agen Research), pastikan host-nya tidak mengarah ke alamat
+// Pelindung SSRF (temuan T6 audit keamanan Fase 7; dikeraskan Tahap 13B).
+// Sebelum server mem-fetch URL apa pun (feed RSS, cek sumber, teks halaman
+// artikel di agen Research), pastikan host-nya tidak mengarah ke alamat
 // privat/link-local — editor yang akunnya dikompromikan tidak boleh
 // memakai server untuk memindai jaringan internal atau metadata
 // cloud (mis. 169.254.169.254).
-// Catatan: perlindungan ini memeriksa hasil DNS saat ini; bila DNS
-// gagal di-resolve, pemeriksaan dilewati (fail-open) dan fetch yang
-// akan gagal secara alami. Rentang yang ditolak: loopback, privat
-// RFC1918, link-local, unique-local IPv6, CGNAT, benchmarking,
-// multicast, dan reserved — termasuk bentuk IPv4-mapped IPv6.
-// SISA YANG DIKETAHUI (Gate Fase 8): DNS rebinding (TOCTOU antara
-// cek DNS dan fetch) TIDAK bisa ditutup oleh pemeriksaan string/DNS
-// ini — butuh pinning IP di lapis koneksi (di luar cakupan patch ini).
-// Lihat fetchAman: redirect HANYA diikuti bila target lolos cek yang
-// sama (maks 5 hop), jadi redirect ke host privat tidak lagi tembus.
+//
+// LAPISAN PERTAHANAN (Tahap 13B) — tidak satu pun mengandalkan yang lain:
+//   1. `tolakHostPrivat`: cek DNS per hop (fail-closed bila ada alamat
+//      privat; fail-open bila DNS gagal — fetch akan gagal alami).
+//   2. Allowlist host KETAT untuk ingestion (`feed-allowlist.ts`):
+//      feed RSS/GDELT hanya dari 8 host yang dikenal, termasuk
+//      target redirect-nya.
+//   3. IP pinning (`fetchTerpin`): koneksi dibuka ke IP yang SUDAH
+//      divalidasi (lookup kustom + Host header + SNI = hostname asli),
+//      sehingga DNS TIDAK di-resolve ulang oleh fetch — jendela TOCTOU
+//      tertutup untuk hop itu.
+//   4. Re-resolusi pasca-fetch (`periksaUlangResolusi`): sesudah fetch
+//      (jalur fallback / fetch mock), resolve ulang host akhir dan
+//      bandingkan dengan IP yang divalidasi sebelum fetch; bila tidak
+//      ada irisan, respons DIBUANG — menangkap rebinding yang
+//      bertahan sesudah fetch.
+//
+// SISA CELAH YANG JUJUR (baca sebelum mengklaim "T6 tertutup"):
+//   a. Pinning HANYA bekerja bila koneksi TCP langsung ke IP tujuan
+//      bisa dibuka. Di VM ini (egress middlebox) koneksi langsung ke
+//      IP GAGAL ("socket disconnected before secure TLS connection")
+//      — middlebox menjawab DNS dengan 198.18/15 palsu dan merutekan
+//      lewat SNI/hostname — sehingga fetchAman JATUH ke fallback
+//      (fetch biasa + re-resolusi). Di lingkungan itu TOCTOU hanya
+//      DIPERSEMPIT (lapisan 4), tidak tertutup. Di produksi (Vercel,
+//      egress langsung) jalur pinning yang dipakai; verifikasi live
+//      pinning HTTPS di produksi BELUM dilakukan — koordinator wajib
+//      mengujinya sebelum mengklaim T6 tertutup penuh.
+//   b. Re-resolusi pasca-fetch tidak menangkap penyerang yang
+//      membalik DNS kembali ke IP semula SEBELUM pemeriksaan ulang
+//      (jendela milidetik, butuh TTL ~0 + timing presisi) — tetapi
+//      penyerang itu harus mengendalikan DNS target DAN menjawab
+//      tepat di dua jendela; jauh lebih sulit daripada rebinding
+//      satu-kali yang ditutup lapisan 3.
+//   c. 198.18/15 (benchmarking) SENGAJA tidak diblokir (lihat
+//      ipPrivat): resolver egress VM menjawab SEMUA hostname dari
+//      198.18/15, jadi memblokirnya menolak setiap host di lingkungan
+//      ini. Rentang itu bukan RFC1918/metadata cloud; risiko sisa
+//      rendah dan dicatat di laporan gate Fase 8.
+//   d. Fail-open bila DNS gagal dipertahankan (tolakHostPrivat
+//      mengembalikan null): host yang tak ter-resolve tidak bisa
+//      dinilai; fetch-nya akan gagal secara alami.
+//   e. fetchAman dengan fetch pengganti (mock uji / curl fallback)
+//      TIDAK bisa di-pinning — curl/mock melakukan DNS sendiri.
+//      Jalur itu hanya dilindungi lapisan 1 (+ 2 untuk feed).
 import { lookup } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 
 /** True bila alamat IP termasuk rentang privat/loopback/link-local. */
 export function ipPrivat(ip: string): boolean {
@@ -70,6 +107,35 @@ export function ipPrivat(ip: string): boolean {
   return false;
 }
 
+export interface HasilResolusi {
+  host: string;
+  alamat: string[];
+}
+
+/**
+ * Resolve host URL sekali; kembalikan null bila URL tidak valid atau
+ * DNS gagal (fail-open di pemanggil — fetch akan gagal alami).
+ * Bila host-nya sendiri literal IP, kembalikan literal itu tanpa DNS.
+ */
+export async function resolusiHost(url: string): Promise<HasilResolusi | null> {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!host) return null;
+  if (ipPrivat(host)) return { host, alamat: [host] };
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return { host, alamat: [host] };
+  if (host.includes(":")) return { host, alamat: [host] };
+  try {
+    const hasil = await lookup(host, { all: true });
+    return { host, alamat: hasil.map((a) => a.address) };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Periksa URL: kembalikan pesan penolakan bila host-nya privat atau
  * tidak valid; kembalikan null bila boleh di-fetch. Host "localhost"
@@ -86,39 +152,349 @@ export async function tolakHostPrivat(url: string): Promise<string | null> {
     return "Host lokal tidak diizinkan.";
   }
   if (ipPrivat(host)) return "Host mengarah ke alamat privat.";
-  let alamat: Array<{ address: string }>;
-  try {
-    alamat = await lookup(host, { all: true });
-  } catch {
-    return null; // DNS gagal → biarkan fetch yang gagal (fail-open).
-  }
-  if (alamat.some((a) => ipPrivat(a.address))) {
+  const hasil = await resolusiHost(url);
+  if (!hasil) return null; // DNS gagal → biarkan fetch yang gagal (fail-open).
+  if (hasil.alamat.some((a) => ipPrivat(a))) {
     return "Host mengarah ke alamat privat.";
   }
   return null;
 }
 
+/**
+ * Re-resolusi pasca-fetch (lapisan 4): resolve ulang host URL dan
+ * bandingkan dengan alamat yang divalidasi SEBELUM fetch.
+ * Kembalikan null bila cocok / tidak bisa diperiksa (DNS gagal →
+ * fail-open, didokumentasikan), atau pesan penolakan bila TIDAK ADA
+ * irisan — artinya DNS berubah di antara validasi dan fetch
+ * (kemungkinan rebinding); pemanggil WAJIB membuang respons.
+ * Fungsi murni atas resolver yang bisa di-mock — dipakai uji.
+ */
+export async function periksaUlangResolusi(
+  url: string,
+  alamatDivalidasi: string[],
+  selesaikan: (host: string) => Promise<string[]> = async (host) => {
+    const hasil = await lookup(host, { all: true });
+    return hasil.map((a) => a.address);
+  },
+): Promise<string | null> {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return "URL tidak valid.";
+  }
+  let alamatBaru: string[];
+  try {
+    alamatBaru = await selesaikan(host);
+  } catch {
+    return null; // DNS gagal sesudah fetch → tidak bisa membuktikan; fail-open.
+  }
+  if (alamatBaru.length === 0) return null;
+  const irisan = alamatBaru.some((a) => alamatDivalidasi.includes(a));
+  if (!irisan) {
+    return `DNS host ${host} berubah sesudah fetch (kemungkinan rebinding): respons dibuang.`;
+  }
+  return null;
+}
+
+// ---------- IP pinning (lapisan 3) ----------
+
+export interface OpsiFetchTerpin {
+  /** Resolver pengganti — HANYA untuk uji (memetakan host ke IP lokal). */
+  penyelesaian?: (host: string) => Promise<string[]>;
+  /** Izinkan alamat privat — HANYA untuk uji transport lokal. */
+  izinkanPrivat?: boolean;
+  /** Batas waktu percobaan koneksi terpin (ms). Default 2000 —
+   *  sengaja pendek: bila koneksi langsung ke IP tidak bisa dibuka
+   *  (mis. middlebox egress VM yang memutusnya), fetchAman harus
+   *  segera jatuh ke fallback + re-resolusi, bukan menghabiskan
+   *  anggaran timeout pemanggil (10 dtk/feed). Di produksi yang
+   *  egress-nya langsung, connect TLS yang sehat jauh di bawah ini;
+   *  bila melebihi batas, fallback tetap aman (re-resolusi). */
+  batasMs?: number;
+}
+
+/** Gabungkan signal pemanggil dengan batas waktu; null bila keduanya kosong. */
+function gabungSignal(
+  signal: AbortSignal | null | undefined,
+  batasMs: number,
+): { signal: AbortSignal | undefined; batal: () => void } {
+  if (!signal && !batasMs) return { signal: undefined, batal: () => {} };
+  const pengendali = new AbortController();
+  const timer = batasMs > 0 ? setTimeout(() => pengendali.abort(), batasMs) : null;
+  const teruskan = () => pengendali.abort();
+  if (signal) {
+    if (signal.aborted) pengendali.abort();
+    else signal.addEventListener("abort", teruskan, { once: true });
+  }
+  return {
+    signal: pengendali.signal,
+    batal: () => {
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", teruskan);
+    },
+  };
+}
+
+/**
+ * Fetch dengan IP pinning memakai stdlib node:http/https SAJA (tanpa
+ * dependensi baru): host di-resolve SEKALI ke IP yang sudah divalidasi,
+ * lalu koneksi dibuka langsung ke IP itu — DNS tidak di-resolve ulang.
+ * Header `Host` = hostname asli dan SNI TLS (`servername`) = hostname
+ * asli, sehingga virtual hosting + verifikasi sertifikat tetap
+ * memakai nama host, bukan IP.
+ *
+ * Hanya GET/HEAD. Melempar `URL ditolak: ...` untuk penolakan validasi
+ * (JANGAN di-fallback oleh pemanggil) dan error jaringan biasa bila
+ * koneksi gagal (pemanggil BOLEH fallback ke fetch biasa + re-resolusi
+ * — lihat fetchAman). Mengembalikan Response Web standar.
+ */
+export async function fetchTerpin(
+  url: string,
+  init: RequestInit = {},
+  opsi: OpsiFetchTerpin = {},
+): Promise<Response> {
+  let terurai: URL;
+  try {
+    terurai = new URL(url);
+  } catch {
+    throw new Error("URL ditolak: URL tidak valid.");
+  }
+  if (terurai.protocol !== "http:" && terurai.protocol !== "https:") {
+    throw new Error("URL ditolak: Hanya http(s) yang diizinkan.");
+  }
+  const metode = (init.method ?? "GET").toUpperCase();
+  if (metode !== "GET" && metode !== "HEAD") {
+    throw new Error(`URL ditolak: Metode ${metode} tidak didukung pinning.`);
+  }
+  const host = terurai.hostname.toLowerCase();
+  if (host === "localhost" || host === "" || !host.includes(".")) {
+    throw new Error("URL ditolak: Host lokal tidak diizinkan.");
+  }
+  if (ipPrivat(host) && !opsi.izinkanPrivat) {
+    throw new Error("URL ditolak: Host mengarah ke alamat privat.");
+  }
+
+  const selesaikan =
+    opsi.penyelesaian ??
+    (async (h: string) => {
+      const hasil = await lookup(h, { all: true });
+      return hasil.map((a) => a.address);
+    });
+  let alamat: string[];
+  try {
+    alamat = ipPrivat(host) || /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(":")
+      ? [host]
+      : await selesaikan(host);
+  } catch {
+    throw new Error(`URL ditolak: DNS ${host} gagal di-resolve.`);
+  }
+  if (alamat.length === 0) {
+    throw new Error(`URL ditolak: DNS ${host} tidak mengembalikan alamat.`);
+  }
+  if (!opsi.izinkanPrivat && alamat.some((a) => ipPrivat(a))) {
+    throw new Error("URL ditolak: Host mengarah ke alamat privat.");
+  }
+  const ip = alamat[0];
+  const port = terurai.port
+    ? Number(terurai.port)
+    : terurai.protocol === "https:"
+      ? 443
+      : 80;
+  const jalur = `${terurai.pathname}${terurai.search}` || "/";
+
+  const headerKirim: Record<string, string> = {};
+  const headerInit = init.headers as
+    | Record<string, string>
+    | Array<[string, string]>
+    | Headers
+    | undefined;
+  if (headerInit) {
+    if (headerInit instanceof Headers) {
+      headerInit.forEach((nilai, nama) => {
+        headerKirim[nama] = nilai;
+      });
+    } else if (Array.isArray(headerInit)) {
+      for (const [nama, nilai] of headerInit) headerKirim[nama] = nilai;
+    } else {
+      Object.assign(headerKirim, headerInit);
+    }
+  }
+  // Host header WAJIB hostname asli (bukan IP) — server virtual-host
+  // dan CDN merutekan dari sini. Port non-standar ikut disertakan.
+  const hostHeader =
+    (terurai.protocol === "https:" && port === 443) ||
+    (terurai.protocol === "http:" && port === 80)
+      ? terurai.hostname
+      : terurai.host;
+  headerKirim["host"] = hostHeader;
+
+  const { signal, batal } = gabungSignal(
+    init.signal ?? null,
+    opsi.batasMs ?? 2000,
+  );
+  try {
+    return await new Promise<Response>((selesai, tolak) => {
+      const peminta =
+        terurai.protocol === "https:" ? https.request : http.request;
+      const req = peminta(
+        {
+          hostname: ip,
+          port,
+          path: jalur,
+          method: metode,
+          headers: headerKirim,
+          // SNI = hostname asli: sertifikat diverifikasi terhadap nama
+          // host, bukan terhadap IP yang dihubungi.
+          ...(terurai.protocol === "https:"
+            ? { servername: terurai.hostname }
+            : {}),
+          signal,
+        },
+        (res) => {
+          const potongan: Buffer[] = [];
+          res.on("data", (c: Buffer | string) => {
+            potongan.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+          });
+          res.on("end", () => {
+            const headerBalas = new Headers();
+            for (const [nama, nilai] of Object.entries(res.headers)) {
+              if (nilai === undefined) continue;
+              if (Array.isArray(nilai)) {
+                for (const v of nilai) headerBalas.append(nama, v);
+              } else {
+                headerBalas.set(nama, nilai);
+              }
+            }
+            const badan =
+              res.statusCode === 204 || res.statusCode === 304
+                ? null
+                : Buffer.concat(potongan);
+            try {
+              selesai(
+                new Response(badan, {
+                  status: res.statusCode ?? 500,
+                  headers: headerBalas,
+                }),
+              );
+            } catch (err) {
+              tolak(err instanceof Error ? err : new Error(String(err)));
+            }
+          });
+          res.on("error", (err) => {
+            tolak(err);
+          });
+        },
+      );
+      req.on("error", (err) => {
+        tolak(err);
+      });
+      req.on("timeout", () => {
+        req.destroy(new Error("Waktu habis (pinning)."));
+      });
+      req.end();
+    });
+  } finally {
+    batal();
+  }
+}
+
+// ---------- fetchAman ----------
+
 const MAKS_REDIRECT = 5;
+
+export interface OpsiFetchAman {
+  /** Pemeriksa hop pertama (default: tolakHostPrivat). */
+  periksaHost?: (url: string) => Promise<string | null>;
+  /** Pemeriksa hop redirect ke-2 dst (default: sama dengan periksaHost). */
+  periksaHopLanjutan?: (url: string) => Promise<string | null>;
+  /** Coba IP pinning bila memakai fetch global (default true). */
+  pinIp?: boolean;
+  /** Resolver pengganti untuk pinning — HANYA untuk uji. */
+  penyelesaian?: (host: string) => Promise<string[]>;
+  /** Izinkan alamat privat pada pinning — HANYA untuk uji transport lokal. */
+  izinkanPrivat?: boolean;
+}
 
 /**
  * Fetch yang aman dari SSRF lewat redirect: fetch bawaan mengikuti
  * redirect (301/302/307/308) ke host mana pun TANPA validasi ulang,
  * sehingga URL publik yang me-redirect ke 169.254.169.254 menembus
  * tolakHostPrivat. Helper ini memakai redirect manual dan memvalidasi
- * SETIAP target redirect dengan tolakHostPrivat (maks 5 hop).
- * Melempar bila URL awal/target ditolak atau redirect berlebih.
- * `ambil` (fetch pengganti) dipakai uji; di produksi = fetch global.
+ * SETIAP target redirect (maks 5 hop).
+ * Per hop: validasi → coba pinning IP (fetch global saja) → bila
+ * koneksi terpin gagal di jaringan, fallback ke fetch biasa +
+ * re-resolusi pasca-fetch (respons dibuang bila DNS berubah).
+ * Melempar bila URL awal/target ditolak, DNS berubah sesudah fetch,
+ * atau redirect berlebih. `ambil` (fetch pengganti) dipakai uji;
+ * di produksi = fetch global.
  */
 export async function fetchAman(
   url: string,
   init: RequestInit = {},
   ambil: typeof fetch = fetch,
+  opsi: OpsiFetchAman = {},
 ): Promise<Response> {
+  const periksaAwal = opsi.periksaHost ?? tolakHostPrivat;
+  const periksaLanjutan =
+    opsi.periksaHopLanjutan ?? opsi.periksaHost ?? tolakHostPrivat;
+  const pakaiFetchGlobal = ambil === fetch;
   let saatIni = url;
   for (let hop = 0; hop <= MAKS_REDIRECT; hop++) {
-    const ditolak = await tolakHostPrivat(saatIni);
+    const ditolak = await (hop === 0 ? periksaAwal : periksaLanjutan)(
+      saatIni,
+    );
     if (ditolak) throw new Error(`URL ditolak: ${ditolak}`);
-    const respons = await ambil(saatIni, { ...init, redirect: "manual" });
+    const pra = await resolusiHost(saatIni);
+    const alamatDivalidasi = pra ? pra.alamat : null;
+
+    let respons: Response | null = null;
+    let dipakaiPinning = false;
+    if (pakaiFetchGlobal && opsi.pinIp !== false) {
+      try {
+        respons = await fetchTerpin(
+          saatIni,
+          { ...init, redirect: "manual" },
+          {
+            penyelesaian: opsi.penyelesaian,
+            izinkanPrivat: opsi.izinkanPrivat,
+          },
+        );
+        dipakaiPinning = true;
+      } catch (err) {
+        const pesan = err instanceof Error ? err.message : String(err);
+        // Penolakan validasi TIDAK boleh di-fallback: host privat
+        // tetap privat apa pun transportnya.
+        if (pesan.startsWith("URL ditolak:")) throw err;
+        // Kegagalan jaringan pada koneksi terpin (mis. middlebox
+        // egress VM yang memutus koneksi langsung ke IP) → fallback
+        // ke fetch biasa; re-resolusi pasca-fetch di bawah tetap
+        // berjalan sebagai jaring pengaman.
+        respons = null;
+      }
+    }
+    if (!respons) {
+      respons = await ambil(saatIni, { ...init, redirect: "manual" });
+    }
+
+    // Re-resolusi pasca-fetch — HANYA untuk jalur non-pinning:
+    // jalur pinning sudah terhubung ke IP tervalidasi, jadi tidak
+    // ada yang perlu diperiksa ulang (dan host CDN round-robin
+    // bisa memberi jawaban berbeda yang sah).
+    if (!dipakaiPinning && pakaiFetchGlobal && alamatDivalidasi) {
+      const berubah = await periksaUlangResolusi(saatIni, alamatDivalidasi);
+      if (berubah) {
+        // Buang respons: jangan biarkan pemanggil membaca badan yang
+        // mungkin berasal dari host hasil rebinding.
+        try {
+          await respons.arrayBuffer();
+        } catch {
+          // Abaikan — penolakan tetap dilempar.
+        }
+        throw new Error(`URL ditolak: ${berubah}`);
+      }
+    }
+
     if (respons.status < 300 || respons.status >= 400) return respons;
     const lokasi = respons.headers.get("location");
     if (!lokasi) return respons;

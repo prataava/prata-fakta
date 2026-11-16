@@ -6,6 +6,7 @@
 // (auth.uid() = user_id). Episode harus terbit.
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { tolakAkunNonaktif } from "@/lib/ai/route-auth";
 import { getPlaylist } from "@/lib/podcast";
 
 async function penggunaAtau401() {
@@ -25,6 +26,9 @@ export async function GET() {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(sesi.supabase, sesi.user.id);
+  if (ditolak) return ditolak;
   const playlist = await getPlaylist(sesi.user.id);
   return NextResponse.json({ ok: true, playlist });
 }
@@ -37,6 +41,9 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(sesi.supabase, sesi.user.id);
+  if (ditolak) return ditolak;
   let body: { episode_id?: unknown };
   try {
     body = (await req.json()) as typeof body;
@@ -127,6 +134,9 @@ export async function DELETE(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(sesi.supabase, sesi.user.id);
+  if (ditolak) return ditolak;
   const url = new URL(req.url);
   const episodeId = url.searchParams.get("episode_id") ?? "";
   if (!episodeId) {

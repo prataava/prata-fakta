@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  buatRateLimiter,
+  responRateLimit,
+  tolakAkunNonaktif,
+} from "@/lib/ai/route-auth";
 
 // POST /api/tanya — tanya jawab berbasis data yang sudah ada.
 // Body: { pertanyaan }
@@ -17,28 +22,15 @@ import { createServiceClient } from "@/lib/supabase/service";
 // Pertanyaan disimpan dengan kategori (klasifikasi kata kunci)
 // + publik=false (default; staf yang menandai publik).
 // Boleh anonim; bila login, pertanyaan tercatat di akun pengguna.
-// Rate limit 5 request/menit/IP (pola /api/laporan).
+// Rate limit 5 request/menit (limiter database lintas instance,
+// Tahap 13A, T3 — menggantikan Map in-memory per instance).
 // GET /api/tanya → daftar pertanyaan saya (wajib login, 401 bila tidak).
 // 503 jujur bila tabel pf_questions belum ada (migrasi v6 belum dijalankan).
 // T5 (Fase 8 Gelombang 1): INSERT pertanyaan via service role —
 // policy INSERT anonim "pf_questions tambah publik" DICABUT di
 // migrasi v8. Pencarian kandidat + identitas pengguna tetap via
 // session client. 503 jujur bila service key belum diatur.
-const BATAS = 5;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+const batasi = buatRateLimiter(5);
 
 const STOPWORDS = new Set([
   "yang", "dan", "atau", "dengan", "untuk", "dari", "adalah", "ini", "itu",
@@ -241,14 +233,7 @@ async function cariKandidat(
 }
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   let body: { pertanyaan?: unknown };
   try {
@@ -364,6 +349,9 @@ export async function GET() {
     );
   }
   const supabase = await createClient();
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, penggunaId);
+  if (ditolak) return ditolak;
   const { data, error } = await supabase
     .from("pf_questions")
     .select(

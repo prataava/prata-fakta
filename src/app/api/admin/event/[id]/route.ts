@@ -13,6 +13,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 import { isUuid, validasiEventInput } from "../route";
 
@@ -25,7 +26,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -91,6 +92,18 @@ export async function PATCH(
         { status: 404 },
       );
     }
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "event.ubah",
+      entitas: "pf_events",
+      entitas_id: id,
+      sebelum: null,
+      sesudah: patch,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, event: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -101,7 +114,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -117,7 +130,7 @@ export async function DELETE(
       .from("pf_events")
       .delete()
       .eq("id", id)
-      .select("id")
+      .select(KOLOM_EVENT)
       .maybeSingle();
     if (error) throw error;
     if (!data) {
@@ -126,6 +139,22 @@ export async function DELETE(
         { status: 404 },
       );
     }
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "event.hapus",
+      entitas: "pf_events",
+      entitas_id: id,
+      sebelum: {
+        judul: (data as { judul: string }).judul,
+        dimulai_pada: (data as { dimulai_pada: string }).dimulai_pada,
+        era: (data as { era: string | null }).era,
+      },
+      sesudah: null,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return responGalatAdmin(err);

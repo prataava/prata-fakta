@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
+import {
+  buatRateLimiter,
+  responRateLimit,
+  tolakAkunNonaktif,
+} from "@/lib/ai/route-auth";
 
 // GET /api/ingestion/antrean — antrean review ingestion.
 // HANYA super_admin/editor/fact_checker.
@@ -8,22 +13,9 @@ import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 // NYATA dari pf_raw_items (bukan angka palsu), mengikuti pola cariArtikel
 // ({ tersedia }) yang dipakai halaman /cari.
 // Bila tabel belum ada -> 200 dengan tersedia:false + pesan jujur.
-// Rate limiting: 30 req/menit/IP (pola /api/langganan).
-const BATAS = 30;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+// Rate limiting: 30 req/menit (limiter database lintas instance,
+// Tahap 13A, T3 — menggantikan Map in-memory per instance).
+const batasi = buatRateLimiter(30);
 
 const STATUS = ["baru", "duplikat", "ditolak", "disalin_dari"] as const;
 
@@ -35,14 +27,7 @@ const PER_STATUS_KOSONG = {
 };
 
 export async function GET(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   const supabase = await createClient();
   const {
@@ -54,6 +39,9 @@ export async function GET(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) return ditolak;
   const roles = await getUserRoles(user.id);
   if (!punyaRole(roles, ROLES.EDITOR, ROLES.FACT_CHECKER)) {
     return NextResponse.json(

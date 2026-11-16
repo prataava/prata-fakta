@@ -9,6 +9,19 @@
 # Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
 # terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
 # dari endpoint (bukan error workflow).
+#
+# Concurrency (Tahap 13C, F3): satu run ingestion pada satu waktu
+# (cancel-in-progress false — run yang sedang jalan tidak dibatalkan,
+# run baru menunggu giliran Actions).
+# Retry (F8): curl --retry 2 --retry-delay 10 (gagal jaringan /
+# HTTP 408/429/5xx sementara dicoba ulang 2x).
+# Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
+# `ok != true` atau `total.gagal > 0`, bukan hanya bila HTTP non-2xx.
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow) dan di tabel
+# pf_ingestion_runs / pf_scheduled_jobs (status_terakhir='gagal',
+# error_terakhir). Lihat LAPORAN-FASE-8 §14.
 
 name: Ingestion PRATA FAKTA
 
@@ -24,6 +37,10 @@ on:
         default: ""
         type: string
 
+concurrency:
+  group: prata-fakta-ingestion
+  cancel-in-progress: false
+
 jobs:
   ingestion:
     runs-on: ubuntu-latest
@@ -36,8 +53,13 @@ jobs:
             BODY=$(jq -n --arg s "${{ inputs.sumber_id }}" \
               '{dipicu_oleh:"github_actions", sumber_id:$s}')
           fi
-          curl --fail-with-body -sS -X POST \
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/ingestion/jalankan" \
             -H "x-pf-ingestion-secret: ${{ secrets.PF_INGESTION_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d "$BODY"
+            -d "$BODY" \
+            -o "$RESP"
+          echo "Respons ingestion: $(cat "$RESP")"
+          jq -e '.ok == true and (.total.gagal // 0) == 0' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: ingestion melaporkan total.gagal > 0 atau ok != true"; exit 1; }

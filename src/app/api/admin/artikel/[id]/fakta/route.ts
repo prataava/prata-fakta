@@ -25,7 +25,7 @@ const lolosRateLimit = buatRateLimiterAdmin();
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -49,7 +49,7 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 export async function POST(req: Request, { params }: Params) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.FACT_CHECKER, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;

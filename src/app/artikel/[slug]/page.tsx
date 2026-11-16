@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { bacaNonceDariHeaders } from "@/lib/csp";
 import {
   getArtikelLengkap,
   getArtikelTerkait,
@@ -9,6 +11,8 @@ import {
   getVersiArtikel,
   isBookmarked,
 } from "@/lib/data";
+import { getCeritaUntukArtikel } from "@/lib/cerita";
+import { getNegara } from "@/lib/negara";
 import { createClient } from "@/lib/supabase/server";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import { urlSitus } from "@/lib/situs";
@@ -81,22 +85,27 @@ export default async function HalamanArtikel({
   const artikel = await getArtikelLengkap(slug);
   if (!artikel) notFound();
 
-  const [terkait, versi, pengguna, jejak, perbandingan] = await Promise.all([
-    getArtikelTerkait(artikel, 4),
-    getVersiArtikel(artikel.id, 5),
-    (async () => {
-      try {
-        const supabase = await createClient();
-        const { data } = await supabase.auth.getUser();
-        return data.user ?? null;
-      } catch {
-        return null;
-      }
-    })(),
-    // Jejak Fakta (Area 1) + Multi-Source View (Area 3), Fase 8 Gel. 1.
-    getJejakFakta(artikel.id),
-    getPerbandinganSumber(artikel.id),
-  ]);
+  const [terkait, versi, pengguna, jejak, perbandingan, cerita, negara] =
+    await Promise.all([
+      getArtikelTerkait(artikel, 4),
+      getVersiArtikel(artikel.id, 5),
+      (async () => {
+        try {
+          const supabase = await createClient();
+          const { data } = await supabase.auth.getUser();
+          return data.user ?? null;
+        } catch {
+          return null;
+        }
+      })(),
+      // Jejak Fakta (Area 1) + Multi-Source View (Area 3), Fase 8 Gel. 1.
+      getJejakFakta(artikel.id),
+      getPerbandinganSumber(artikel.id),
+      // Tahap 14 — tautan silang: cerita yang memuat artikel ini +
+      // profil negara artikel (bila negara_kode tercatat).
+      getCeritaUntukArtikel(artikel.id),
+      artikel.negara_kode ? getNegara(artikel.negara_kode) : Promise.resolve(null),
+    ]);
 
   const loggedIn = Boolean(pengguna);
   const bookmarkAwal = pengguna
@@ -166,10 +175,16 @@ export default async function HalamanArtikel({
     ],
   };
 
+  // Nonce CSP untuk skrip JSON-LD (Tahap 13B): dibaca dari header
+  // request yang dipasang proxy; tanpa nonce, CSP memblokir skrip
+  // inline ini. Halaman ini sudah membaca data per request.
+  const nonce = bacaNonceDariHeaders(await headers());
+
   return (
     <div className="wadah">
       <script
         type="application/ld+json"
+        nonce={nonce ?? undefined}
         dangerouslySetInnerHTML={{
           __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
         }}
@@ -219,6 +234,31 @@ export default async function HalamanArtikel({
             </p>
           )}
         </header>
+
+        {(cerita || negara) && (
+          <p className="artikel-konteks">
+            {cerita && (
+              <>
+                Bagian dari cerita:{" "}
+                <Link href={`/cerita/${cerita.slug}`}>
+                  {cerita.judul}
+                  {cerita.status_perkembangan
+                    ? ` (${cerita.status_perkembangan})`
+                    : ""}
+                </Link>
+              </>
+            )}
+            {cerita && negara && " · "}
+            {negara && (
+              <>
+                Negara:{" "}
+                <Link href={`/negara/${negara.negara.kode}`}>
+                  {negara.negara.nama}
+                </Link>
+              </>
+            )}
+          </p>
+        )}
 
         {artikel.gambar_url ? (
           // eslint-disable-next-line @next/next/no-img-element

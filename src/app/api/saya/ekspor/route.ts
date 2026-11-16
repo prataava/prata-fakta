@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // GET /api/saya/ekspor → ekspor data pengguna yang login sebagai
@@ -26,7 +26,7 @@ function tabelBelumAda(error: { code?: string; message?: string }): boolean {
 }
 
 export async function GET(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   let pengguna: { id: string; email?: string | null } | null = null;
   try {
     const supabase = await createClient();
@@ -43,6 +43,9 @@ export async function GET(req: Request) {
   }
 
   const supabase = await createClient();
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, pengguna.id);
+  if (ditolak) return ditolak;
   const userId = pengguna.id;
   const [preferensi, bookmark, riwayat, skor, topik, notif, tanya] =
     await Promise.all([

@@ -24,6 +24,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -56,7 +57,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.FACT_CHECKER);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -190,6 +191,22 @@ export async function PATCH(
       )
       .maybeSingle();
     if (error) throw error;
+    // Audit fail-closed (Tahap 13A, T10): jawab/tolak/ubah
+    // pertanyaan dicatat sebagai tanya.jawab dengan admin + waktu.
+    // Gagal audit → operasi ditolak (galat naik ke responGalatAdmin).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "tanya.jawab",
+      entitas: "pf_questions",
+      entitas_id: id,
+      sebelum: {
+        status: (lama as { status: string }).status,
+        referensi: (lama as { referensi: unknown }).referensi,
+      },
+      sesudah: patch,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, pertanyaan: data });
   } catch (err) {
     return responGalatAdmin(err);

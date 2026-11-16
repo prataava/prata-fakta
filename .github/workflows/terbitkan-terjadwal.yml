@@ -1,0 +1,74 @@
+# PRATA FAKTA — Terbitkan artikel terjadwal (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL   = URL deploy, mis. https://prata-fakta.vercel.app
+#                   (TANPA trailing slash)
+#   PF_AI_SECRET  = secret pemicu endpoint AI; nilainya HARUS sama dengan
+#                   env PF_AI_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi. Bila secret belum terisi, job gagal dengan HTTP 503 yang jujur
+# dari endpoint (bukan error workflow).
+#
+# Jadwal: setiap jam — menerbitkan artikel berstatus 'terjadwal' yang
+# waktunya sudah tiba dan lolos gate verifikasi (artikel yang gagal
+# gate dilewati + dicatat alasannya). Artikel yang dihasilkan pipeline
+# SELALU status='draft' — workflow ini TIDAK PERNAH menerbitkan draf
+# mentah; hanya item yang dijadwalkan editor + gate ulang.
+#
+# Sejarah (Tahap 13C, F2/F4): file ini dulu bagian dari
+# `.github/workflows/editorial.yml` (3 jadwal, gating string
+# `github.event.schedule == '...'` yang rapuh). Dispatch lama
+# `tugas=keduanya` TIDAK menjalankan job ini (F2) — kini workflow
+# sendiri dengan workflow_dispatch sendiri, jadi tidak ada lagi
+# pemetaan dispatch yang bisa salah. Untuk menjalankan pipeline +
+# job ini bersamaan, dispatch `editorial-pipeline.yml` DAN workflow
+# ini (atau picu keduanya dari /admin/kendali).
+#
+# Backoff (F12): artikel yang gagal gate TIDAK dicoba ulang tiap
+# jam — endpoint menundanya 6 jam (penanda audit 'sistem.job',
+# lihat src/lib/admin/editorial.ts BACKOFF_GATE_JAM). Artikel
+# yang ditunda muncul di respons sebagai `ditunda_backoff`, BUKAN
+# sebagai error — jadi log Actions tidak berisik tiap jam.
+#
+# Concurrency (F3): satu run pada satu waktu
+# (cancel-in-progress false).
+# Retry (F8): curl --retry 2 --retry-delay 10.
+# Assert respons (F5): job gagal bila `ok != true` atau respons
+# tidak memuat daftar `diterbitkan` (dilewati/ditunda_backoff
+# adalah hasil yang diharapkan, bukan kegagalan).
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow) dan di tabel
+# pf_audit_logs (aksi artikel.terbit) / pf_scheduled_jobs
+# (status_terakhir='gagal', error_terakhir). Lihat LAPORAN-FASE-8 §14.
+
+name: Terbitkan Terjadwal PRATA FAKTA
+
+on:
+  schedule:
+    # Terbitkan artikel terjadwal setiap jam.
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: prata-fakta-terbitkan-terjadwal
+  cancel-in-progress: false
+
+jobs:
+  terbitkan-terjadwal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Terbitkan artikel terjadwal yang waktunya tiba
+        run: |
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/admin/artikel/terbitkan-terjadwal" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            -o "$RESP"
+          echo "Respons terbitkan-terjadwal: $(cat "$RESP")"
+          jq -e '.ok == true and (.diterbitkan | type == "array")' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: terbitkan-terjadwal melaporkan ok != true atau tanpa daftar diterbitkan"; exit 1; }

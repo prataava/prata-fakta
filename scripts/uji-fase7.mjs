@@ -405,9 +405,13 @@ if (polaUuid && fnValidasi) {
   cek("T1: validasi menolak soal_id hilang", validasi({ jawaban: 1 }).ok === false);
 }
 
-// T3: rate limit 30/menit/IP di keempat route yang sebelumnya tanpa limiter.
+// T3: rate limit 30/menit di keempat route yang sebelumnya tanpa limiter.
+// (Tahap 13A: pola lama `batasi(ipDariRequest(req))` sinkron atas Map
+// in-memory diganti `await batasi(req)` — limiter DB, kunci per-akun/
+// per-IP diturunkan di dalam route-auth.ts; jumlah pemeriksaan per
+// handler tetap sama.)
 const hitungBatasi = (relatif) =>
-  (bacaRepo(relatif).match(/batasi\(ipDariRequest\(req\)\)/g) ?? []).length;
+  (bacaRepo(relatif).match(/await batasi\(req\)/g) ?? []).length;
 for (const [relatif, harap] of [
   ["src/app/api/bookmark/route.ts", 2],
   ["src/app/api/notifikasi/route.ts", 2],

@@ -13,6 +13,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -143,7 +144,7 @@ export function isUuid(s: string): boolean {
 }
 
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
 
@@ -176,7 +177,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 
@@ -206,6 +207,22 @@ export async function POST(req: Request) {
       }
       throw error;
     }
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "event.buat",
+      entitas: "pf_events",
+      entitas_id: (data as { id: string } | null)?.id ?? null,
+      sebelum: null,
+      sesudah: {
+        judul: (data as { judul: string }).judul,
+        dimulai_pada: (data as { dimulai_pada: string }).dimulai_pada,
+        era: (data as { era: string | null }).era,
+      },
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, event: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

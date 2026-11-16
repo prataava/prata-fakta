@@ -18,6 +18,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import {
   normalisasiKode,
   validasiFaktaInput,
@@ -74,7 +75,7 @@ function responIdTakValid() {
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -106,6 +107,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
         .select(KOLOM_FAKTA)
         .maybeSingle();
       if (error) throw new Error(error.message);
+      // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+      // ditolak (galat naik ke responGalatAdmin → 500/503).
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "negara.ubah",
+        entitas: "pf_country_facts",
+        entitas_id: id,
+        sebelum: faktaLama,
+        sesudah: data ?? null,
+        ip: ipDariRequest(req),
+      });
       return NextResponse.json({ ok: true, fakta: data });
     }
 
@@ -155,6 +168,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
       .select(KOLOM_NEGARA)
       .maybeSingle();
     if (error) throw new Error(error.message);
+    // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+    // ditolak (galat naik ke responGalatAdmin → 500/503).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "negara.ubah",
+      entitas: "pf_countries",
+      entitas_id: id,
+      sebelum: negaraLama,
+      sesudah: data ?? null,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, negara: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -162,7 +187,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
@@ -174,18 +199,40 @@ export async function DELETE(req: Request, { params }: Ctx) {
       .from("pf_country_facts")
       .delete()
       .eq("id", id)
-      .select("id");
+      .select("id, country_id, kunci, nilai, satuan, sumber, periode");
     if (errFakta) throw new Error(errFakta.message);
     if (hapusFakta && hapusFakta.length > 0) {
+      // Audit fail-closed (Tahap 13A, T10): gagal audit → operasi
+      // ditolak (galat naik ke responGalatAdmin → 500/503).
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "negara.hapus",
+        entitas: "pf_country_facts",
+        entitas_id: id,
+        sebelum: hapusFakta[0] ?? null,
+        sesudah: null,
+        ip: ipDariRequest(req),
+      });
       return NextResponse.json({ ok: true, dihapus: "fakta" });
     }
     const { data: hapusNegara, error: errNegara } = await service
       .from("pf_countries")
       .delete()
       .eq("id", id)
-      .select("id");
+      .select("id, kode, nama");
     if (errNegara) throw new Error(errNegara.message);
     if (hapusNegara && hapusNegara.length > 0) {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "negara.hapus",
+        entitas: "pf_countries",
+        entitas_id: id,
+        sebelum: hapusNegara[0] ?? null,
+        sesudah: null,
+        ip: ipDariRequest(req),
+      });
       return NextResponse.json({ ok: true, dihapus: "negara" });
     }
     return NextResponse.json(

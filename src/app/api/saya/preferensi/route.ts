@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // GET /api/saya/preferensi → preferensi pengguna yang login
@@ -60,7 +60,7 @@ async function penggunaMasuk() {
 }
 
 export async function GET(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -69,6 +69,9 @@ export async function GET(req: Request) {
     );
   }
   const supabase = await createClient();
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, pengguna.id);
+  if (ditolak) return ditolak;
   const { data, error } = await supabase
     .from("pf_user_preferences")
     .select(
@@ -98,7 +101,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const pengguna = await penggunaMasuk();
   if (!pengguna) {
     return NextResponse.json(
@@ -106,6 +109,9 @@ export async function PATCH(req: Request) {
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(await createClient(), pengguna.id);
+  if (ditolak) return ditolak;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
+import { bacaNonceDariHeaders } from "@/lib/csp";
 import {
   ambilIstilah,
   bagiIsiBerlapis,
@@ -149,10 +151,16 @@ export default async function PengetahuanDetail({
     ],
   };
 
+  // Nonce CSP untuk skrip JSON-LD (Tahap 13B): dibaca dari header
+  // request yang dipasang proxy; tanpa nonce, CSP memblokir skrip
+  // inline ini. Halaman ini sudah membaca data per request.
+  const nonce = bacaNonceDariHeaders(await headers());
+
   return (
     <div className="wadah">
       <script
         type="application/ld+json"
+        nonce={nonce ?? undefined}
         dangerouslySetInnerHTML={{
           __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
         }}

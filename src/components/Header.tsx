@@ -3,10 +3,25 @@ import { KATEGORI_UTAMA } from "@/lib/categories";
 import SearchBar from "@/components/SearchBar";
 import AuthArea from "@/components/AuthArea";
 import ThemeToggle from "@/components/ThemeToggle";
+import { bacaPemeliharaan } from "@/lib/scheduler/flags";
 
-export default function Header() {
+// Header (server component) — menegakkan flag mode_pemeliharaan
+// (Tahap 13C): bila flag aktif, pengumuman tampil di atas header
+// di semua halaman yang memakai layout ini. bacaPemeliharaan()
+// TIDAK PERNAH melempar (gagal baca = tidak ada banner).
+// Catatan jujur: halaman yang di-prerender statis saat build
+// membakukan banner apa adanya saat itu; banner terbaru muncul
+// penuh di halaman yang dirender dinamis / sesudah revalidasi.
+export default async function Header() {
+  const { aktif, pengumuman } = await bacaPemeliharaan();
   return (
-    <header className="header">
+    <>
+      {aktif ? (
+        <div role="status" className="pengumuman-pemeliharaan">
+          {pengumuman || "Situs sedang dalam pemeliharaan."}
+        </div>
+      ) : null}
+      <header className="header">
       <div className="wadah">
         <div className="header-atas">
           <Link href="/" className="logo" aria-label="PRATA FAKTA — Beranda">
@@ -51,5 +66,6 @@ export default function Header() {
         </nav>
       </div>
     </header>
+    </>
   );
 }

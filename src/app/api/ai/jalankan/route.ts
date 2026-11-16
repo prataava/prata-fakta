@@ -4,10 +4,12 @@ import { jalankanPipelineEditorial } from "@/lib/ai/pipeline";
 import {
   autentikasiPemicuAi,
   buatRateLimiter,
-  ipDariRequest,
   normalisasiDipicuOleh,
   responRateLimit,
 } from "@/lib/ai/route-auth";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
+import { bacaFlag } from "@/lib/scheduler/flags";
 
 // POST /api/ai/jalankan — memicu pipeline editorial AI.
 // Autentikasi DUA jalur:
@@ -25,7 +27,7 @@ import {
 const lolosRateLimit = buatRateLimiter(10);
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;
@@ -56,6 +58,24 @@ export async function POST(req: Request) {
       : undefined;
   const dipicuOleh = normalisasiDipicuOleh(body.dipicu_oleh, auth.dipicuOleh);
 
+  // --- Penegakan flag (Tahap 13C): pipeline_editorial_aktif=false
+  // -> 503 jujur. Service client tak tersedia -> lewati cek flag
+  // (adapter di bawah akan 503 bila service key belum diatur).
+  const klienFlag = cobaServiceClient();
+  if (
+    klienFlag &&
+    !(await bacaFlag(klienFlag, "pipeline_editorial_aktif", true))
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Pipeline editorial dinonaktifkan oleh admin (flag pipeline_editorial_aktif).",
+      },
+      { status: 503 },
+    );
+  }
+
   // --- Adapter (butuh SUPABASE_SERVICE_ROLE_KEY) ---
   let adapter: ReturnType<typeof buatSupabaseAiAdapter>;
   try {
@@ -71,15 +91,45 @@ export async function POST(req: Request) {
     );
   }
 
+  // --- Lock server-side (Tahap 13C, F3) + F6 ---
+  // Service client tak tersedia -> jalan tanpa lock (adapter di
+  // atas sudah membuktikan service key ada, jadi ini hanya
+  // pertahanan bila klien flag gagal dibuat).
+  const klaim = klienFlag
+    ? await klaimJob(klienFlag, "editorial")
+    : { diklaim: false, tersedia: false, alasan: "service key belum diatur" };
+  if (klaim.tersedia && !klaim.diklaim) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Job pipeline editorial sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+      },
+      { status: 409 },
+    );
+  }
+  const infoLock = klaim.diklaim
+    ? "diklaim"
+    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+
+  let okRun = false;
+  let galatRun: string | null = null;
   try {
     const hasil = await jalankanPipelineEditorial(adapter, {
       limit,
       hanyaItemId,
       dipicu_oleh: dipicuOleh,
     });
-    return NextResponse.json({ ok: true, dipicu_oleh: dipicuOleh, ...hasil });
+    okRun = true;
+    return NextResponse.json({
+      ok: true,
+      dipicu_oleh: dipicuOleh,
+      lock: infoLock,
+      ...hasil,
+    });
   } catch (err) {
     const pesan = err instanceof Error ? err.message : "kesalahan tidak diketahui";
+    galatRun = pesan;
     if (
       pesan.includes("pf_raw_items") ||
       pesan.includes("pf_claims") ||
@@ -99,5 +149,11 @@ export async function POST(req: Request) {
       { ok: false, error: `Pipeline editorial gagal: ${pesan}` },
       { status: 500 },
     );
+  } finally {
+    // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
+    // setiap run cron (berhasil maupun gagal).
+    if (klienFlag) {
+      await selesaikanJob(klienFlag, "editorial", okRun, galatRun);
+    }
   }
 }

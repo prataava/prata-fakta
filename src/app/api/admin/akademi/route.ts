@@ -1,8 +1,8 @@
 // GET /api/admin/akademi — daftar kursus (semua status, staf)
 // + jumlah modul/pelajaran. POST — buat kursus baru
 // (editor/writer/super_admin). Tulis via service role; aksi
-// dicatat di pf_audit_logs ('akademi.kursus', CHECK v9 §6).
-// Rate limit 30/menit/IP (pola route admin Fase 5).
+// dicatat di pf_audit_logs ('akademi.kursus', CHECK v11 §3).
+// Rate limit 30/menit (limiter database lintas instance, Tahap 13A, T3).
 // Isi modul/pelajaran diatur lewat PATCH /api/admin/akademi/[id].
 import { NextResponse } from "next/server";
 import {
@@ -15,6 +15,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
+import { catatAuditWajib } from "@/lib/admin/audit";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -114,32 +115,8 @@ export function validasiInputKursus(
   return { ok: true, data };
 }
 
-async function catatAuditAkademi(
-  service: ReturnType<typeof createServiceClient>,
-  aktor: { id: string; email?: string | null },
-  aksi: "akademi.kursus" | "akademi.modul",
-  entitasId: string | null,
-  sesudah: unknown,
-  ip: string | null,
-): Promise<void> {
-  try {
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktor.id,
-      aktor_email: aktor.email ?? null,
-      aksi,
-      entitas: "akademi",
-      entitas_id: entitasId,
-      sebelum: {},
-      sesudah: (sesudah ?? {}) as Record<string, unknown>,
-      ip,
-    });
-  } catch (err) {
-    console.error("Audit akademi gagal:", err);
-  }
-}
-
 export async function GET(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
   if (auth instanceof NextResponse) return auth;
 
@@ -197,7 +174,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!lolosRateLimit(ipDariRequest(req))) return responRateLimit();
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 
@@ -238,14 +215,20 @@ export async function POST(req: Request) {
       }
       throw error;
     }
-    await catatAuditAkademi(
-      service,
-      auth.user,
-      "akademi.kursus",
-      (data as { id: string }).id,
-      data,
-      ipDariRequest(req),
-    );
+    // Audit FAIL-CLOSED (Tahap 13A, T10): helper lama best-effort
+    // (gagal insert hanya console.error, dan {error} hasil insert
+    // tidak pernah diperiksa) DIGANTI catatAuditWajib — gagal audit
+    // melempar dan route menjawab 500/503 (operasi ditolak).
+    await catatAuditWajib({
+      aktor_id: auth.user.id,
+      aktor_email: auth.user.email ?? null,
+      aksi: "akademi.kursus",
+      entitas: "pf_courses",
+      entitas_id: (data as { id: string }).id,
+      sebelum: null,
+      sesudah: data ?? null,
+      ip: ipDariRequest(req),
+    });
     return NextResponse.json({ ok: true, kursus: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

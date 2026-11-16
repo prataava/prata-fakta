@@ -1,31 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  buatRateLimiter,
+  responRateLimit,
+} from "@/lib/ai/route-auth";
 
 // POST /api/laporan — laporan kesalahan artikel (boleh anonim).
 // Body: { artikel_id, jenis, pesan, nama?, email? }
-// Rate limiting: 5 request/menit/IP (pola yang sama dengan /api/langganan).
+// Rate limiting: 5 request/menit (limiter database lintas instance,
+// Tahap 13A, T3 — menggantikan Map in-memory per instance).
 // 503 jujur bila tabel pf_correction_reports belum ada.
 // T5 (Fase 8 Gelombang 1): INSERT via service role — policy INSERT
 // anonim "pf_correction_reports kirim publik" DICABUT di migrasi v8.
 // Cek artikel + identitas pelapor tetap via session client; hanya
 // INSERT yang memakai service role. 503 jujur bila service key
 // belum diatur.
-const BATAS = 5;
-const JENDELA_MS = 60_000;
-const hitungan = new Map<string, { n: number; mulai: number }>();
-
-function lolosRateLimit(ip: string): boolean {
-  const sekarang = Date.now();
-  const entri = hitungan.get(ip);
-  if (!entri || sekarang - entri.mulai > JENDELA_MS) {
-    hitungan.set(ip, { n: 1, mulai: sekarang });
-    return true;
-  }
-  if (entri.n >= BATAS) return false;
-  entri.n += 1;
-  return true;
-}
+const batasi = buatRateLimiter(5);
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,14 +24,7 @@ const POLA_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const JENIS_VALID = ["fakta_salah", "sumber", "typo", "lainnya"] as const;
 
 export async function POST(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "tak-dikenal";
-  if (!lolosRateLimit(ip)) {
-    return NextResponse.json(
-      { ok: false, error: "Terlalu banyak percobaan. Coba lagi semenit lagi." },
-      { status: 429 },
-    );
-  }
+  if (!(await batasi(req))) return responRateLimit();
 
   let body: {
     artikel_id?: unknown;

@@ -8,15 +8,13 @@ import { NextResponse } from "next/server";
 import { periksaKesehatan } from "@/lib/kesehatan";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 
 const batasi = buatRateLimiter(60);
 
 export async function GET(req: Request) {
-  const ip = ipDariRequest(req);
-  if (!batasi(ip)) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
 
   const hasil = await periksaKesehatan();
   const ok = hasil.db === "ok";

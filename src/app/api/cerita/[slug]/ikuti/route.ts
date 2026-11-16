@@ -9,8 +9,8 @@ import {
 } from "@/lib/cerita";
 import {
   buatRateLimiter,
-  ipDariRequest,
   responRateLimit,
+  tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 // POST /api/cerita/[slug]/ikuti { aksi: "ikuti" | "berhenti" }
@@ -24,7 +24,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
-  if (!batasi(ipDariRequest(req))) return responRateLimit();
+  if (!(await batasi(req))) return responRateLimit();
   const { slug } = await params;
   if (!slugCeritaValid(slug)) {
     return NextResponse.json(
@@ -42,6 +42,10 @@ export async function POST(
       { status: 401 },
     );
   }
+  // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
+  const ditolak = await tolakAkunNonaktif(supabase, user.id);
+  if (ditolak) return ditolak;
+
   let body: { aksi?: unknown };
   try {
     body = (await req.json()) as typeof body;

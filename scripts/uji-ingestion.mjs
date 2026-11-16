@@ -350,7 +350,9 @@ try {
     const hasilSalin = await jalankanIngestion(
       adapter,
       [{ id: idSumberB, nama: "Uji Sintetis B", jenis: "rss", url: "https://contoh.test/sintetis-b.xml", prioritas: 10, aktif: true }],
-      { dipicu_oleh: "manual", fetchFn: fetchSintetis },
+      // Tahap 13B: sumber sintetis contoh.test di luar allowlist feed —
+      // opt-out eksplisit HANYA untuk uji mock ini.
+      { dipicu_oleh: "manual", fetchFn: fetchSintetis, lewatiAllowlistFeed: true },
     );
     const salinan = await db.query(
       `select id, status, disalin_dari_id, diterbitkan_ulang, alasan
@@ -376,7 +378,9 @@ try {
     const hasilUlang = await jalankanIngestion(
       adapter,
       [antara],
-      { dipicu_oleh: "manual", fetchFn: fetchSintetis },
+      // Tahap 13B: fetch mock sintetis (URL contoh.test) — opt-out
+      // allowlist eksplisit HANYA untuk uji mock ini.
+      { dipicu_oleh: "manual", fetchFn: fetchSintetis, lewatiAllowlistFeed: true },
     );
     const ulang = await db.query(
       `select id, status, disalin_dari_id, diterbitkan_ulang, alasan

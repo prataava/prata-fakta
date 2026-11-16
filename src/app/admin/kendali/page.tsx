@@ -51,11 +51,12 @@ export default async function AdminKendali() {
           Perubahan dicatat ke audit log (aksi sistem.flag).
         </p>
         <p className="artikel-meta-kecil">
-          Catatan jujur: flag ingestion, pipeline editorial, dan
-          pendaftaran saat ini bersifat penanda operasional — penegakan
-          otomatis di route terkait BELUM disambungkan, jadi flag ini
-          belum menonaktifkan job. Mode pemeliharaan dan pengumuman
-          juga belum dibaca halaman publik.
+          Penegakan flag (Tahap 13C): ingestion_aktif menonaktifkan
+          POST /api/ingestion/jalankan (503), pipeline_editorial_aktif
+          menonaktifkan POST /api/ai/jalankan (503),
+          pendaftaran_terbuka menutup halaman /daftar, dan mode
+          pemeliharaan menampilkan pengumuman di Header semua
+          halaman. Nilai bawaan dipakai bila flag belum disetel.
         </p>
         {!flagsTersedia ? (
           <EmptyState
@@ -87,8 +88,12 @@ export default async function AdminKendali() {
           GitHub Actions — tidak ada logika ingestion/AI yang diduplikasi
           di sini. Job yang gagal gate (mis. artikel terjadwal gagal
           verifikasi) dilewati dan dicatat alasannya oleh route itu
-          sendiri; pemicu manual tidak mengulang tanpa backoff
-          (temuan F12 — belum diperbaiki).
+          sendiri; upaya gate yang gagal tidak dicoba ulang selama 6 jam
+          (backoff F12, Tahap 13C) dan muncul sebagai ditunda, bukan
+          error. Workflow editorial lama (editorial.yml, dispatch
+          tugas=keduanya) sudah dipecah jadi 3 workflow per jadwal —
+          dispatch keduanya kini berarti dispatch tiap workflow (atau
+          picu dari sini).
         </p>
         {!scheduler.tersedia ? (
           <EmptyState
@@ -112,7 +117,7 @@ export default async function AdminKendali() {
                 Terakhir jalan: {formatWaktu(j.baris?.terakhir_jalan ?? null)}
                 {j.baris
                   ? ` · Status terakhir: ${j.baris.status_terakhir}`
-                  : " · Seed v5 hanya berisi 3 job (ingestion, editorial, brief) — baris job ini belum ada (temuan F7)."}
+                  : " · Baris job ini belum ada — seed 5 job belum diterapkan (lihat LAPORAN-FASE-8 §14)."}
                 {j.baris?.error_terakhir
                   ? ` · Error: ${j.baris.error_terakhir}`
                   : ""}
