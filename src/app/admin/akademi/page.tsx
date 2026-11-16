@@ -171,7 +171,9 @@ export default function AdminAkademi() {
             <Link href="/admin/akademi/esai">
               Antrean penilaian esai
             </Link>{" "}
-            — nilai jawaban esai pengguna yang masih menunggu.
+            — nilai jawaban esai pengguna yang masih menunggu.{" "}
+            <Link href="/admin/akademi/soal">Buat soal kuis</Link> —
+            soal pilihan ganda, kompleks, isian, benar/salah, dan esai.
           </p>
         </div>
         {memuat ? (

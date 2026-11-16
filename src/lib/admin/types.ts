@@ -30,8 +30,8 @@ export type KeputusanReview = "setuju" | "tolak" | "kembalikan";
 
 export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 
-// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v11
-// (migrasi v11 §3, 53 aksi). Sebelum Gelombang 2 tipe ini hanya 19
+// HARUS sama persis dengan CHECK pf_audit_logs_aksi_check_v15
+// (migrasi v15 §4, 59 aksi). Sebelum Gelombang 2 tipe ini hanya 19
 // anggota sementara CHECK sudah 47 — route baru menulis audit via
 // insert service-client langsung karena tipenya tak memuat aksi
 // mereka. Jangan tambah aksi di sini tanpa menambahkannya dulu ke
@@ -39,6 +39,9 @@ export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 // Aksi akun.hapus.* + data.hapus (Gelombang B2-A) MASUK CHECK
 // v14 (pf_audit_logs_aksi_check_v14) — sampai v14 diterapkan,
 // route hapus akun / hapus data menjawab 503 jujur, bukan 500.
+// Aksi akademi.soal.buat + akademi.sertifikat.cabut (Tahap C)
+// MASUK CHECK v15 — sampai v15 diterapkan, route soal/cabut
+// menjawab 503 jujur, bukan 500.
 export type AksiAudit =
   | "artikel.buat"
   | "artikel.ubah"
@@ -80,6 +83,8 @@ export type AksiAudit =
   | "akademi.kursus"
   | "akademi.modul"
   | "akademi.progres"
+  | "akademi.soal.buat"
+  | "akademi.sertifikat.cabut"
   | "podcast.episode"
   | "podcast.terbit"
   | "sistem.flag"
