@@ -34,6 +34,7 @@ const GRUP: {
     deskripsi: "Angka, peta, riset, dan penjelasan dunia.",
     tautan: [
       { href: "/data", label: "Data", keterangan: "Indikator nasional dan dunia." },
+      { href: "/data/live", label: "Data Live", keterangan: "Gempa, cuaca, kurs, sholat, Al-Qur'an, hadis, wilayah, geocoding — dari API publik." },
       { href: "/peta", label: "Peta", keterangan: "Peristiwa di peta dunia." },
       { href: "/riset", label: "Riset", keterangan: "Laporan riset berbasis data." },
       { href: "/pengetahuan", label: "Pengetahuan", keterangan: "Artikel pengetahuan dan explainer." },

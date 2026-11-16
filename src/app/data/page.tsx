@@ -196,6 +196,15 @@ export default async function Data({
           <h2 id="judul-tema">Tema</h2>
         </div>
         <div className="grid-berita">
+          <Link className="kartu kartu-artikel" href="/data/live">
+            <span className="kartu-kategori">Data Live</span>
+            <span className="kartu-judul">Data Live</span>
+            <span className="kartu-teks">
+              Gempa, cuaca, kurs, jadwal sholat, Al-Qur&apos;an, hadis,
+              wilayah, dan geocoding — langsung dari API publik gratis.
+            </span>
+            <span className="kartu-meta">Buka Data Live →</span>
+          </Link>
           <Link
             className="kartu kartu-artikel"
             href={tautanFilter(kategoriValid, "indonesia")}
