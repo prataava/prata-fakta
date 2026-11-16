@@ -107,9 +107,11 @@ di `src/lib/galat.ts`), CSP + nonce unik. Detail:
 `FINAL-PROJECT-COMPLETION.md` §29–§31, `LAPORAN-AKHIR.md`
 §15–§17, `AUDIT-ULTIMATE.md` + addendum B1/B2/Tahap H.
 
-**BELUM LIVE:** migrasi v1–v16 belum dijalankan di Supabase
-produksi dan deploy Vercel masih blokir 403 (akses tim
-`prataava`). Cara deploy langkah demi langkah:
+**LIVE:** https://prata-fakta.vercel.app — migrasi v1–v17 SUDAH
+diterapkan di Supabase produksi (62 tabel pf_* / 62 RLS / 120 policy
++ kolom `pf_events.artikel_id` dari v17), `/api/health` mengembalikan
+`{"ok":true,"db":"ok"}`, dan push ke `main` memicu rebuild otomatis
+Vercel (GitHub App terinstal untuk repo ini). Status deployment:
 `DEPLOY.md` + `supabase/CUTOVER.md`.
 
 ## Menjalankan lokal
