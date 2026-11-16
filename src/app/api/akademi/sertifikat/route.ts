@@ -40,6 +40,7 @@ import {
   catatAuditWajib,
   responGalatAudit,
 } from "@/lib/admin/audit";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -118,6 +119,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/sertifikat", "galat server (500)");
     return NextResponse.json(
       { ok: false, error: "Sertifikat gagal diterbitkan. Coba lagi." },
       { status: 500 },
@@ -155,6 +157,7 @@ export async function GET(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("GET /api/akademi/sertifikat", "galat server (500)");
     return NextResponse.json(
       { ok: false, error: "Gagal memuat daftar sertifikat. Coba lagi." },
       { status: 500 },
@@ -220,6 +223,7 @@ export async function DELETE(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("DELETE /api/akademi/sertifikat", "galat server (500)");
     return NextResponse.json(
       { ok: false, error: "Sertifikat gagal dicabut. Coba lagi." },
       { status: 500 },

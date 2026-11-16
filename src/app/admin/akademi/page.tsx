@@ -64,8 +64,40 @@ function SeksiCabutSertifikat() {
   }, []);
 
   useEffect(() => {
-    void muat();
-  }, [muat]);
+    // Muat awal mengikuti pola TabelPengguna di berkas ini:
+    // setState hanya di callback .then()/.catch()/.finally(),
+    // bukan sinkron di badan effect (dilarang lint
+    // react-hooks/set-state-in-effect).
+    let batal = false;
+    fetch("/api/akademi/sertifikat")
+      .then(async (res) => {
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          sertifikat?: SertifikatAdmin[];
+        };
+        if (batal) return;
+        if (!res.ok || !data.ok) {
+          setTersedia(false);
+          setPesan(data.error ?? `Gagal memuat daftar (${res.status}).`);
+          return;
+        }
+        setTersedia(true);
+        setDaftar(data.sertifikat ?? []);
+      })
+      .catch(() => {
+        if (!batal) {
+          setTersedia(false);
+          setPesan("Gagal memuat daftar (jaringan).");
+        }
+      })
+      .finally(() => {
+        if (!batal) setMemuat(false);
+      });
+    return () => {
+      batal = true;
+    };
+  }, []);
 
   async function cabut(kodeVerifikasi: string, alasanCabut: string) {
     if (

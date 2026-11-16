@@ -5,6 +5,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7 —
 // sebelumnya route ini tanpa batas laju).
@@ -74,6 +75,7 @@ export async function GET(req: Request) {
     .maybeSingle();
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("GET /api/bookmark", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa bookmark. Coba lagi." },
       { status: 500 },
@@ -121,6 +123,7 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (errCek) {
     if (tabelBelumAda(errCek)) return respon503();
+    void catatGalatRoute("POST /api/bookmark", errCek);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa bookmark. Coba lagi." },
       { status: 500 },
@@ -135,6 +138,7 @@ export async function POST(req: Request) {
       .eq("artikel_id", artikelId);
     if (error) {
       if (tabelBelumAda(error)) return respon503();
+      void catatGalatRoute("POST /api/bookmark", error);
       return NextResponse.json(
         { ok: false, error: "Gagal menghapus bookmark. Coba lagi." },
         { status: 500 },
@@ -152,6 +156,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, bookmarked: true });
     }
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("POST /api/bookmark", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan bookmark. Coba lagi." },
       { status: 500 },

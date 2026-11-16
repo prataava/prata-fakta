@@ -26,6 +26,7 @@ import {
   ipDariRequest,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const BATAS_VOTE_HARIAN = 1;
 const JENDELA_VOTE_DETIK = 86_400;
@@ -121,6 +122,7 @@ export async function POST(
       .select("membantu")
       .maybeSingle();
     if (errUbah) {
+      void catatGalatRoute("POST /api/tanya/[id]/membantu", errUbah);
       return NextResponse.json(
         { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
         { status: 500 },
@@ -136,6 +138,7 @@ export async function POST(
       .eq("id", id)
       .maybeSingle();
     if (errSegar || !segar) {
+      void catatGalatRoute("POST /api/tanya/[id]/membantu", errSegar ?? "galat server (500)");
       return NextResponse.json(
         { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
         { status: 500 },
@@ -147,6 +150,7 @@ export async function POST(
         : 0;
   }
   if (membantuBaru === null) {
+    void catatGalatRoute("POST /api/tanya/[id]/membantu", "galat server (500)");
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
       { status: 500 },

@@ -7,6 +7,7 @@ import {
   responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/kuis/skor — simpan skor kuis harian pengguna login.
 // Body: { tanggal: "YYYY-MM-DD" } — benar/total TIDAK LAGI
@@ -185,6 +186,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/skor", errSoal);
     return NextResponse.json(
       { ok: false, error: "Skor gagal disimpan. Coba lagi." },
       { status: 500 },
@@ -212,6 +214,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/skor", errJawaban);
     return NextResponse.json(
       { ok: false, error: "Skor gagal disimpan. Coba lagi." },
       { status: 500 },
@@ -255,6 +258,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/skor", error);
     return NextResponse.json(
       { ok: false, error: "Skor gagal disimpan. Coba lagi." },
       { status: 500 },

@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/ai/brief — memicu Daily Brief hari ini.
 // Autentikasi DUA jalur:
@@ -126,6 +127,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/ai/brief", err);
     return NextResponse.json(
       { ok: false, error: `Daily Brief gagal: ${pesan}` },
       { status: 500 },

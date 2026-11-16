@@ -53,6 +53,7 @@ import {
   apakahGalatTabelTakAda,
   responV14BelumSiap,
 } from "@/lib/akun/respons";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const batasiKeras = buatRateLimiterKeras(3, 3_600_000);
 
@@ -141,6 +142,7 @@ export async function POST(req: Request) {
     .eq("status", "menunggu");
   if (errBatal) {
     if (apakahGalatTabelTakAda(errBatal)) return responV14BelumSiap();
+    void catatGalatRoute("POST /api/saya/akun/hapus/minta", errBatal);
     return NextResponse.json(
       { ok: false, error: "Gagal menyiapkan permintaan hapus akun." },
       { status: 500 },
@@ -162,6 +164,7 @@ export async function POST(req: Request) {
     if (errSisip && apakahGalatTabelTakAda(errSisip)) {
       return responV14BelumSiap();
     }
+    void catatGalatRoute("POST /api/saya/akun/hapus/minta", errBatal);
     return NextResponse.json(
       { ok: false, error: "Gagal menyiapkan permintaan hapus akun." },
       { status: 500 },

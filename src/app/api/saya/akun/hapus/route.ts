@@ -50,6 +50,7 @@ import {
   responV14BelumSiap,
 } from "@/lib/akun/respons";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const batasiCek = buatRateLimiterKeras(10);
 const batasiHapus = buatRateLimiterKeras(5, 3_600_000);
@@ -126,6 +127,7 @@ async function ambilPermintaanSah(
     .maybeSingle();
   if (error) {
     if (apakahGalatTabelTakAda(error)) return responV14BelumSiap();
+    void catatGalatRoute("ROUTE /api/saya/akun/hapus", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa tautan konfirmasi." },
       { status: 500 },
@@ -325,7 +327,7 @@ export async function DELETE(req: Request) {
         },
         ip,
       });
-    } catch {
+    } catch (err) {
       // Audit kegagalan gagal dicatat: sudah dicatat keras di
       // log server oleh catatAuditWajib; jangan menutupi galat
       // penghapusan dengan galat audit.
@@ -334,6 +336,7 @@ export async function DELETE(req: Request) {
         err,
       );
     }
+    void catatGalatRoute("DELETE /api/saya/akun/hapus", err);
     return NextResponse.json(
       {
         ok: false,

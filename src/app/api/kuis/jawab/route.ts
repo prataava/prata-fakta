@@ -6,6 +6,7 @@ import {
   responRateLimit,
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
 // Body: { soal_id: UUID, jawaban: 0..4 }
@@ -123,6 +124,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/jawab", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },
@@ -152,6 +154,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/kuis/jawab", errKunci);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },

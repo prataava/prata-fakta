@@ -12,6 +12,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Gelombang B1 (P1-5/B-S1): riwayat dengar dibatasi 30/menit
 // (sebelumnya tanpa limiter sama sekali).
@@ -93,6 +94,7 @@ export async function POST(req: Request) {
     { onConflict: "user_id,episode_id" },
   );
   if (error) {
+    void catatGalatRoute("POST /api/podcast/riwayat", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan riwayat. Coba lagi." },
       { status: 500 },

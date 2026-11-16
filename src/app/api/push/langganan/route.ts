@@ -6,6 +6,7 @@ import {
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { apakahPushTerkonfigurasi } from "@/lib/notifikasi/push";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Langganan push VAPID milik sendiri (Gelombang B2-D, E3).
 //   GET    /api/push/langganan → { ok, terdaftar, terkonfigurasi }
@@ -84,6 +85,7 @@ export async function GET(req: Request) {
     .eq("user_id", pengguna.id);
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("GET /api/push/langganan", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa langganan push." },
       { status: 500 },
@@ -138,6 +140,7 @@ export async function POST(req: Request) {
   );
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("POST /api/push/langganan", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan langganan push." },
       { status: 500 },
@@ -184,6 +187,7 @@ export async function DELETE(req: Request) {
     .eq("endpoint", endpoint);
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("DELETE /api/push/langganan", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menghapus langganan push." },
       { status: 500 },

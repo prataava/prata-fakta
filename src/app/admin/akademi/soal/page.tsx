@@ -79,11 +79,21 @@ export default function AdminAkademiSoal() {
         if (!batal && res.ok && data.ok) setDaftarKursus(data.kursus ?? []);
       })
       .catch(() => undefined);
-    void muatSoal();
+    // Muat soal mengikuti pola yang sama: setState hanya di
+    // callback promise (dilarang lint set-state-in-effect).
+    fetch("/api/admin/akademi/soal")
+      .then(async (res) => {
+        const data = (await res.json()) as { ok?: boolean; soal?: SoalBaru[] };
+        if (!batal && res.ok && data.ok) setDaftarSoal(data.soal ?? []);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!batal) setMemuatSoal(false);
+      });
     return () => {
       batal = true;
     };
-  }, [muatSoal]);
+  }, []);
 
   async function pilihKursus(id: string) {
     setKursusId(id);

@@ -5,6 +5,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
 const batasi = buatRateLimiter(30);
@@ -65,6 +66,7 @@ export async function GET(req: Request) {
     .limit(20);
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("GET /api/notifikasi", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memuat notifikasi. Coba lagi." },
       { status: 500 },
@@ -112,6 +114,7 @@ export async function PATCH(req: Request) {
   const { error } = await query;
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("PATCH /api/notifikasi", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menandai notifikasi dibaca. Coba lagi." },
       { status: 500 },

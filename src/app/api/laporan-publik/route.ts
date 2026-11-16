@@ -12,6 +12,7 @@ import {
   buatNomorLacak,
   nomorLacakValid,
 } from "@/lib/laporan";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/laporan-publik — laporan masyarakat (Area 13).
 // Body: { jenis (5 jenis baru), tautan_artikel?, deskripsi, nama?, email? }
@@ -199,6 +200,7 @@ export async function POST(req: Request) {
       "Layanan laporan belum aktif (tabel database belum dibuat). Coba lagi setelah migrasi Fase 2/8 dijalankan.",
     );
   }
+  void catatGalatRoute("POST /api/laporan-publik", "galat server (500)");
   return NextResponse.json(
     { ok: false, error: "Gagal membuat nomor lacak. Coba lagi." },
     { status: 500 },
@@ -234,6 +236,7 @@ export async function GET(req: Request) {
         "Layanan lacak belum aktif (tabel database belum dibuat).",
       );
     }
+    void catatGalatRoute("GET /api/laporan-publik", error);
     return NextResponse.json(
       { ok: false, error: "Gagal melacak laporan. Coba lagi." },
       { status: 500 },

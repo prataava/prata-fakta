@@ -6,6 +6,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // Rate limit 30/menit/IP (temuan T3 audit keamanan Fase 7).
 const batasi = buatRateLimiter(30);
@@ -118,6 +119,7 @@ export async function GET(req: Request) {
     .order("dibuat_pada", { ascending: false });
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("GET /api/topik", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memuat topik yang diikuti. Coba lagi." },
       { status: 500 },
@@ -177,6 +179,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, sudahDiikuti: true });
     }
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("POST /api/topik", error);
     return NextResponse.json(
       { ok: false, error: "Gagal mengikuti topik. Coba lagi." },
       { status: 500 },
@@ -232,6 +235,7 @@ export async function DELETE(req: Request) {
   const { error } = await query;
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("DELETE /api/topik", error);
     return NextResponse.json(
       { ok: false, error: "Gagal berhenti mengikuti topik. Coba lagi." },
       { status: 500 },

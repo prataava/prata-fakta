@@ -5,6 +5,7 @@ import {
   responRateLimit,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // GET /api/saya/preferensi → preferensi pengguna yang login
 // (pf_user_preferences, migrasi v8). Bila belum ada baris,
@@ -132,6 +133,7 @@ export async function GET(req: Request) {
   }
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    void catatGalatRoute("GET /api/saya/preferensi", error);
     return NextResponse.json(
       { ok: false, error: "Gagal memuat preferensi. Coba lagi." },
       { status: 500 },
@@ -205,12 +207,14 @@ export async function PATCH(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("PATCH /api/saya/preferensi", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan preferensi. Coba lagi." },
       { status: 500 },
     );
   }
   if (!data) {
+    void catatGalatRoute("PATCH /api/saya/preferensi", error);
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan preferensi. Coba lagi." },
       { status: 500 },

@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 // POST /api/ai/data-analysis — memicu langkah Data Analysis
 // (ke-10 dari 10 langkah pipeline deterministik).
@@ -108,6 +109,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/ai/data-analysis", err);
     return NextResponse.json(
       { ok: false, error: `Data Analysis gagal: ${pesan}` },
       { status: 500 },

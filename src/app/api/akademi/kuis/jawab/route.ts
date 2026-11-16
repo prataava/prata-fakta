@@ -42,6 +42,7 @@ import {
   type JenisSoalKuis,
   type KunciSoal,
 } from "@/lib/akademi/penilaian";
+import { catatGalatRoute } from "@/lib/analytics/galat";
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -164,6 +165,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/kuis/jawab", errPelajaran);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa pelajaran. Coba lagi." },
       { status: 500 },
@@ -223,6 +225,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/kuis/jawab", errSoal);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },
@@ -286,6 +289,7 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
+    void catatGalatRoute("POST /api/akademi/kuis/jawab", errKunci);
     return NextResponse.json(
       { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
       { status: 500 },
@@ -362,6 +366,7 @@ export async function POST(req: Request) {
           { status: 503 },
         );
       }
+      void catatGalatRoute("POST /api/akademi/kuis/jawab", errSimpan);
       return NextResponse.json(
         { ok: false, error: "Jawaban gagal disimpan. Coba lagi." },
         { status: 500 },
