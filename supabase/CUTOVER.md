@@ -887,6 +887,82 @@ select count(*) from public.pf_account_deletions;
 | CHECK audit | **v14 (57 aksi)** |
 | Tabel baru | **6 (jawaban kuis, sertifikat, jejak hapus akun, push, kunjungan, galat)** |
 
+### 3.16 v15 — Tahap C (sisa keterbatasan pasca-B2)
+
+- Berkas: `supabase/migrations/20261116_pf_v15_tahap_c.sql`
+- Bergantung pada v1–v14. **Jalankan TEPAT SESUDAH v14.**
+  v15 ADITIF, kecuali CHECK audit (§4 mengganti CHECK v14
+  dengan CHECK v15 — 57 + 2 aksi) — idempoten (do-block
+  pemeriksa constraint) dan teruji 2× di PGlite.
+- **PRASYARAT DEPLOY (jendela seperti v14):** kode Tahap C
+  yang memakai tabel/kolom baru WAJIB sudah deploy
+  sebelum/saat v15 dijalankan — `/api/kuis/jawab` menulis
+  `pf_quiz_daily_answers` dan `/api/kuis/skor` membaca
+  jawaban tersimpan itu (tanpa v15: 503 jujur "tabel belum
+  tersedia"); penulis notifikasi membaca kolom `isu` dengan
+  fallback PGRST204 (tanpa v15: notifikasi isu diam-diam
+  tidak terkirim, notifikasi kategori/negara tetap jalan).
+  Sebaliknya route skor menjawab 503 jujur bila tabel v15
+  belum ada (fail-closed), jadi urutan aman bila ragu:
+  deploy kode dulu, baru v15.
+- Isi: §1 tabel baru `pf_quiz_daily_answers` (jawaban kuis
+  harian tersimpan; 1 policy baca sendiri; tulis HANYA
+  service role — tanpa policy INSERT pengguna); §2 trigger
+  skor harian server-side `pf_quiz_scores_skor_harian_server`
+  + fungsi `pf_hitung_skor_harian()` (hitung ulang
+  benar/total dari jawaban tersimpan + jumlah soal tanggal
+  itu; tolak bila tanggal tanpa soal); §3 kolom baru
+  `pf_articles.isu` + index parsial (NULL tidak diindeks);
+  §4 CHECK audit v15 (59 aksi: 57 v14 +
+  `akademi.soal.buat`, `akademi.sertifikat.cabut`); §5 GRANT
+  eksplisit tabel baru (SELECT pemilik + semua hak
+  service_role; 0 grant ke PUBLIC/anon).
+- Tervalidasi lokal (PGlite,
+  `scripts/uji-tahapC-limitasi.mjs`): v1–v15 dijalankan 2×
+  idempoten TANPA blanket grant; 62 tabel, RLS 62/62,
+  120 policy, 0 grant ke PUBLIC, GRANT service_role
+  SELECT/INSERT/UPDATE/DELETE atas 1 tabel baru.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 62 (61 v14 + 1 baru)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 120 (119 v14 + 1 baru)
+
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+  and rowsecurity;
+-- ekspektasi: 62 (RLS 62/62)
+
+select pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.pf_audit_logs'::regclass
+  and conname = 'pf_audit_logs_aksi_check_v15';
+-- ekspektasi: 1 baris; memuat 'akademi.soal.buat',
+-- 'akademi.sertifikat.cabut'
+
+select count(*) from public.pf_quiz_daily_answers;
+-- ekspektasi: 0 (tabel baru, kosong)
+
+select column_name from information_schema.columns
+where table_schema = 'public' and table_name = 'pf_articles'
+  and column_name = 'isu';
+-- ekspektasi: 1 baris
+```
+
+| Pemeriksaan | Ekspektasi sesudah v15 |
+|---|---|
+| Jumlah tabel `pf_*` | **62** |
+| Tabel ber-RLS | **62/62** |
+| Jumlah policy `pf_*` | **120** |
+| CHECK audit | **v15 (59 aksi)** |
+| Tabel baru | **1 (jawaban kuis harian tersimpan)** |
+| Kolom baru | **`pf_articles.isu`** |
+
 ### 3.15 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.

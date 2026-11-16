@@ -1098,6 +1098,41 @@ alter table public.pf_podcast_episodes
 -- Kolom preferensi + kunci_dedup boleh dibiarkan.
 ```
 
+## Migrasi v15 — Tahap C: sisa keterbatasan pasca-B2 (16 Nov 2026)
+
+Berkas: `20261116_pf_v15_tahap_c.sql`. Jalankan SETELAH
+v14. **62 tabel** `pf_*` ber-RLS, **120 policy** (+1),
+fungsi baru: `pf_hitung_skor_harian`. Isi: tabel baru
+`pf_quiz_daily_answers` (jawaban kuis harian tersimpan —
+skor harian kini dihitung server, celah skor klien L-B1
+versi harian DITUTUP) + trigger
+`pf_quiz_scores_skor_harian_server` (hitung ulang
+benar/total dari jawaban tersimpan; tolak tanggal tanpa
+soal); kolom baru `pf_articles.isu` (notifikasi pengikut
+topik tipe `isu`); CHECK audit diganti v15 (59 aksi:
+57 v14 + `akademi.soal.buat`,
+`akademi.sertifikat.cabut`). Validasi lokal:
+`scripts/uji-tahapC-limitasi.mjs` (PGlite, v1–v15 2×
+idempoten TANPA blanket grant; 0 grant ke PUBLIC;
+GRANT service_role atas 1 tabel baru). Deploy kode Tahap C
+wajib sebelum/saat v15 (route skor/jawab menjawab 503
+jujur bila tabel v15 belum ada).
+
+Rollback v15 (bila v15 gagal total dan harus dibatalkan
+— TIDAK PERNAH diuji di produksi; jalankan hanya bila
+v15 belum pernah dipakai menulis data baru):
+
+```sql
+drop trigger if exists pf_quiz_scores_skor_harian_server
+  on public.pf_quiz_scores;
+drop function if exists public.pf_hitung_skor_harian();
+drop table if exists public.pf_quiz_daily_answers;
+alter table public.pf_articles drop column if exists isu;
+-- CHECK audit: kembalikan CHECK v14 dari berkas
+-- 20261116_pf_v14_gelombang_b2.sql §5b (do-block yang
+-- sama, dengan nama pf_audit_logs_aksi_check_v14).
+```
+
 ## Uji restore berkala (prosedur — BUKAN klaim sudah diuji)
 
 Restore BELUM PERNAH dijalankan terhadap database produksi;
