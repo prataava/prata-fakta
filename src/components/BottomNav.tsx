@@ -2,9 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
+// V2 — Liquid Glass: SATU indikator kaca bergerak (bukan kapsul
+// per item). Komponen ini dirender SEKALI di root layout
+// (src/app/layout.tsx) sehingga instance-nya HIDUP selama
+// perpindahan antarrute (App Router tidak me-remount layout) —
+// posisi kapsul tidak pernah hilang dan animasi benar-benar
+// terlihat berpindah dari menu sebelumnya ke menu berikutnya.
+//
+// Mekanisme:
+// - Indeks aktif = turunan usePathname() (selalu sinkron dengan
+//   URL: klik Link di halaman mana pun, back/forward browser,
+//   maupun klik menu — tanpa listener popstate manual).
+// - Indikator: satu <div> absolut, digeser dengan
+//   translate3d(indeks * 100%, 0, 0) + transisi spring 560ms
+//   (cubic-bezier overshoot) — lihat .prata-glass-indicator.
+// - Navigasi TIDAK ditunda: Link Next bekerja normal (SPA,
+//   tanpa preventDefault / setTimeout 560ms). Kapsul meluncur
+//   BERSAMAAN dengan pergantian halaman, bukan sebelumnya.
+// - Rute tak dikenal (mis. /kuis, /artikel/...) → tidak ada
+//   item aktif dan indikator disembunyikan (opacity 0), BUKAN
+//   dipaksa ke Beranda. Posisi terakhir disimpan di ref agar
+//   kapsul tidak melompat ke 0 saat kembali.
+// - Ikon: SVG proyek (lucide-react TIDAK terinstal).
+// - "Saya" = /saya (permukaan akun tunggal F-T2); /masuk dan
+//   /daftar juga memetakan ke "Saya". "Lainnya" = /jelajahi.
 const ITEMS = [
   {
+    id: "beranda",
     href: "/",
     label: "Beranda",
     ikon: (
@@ -14,6 +40,7 @@ const ITEMS = [
     ),
   },
   {
+    id: "kategori",
     href: "/kategori",
     label: "Kategori",
     ikon: (
@@ -23,6 +50,7 @@ const ITEMS = [
     ),
   },
   {
+    id: "arsip",
     href: "/arsip",
     label: "Arsip",
     ikon: (
@@ -33,6 +61,7 @@ const ITEMS = [
     ),
   },
   {
+    id: "brief",
     href: "/brief",
     label: "Brief",
     ikon: (
@@ -42,7 +71,7 @@ const ITEMS = [
     ),
   },
   {
-    // F-T2: satu permukaan akun — "Saya" (/saya), sama seperti Header.
+    id: "saya",
     href: "/saya",
     label: "Saya",
     ikon: (
@@ -53,8 +82,7 @@ const ITEMS = [
     ),
   },
   {
-    // F-S6: "Lainnya" membuka indeks /jelajahi agar semua rute
-    // terjangkau dari mobile (nav bawah hanya memuat 6 pintu).
+    id: "lainnya",
     href: "/jelajahi",
     label: "Lainnya",
     ikon: (
@@ -73,27 +101,61 @@ const ITEMS = [
   },
 ];
 
+function indeksDariPath(pathname: string): number | null {
+  if (pathname === "/") return 0;
+  if (pathname.startsWith("/kategori")) return 1;
+  if (pathname.startsWith("/arsip")) return 2;
+  if (pathname.startsWith("/brief")) return 3;
+  if (
+    pathname.startsWith("/saya") ||
+    pathname.startsWith("/masuk") ||
+    pathname.startsWith("/daftar")
+  )
+    return 4;
+  if (pathname.startsWith("/jelajahi")) return 5;
+  return null;
+}
+
 export default function BottomNav() {
   const pathname = usePathname();
+  const aktif = indeksDariPath(pathname);
+  // Posisi terakhir kapsul — dipakai saat rute tak dikenal
+  // (indikator disembunyikan tapi transform-nya dipertahankan,
+  // supaya tidak melompat ke slot 0 saat kembali). Pola resmi
+  // React "adjusting state during render": setState saat render
+  // (bukan di effect) agar render pertama sesudah pindah rute
+  // sudah benar tanpa render berjenjang / pelanggaran lint
+  // react-hooks/set-state-in-effect.
+  const [terakhir, setTerakhir] = useState(0);
+  if (aktif !== null && terakhir !== aktif) {
+    setTerakhir(aktif);
+  }
+
   return (
-    <nav className="nav-bawah" aria-label="Navigasi bawah">
-      <div className="nav-bawah-dalam">
-        {ITEMS.map((item) => {
-          const aktif =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+    <nav className="prata-glass-dock" aria-label="Navigasi utama">
+      <div className="prata-glass-track">
+        {/* SATU lensa kaca bergerak — satu-satunya indikator. */}
+        <div
+          className="prata-glass-indicator"
+          aria-hidden="true"
+          style={{
+            transform: `translate3d(${terakhir * 100}%, 0, 0)`,
+            opacity: aktif === null ? 0 : 1,
+          }}
+        />
+        {ITEMS.map((item, index) => {
+          const isActive = aktif === index;
           return (
             <Link
-              key={item.href}
+              key={item.id}
               href={item.href}
-              className={`nav-bawah-item${aktif ? " aktif" : ""}`}
-              aria-current={aktif ? "page" : undefined}
+              className={`prata-glass-item${isActive ? " is-active" : ""}`}
+              aria-current={isActive ? "page" : undefined}
             >
-              <span className="nav-bawah-ikon" aria-hidden="true">
+              <span className="prata-glass-icon" aria-hidden="true">
                 {item.ikon}
               </span>
-              <span className="nav-bawah-label">{item.label}</span>
+              <span className="prata-glass-label">{item.label}</span>
             </Link>
           );
         })}
