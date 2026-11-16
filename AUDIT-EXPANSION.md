@@ -876,3 +876,20 @@ batasi formulir mewajibkan `artikel_id`; (4) status
 defense-in-depth). Sesudah perbaikan, audit mendalam
 A+B diulang pada perbaikannya. Detail penuh:
 `LAPORAN-FASE-8.md` §12.
+
+### 9.5 Remediasi Gelombang 1 (16 Nov 2026 ±07.06–07.30 WIB)
+
+Keempat syarat §9.4 di atas ditutup dan diverifikasi ulang
+koordinator (detail penuh: `LAPORAN-FASE-8.md` §12.9).
+
+| Fitur | Verdik baru |
+|---|---|
+| Jejak Fakta | LAYAK (F-A1-1 ditutup — cek `status='terbit'` eksplisit di `getJejakFakta`, commit `0aee430`; sisa F-A1-2 ringan) |
+| Multi-Source View | **LAYAK** — tampilan kini memakai rantai `disalin_dari` via RPC `pf_akar_salinan` (v9): Kasus X tampil independen=1, Kasus Y tampil independen=3 (baterai 71/71 + integrasi RPC v9 ASLI 17/17). Klaim "tanpa kesetaraan palsu" yang dicabut di §12.2 BERLAKU KEMBALI, dengan kualifikasi: parafrase hanya terdeteksi dari judul akar, dan pencocokan evidence tetap URL/nama persis |
+| Public Report | LAYAK (F1: aksi `ditinjau` tersambung + audit eksplisit `koreksi.ditinjau` di CHECK v9 §6; F2: terima tanpa `artikel_id` → `ditinjau`; F3: adapter memilih `nomor_lacak`/`pelapor_email`/`tautan_artikel`; uji-editorial 28/28; simpan ujung-ke-ujung tetap Belum diuji) |
+| My Prata | LAYAK DENGAN CATATAN (tidak berubah — F5 hapus akun mandiri belum ada) |
+| Migrasi v9 + regresi | LAYAK — v9 GRANT eksplisit 37 tabel (turunan `pg_policies`, spot-check 3 tabel selaras), RPC `pf_akar_salinan`, CHECK 47 aksi; PGlite v1–v9 2× idempoten TANPA blanket grant: 37/37/79; baterai 159/159; F4 (TINGGI) DITUTUP |
+
+**Keputusan Gelombang 2: LAYAK DIMULAI (di kode,
+terverifikasi lokal).** Produksi tetap terblokir
+(migrasi v1–v9 + Vercel 403 butuh otorisasi pemilik).

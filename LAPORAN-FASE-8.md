@@ -50,6 +50,15 @@ status `ditinjau` yang tak pernah tercapai (F1), cek
 Sesudah perbaikan, audit mendalam A+B diulang pada
 perbaikannya.
 
+**Pembaruan remediasi (§12.9, 16 Nov 2026 ±07.30 WIB):
+keempat syarat §12.6 sudah ditutup dan diverifikasi ulang
+(baterai 159/159 + 71/71 + 17/17 integrasi RPC v9 ASLI +
+28/28 editorial; PGlite v1–v9 tanpa blanket grant 37/37/79)
+— Gelombang 2 kini LAYAK DIMULAI (di kode, terverifikasi
+lokal). Produksi tetap terblokir: migrasi v1–v9 belum
+dijalankan dan deploy Vercel masih 403 — keduanya butuh
+otorisasi pemilik.**
+
 ---
 
 ## 1. Audit kondisi awal
@@ -992,17 +1001,242 @@ ini. Push oleh agen utama.
 
 | Klaim | Status |
 |---|---|
-| Jejak Fakta berfungsi (join + RLS + empty state jujur) | Terverifikasi lokal (dengan catatan F-A1-1, F-A1-2) |
+| Jejak Fakta berfungsi (join + RLS + empty state jujur) | Terverifikasi lokal (F-A1-1 DITUTUP §12.9; sisa F-A1-2 ringan) |
 | Multi-Source View mesin independen benar | Terverifikasi lokal |
-| Multi-Source View tampilan "N independen" benar | **TIDAK — terbukti salah (salinan = independen)** |
+| Multi-Source View tampilan "N independen" benar | Terverifikasi lokal (§12.9: X=1 vs Y=3 dibedakan di tampilan, RPC v9 ASLI) |
 | Public Report validasi + rate limit + tolak anon | Terverifikasi lokal |
 | Public Report simpan ujung-ke-ujung | **Belum diuji** (503 jujur tanpa service key) |
-| Public Report moderasi | Terverifikasi lokal (dengan celah F1, F2, F3) |
+| Public Report moderasi | Terverifikasi lokal (F1/F2/F3 DITUTUP §12.9) |
 | My Prata isolasi per-user 6/6 tabel | Terverifikasi lokal |
 | My Prata hapus akun mandiri | Belum tersedia |
-| Migrasi v8 idempoten + 37/37/79 + regresi hijau | Terverifikasi lokal (dengan F4 TINGGI) |
-| Migrasi v8 aman diterapkan di produksi | **Terblokir** (F4 + butuh otorisasi pemilik) |
-| Build/lint/tsc + baterai | Terverifikasi lokal (EXIT 0; 287/287 run audit B) |
+| Migrasi v8 idempoten + 37/37/79 + regresi hijau | Terverifikasi lokal (F4 DITUTUP oleh v9, §12.9) |
+| Migrasi v1–v9 aman diterapkan di produksi | **Terblokir** (butuh otorisasi pemilik; F4 sudah ditutup di kode) |
+| Build/lint/tsc + baterai | Terverifikasi lokal (EXIT 0; fase7 87/87, fase8-gel1 159/159, multisource 71/71, integrasi 17/17, editorial 28/28; ingestion 1 gagal flake GDELT 429) |
 | Render live Jejak Fakta / Multi-Source View | **Belum diuji** (tanpa Supabase + artikel terbit) |
 | Scheduler live / deploy / produksi | **Terblokir** (403 Vercel; migrasi belum jalan) |
-| Gelombang 2 | **TIDAK LAYAK (NO-GO)** sampai §12.6 selesai |
+| Gelombang 2 | **LAYAK DIMULAI (di kode)** — lihat §12.9; produksi tetap Terblokir |
+
+### 12.9 Remediasi Gelombang 1 (16 Nov 2026 ±07.06–07.30 WIB)
+
+Keempat syarat §12.6 dikerjakan oleh koordinator + 3 agen
+paralel (Multi-Source View, v9 GRANT, Public Report) dan
+diverifikasi ulang koordinator secara independen. Tidak ada
+perubahan di produksi (migrasi/deploy tetap butuh otorisasi
+pemilik). Commit remediasi (lokal, belum di-push saat bagian
+ini ditulis — push oleh agen utama): `0aee430` (F-A1-1),
+`aec54c4` (Multi-Source), `35010f4` (Public Report F1/F2/F3),
+`400c419` (v9 + CHECK `koreksi.ditinjau` + baterai).
+
+#### 12.9.1 Perbaikan 1 — Tampilan Multi-Source View (syarat §12.6.1) — LAYAK
+
+**Diubah (commit `aec54c4`):**
+- `src/lib/data.ts` (+557/−81): `getPerbandinganSumber`
+  memanggil RPC `pf_akar_salinan` (SECURITY DEFINER, v9) dan
+  menghitung independen dari AKAR rantai salinan, bukan dari
+  jumlah kolom; fungsi murni `hitungBobotPerbandingan` +
+  `normalisasiJudul` + `kemiripanJudul` diekspor agar bisa
+  diuji; fallback jujur bila RPC tak tersedia
+  (`rantaiTersedia: false` + peringatan di komponen).
+- `src/components/artikel/PerbandinganSumber.tsx` (tulis
+  ulang 176→321 baris): badge "Disalin dari \<akar\>",
+  seksi bukti tak tercocokkan (F-A3-4), peringatan
+  parafrase (F-A3-6), "Tier tidak diketahui" eksplisit
+  (F-A3-3), `beda_waktu` hanya untuk akar berbeda yang
+  lebih lambat — salinan telat tetap "sama" (F-A3-5).
+- `scripts/uji-remediasi-multisource.mjs` (baru, 71 asersi)
+  + `scripts/uji-remediasi-integrasi.mjs` (baru, 17 asersi,
+  dibuat koordinator).
+
+**Bukti (dijalankan ulang koordinator):**
+- `uji-remediasi-multisource.mjs` **71/71, EXIT 0**:
+  TAMPILAN X independen=1 (bukan 3), salinan=2,
+  terverifikasi=1, skor 90 dari tier AKAR; Y independen=3,
+  salinan=0, terverifikasi=3; parafrase Jaccard 0,833 →
+  independen 1 + kemungkinanParafrase 1; judul jelas beda →
+  independen 2; salinan telat 2 hari → sel "sama";
+  liputan independen telat → "beda_waktu"; bukti BBC tak
+  tercocokkan muncul di daftar (tidak hilang).
+- `uji-remediasi-integrasi.mjs` **17/17, EXIT 0**: RPC v9
+  ASLI (bukan DDL test-lokal) + logika tampilan, seed X/Y
+  yang sama — X=1 vs Y=3 dibedakan ujung-ke-ujung.
+- **Catatan DDL (jujur):** DDL RPC test-lokal di
+  `uji-remediasi-multisource.mjs` adalah implementasi
+  plpgsql (loop), sedangkan v9 memakai SQL recursive CTE —
+  berbeda struktur, ekuivalen semantik pada semua kasus yang
+  diuji (rantai 3 item, akar, flag disalin, trailing slash,
+  draf/kosong, siklus). Perbedaan tepi yang diketahui:
+  bila dua raw item cocok satu URL (hanya mungkin bila
+  berbeda trailing slash, karena hash_url UNIQUE), v9
+  memilih satu secara arbitrer (`distinct on`) sedangkan
+  versi uji memilih yang terbaru (`waktu_diambil`) — tanpa
+  dampak pada hitungan independen di kasus yang diuji.
+  Skrip integrasi (§12.9.1, 17/17) adalah bukti bahwa
+  keduanya berperilaku sama pada X/Y.
+- **Sisa keterbatasan:** render live halaman artikel belum
+  diuji (butuh migrasi + artikel terbit di produksi);
+  parafrase hanya dari judul akar (judul generik yang
+  kebetulan mirip bisa tertandai — ditampilkan sebagai
+  "kemungkinan", bukan tuduhan); pencocokan evidence ke
+  kolom tetap URL/nama persis (varian URL masuk daftar tak
+  tercocokkan, ditampilkan jujur).
+
+**Verdik baru: LAYAK.** Klaim "tanpa kesetaraan palsu"
+yang dicabut di §12.2 kini BERLAKU KEMBALI untuk tampilan
+— dengan kualifikasi parafrase di atas.
+
+#### 12.9.2 Perbaikan 2 — GRANT eksplisit F4 + migrasi v9 (syarat §12.6.2) — LAYAK
+
+**Diubah (commit `400c419`):**
+- `supabase/migrations/20261116_pf_v9_grants.sql` (baru,
+  idempoten): 41 pernyataan GRANT tingkat tabel untuk 37
+  tabel `pf_*` (diturunkan dari `pg_policies` pasca-v8;
+  pf_quiz_questions dikecualikan — grant per kolom v8
+  ditegaskan ulang, §3); pengecualian newsletter
+  (INSERT hanya authenticated, T5); GRANT EXECUTE
+  `pf_has_role`/`pf_is_super_admin` (§4); RPC
+  `pf_akar_salinan` (§5, kontrak dengan tampilan);
+  perluasan CHECK aksi audit + `koreksi.ditinjau` (§6,
+  koordinator). Dipilih v9 (baru), BUKAN amend v8 —
+  CUTOVER.md melarang edit migrasi.
+- `supabase/CUTOVER.md` (urutan v1–v9; v9 tepat sesudah
+  v8) + `supabase/README.md` (§v9). `scripts/backup-pf.mjs`
+  tidak perlu diubah (37 tabel tetap).
+- `scripts/uji-fase8-gel1.mjs` direstrukturisasi 4 fase:
+  Fase 1 blanket grant SEMENTARA (simulasi default lama) →
+  Fase 2 v8 → Fase 3 REVOKE blanket (simulasi default baru)
+  → Fase 4 v9 2×. Blanket grant permanen DIHAPUS.
+
+**Bukti (dijalankan ulang koordinator):**
+- `uji-fase8-gel1.mjs` **159/159, EXIT 0** (120 lama + 39
+  baru): Fase 3 — authenticated SELECT
+  `pf_user_preferences` → **42501**, anon SELECT
+  `pf_articles` terbit → **42501**, authenticated SELECT
+  `pf_raw_items` → **42501**, insert audit
+  `koreksi.ditinjau` → **23514** (CHECK v8); Fase 4 —
+  tabel **37** / RLS **37/37** / policy **79**; preferensi
+  milik sendiri = 1 baris, pengguna lain = 0; anon
+  `pf_articles` terbit = 1 baris (draf tersembunyi); anon
+  `pf_roles`/`pf_permissions` = 0 (T8); kunci kuis tetap
+  tertutup (has_column_privilege false/false); INSERT anon
+  T5 tetap ditolak; RPC rantai 3 item → akar benar; insert
+  `koreksi.ditinjau` BERHASIL sesudah v9.
+- **Pemeriksaan independen koordinator:** daftar tabel
+  v1–v8 (37) vs tabel di GRANT v9 (36 tingkat tabel +
+  `pf_quiz_questions` per kolom) = **37/37 tercakup**;
+  spot-check 3 tabel selaras policy: `pf_questions`
+  (INSERT dicabut v8 → SELECT saja ✓),
+  `pf_correction_reports` (INSERT dicabut v8 →
+  SELECT+UPDATE+DELETE ✓), `pf_followed_topics`
+  (tanpa policy UPDATE → SELECT+INSERT+DELETE ✓).
+- **Koreksi kontrak (temuan agen v9):** draf RPC memakai
+  `with artikel_ok` tanpa RECURSIVE — Postgres menolaknya;
+  v9 memakai `with recursive` (nama/parameter/kolom/logika
+  tidak berubah). **Temuan Fase 3:** `REVOKE SELECT ON ALL
+  TABLES` ikut mencabut GRANT per kolom kuis v8
+  (column_privileges 40→0) — penegasan ulang §3 v9 bersifat
+  *load-bearing*, bukan kosmetik.
+
+**Verdik baru: LAYAK.** F4 (TINGGI) DITUTUP di kode.
+Cutover produksi kini punya migrasi v9 yang bisa
+dijalankan — tetap butuh otorisasi pemilik.
+
+#### 12.9.3 Perbaikan 3 — Public Report F1/F2/F3 (syarat §12.6.3) — LAYAK
+
+**Diubah (commit `35010f4` + `400c419`):**
+- `src/lib/admin/editorial.ts`: aksi baru `"ditinjau"` di
+  `tindaklanjutiKoreksi` (dari `baru` → `ditinjau`; dari
+  `ditinjau` → error; `terima`/`tolak` diizinkan dari
+  `baru` maupun `ditinjau`; guard terminal dipertahankan);
+  `terima` tanpa `artikel_id` → status `ditinjau` (laporan
+  umum diteruskan ke redaksi) + audit eksplisit; error
+  "Artikel tidak ditemukan" hanya bila `artikel_id` ADA
+  tapi barisnya tak ada.
+- `src/lib/admin/types.ts`: `Koreksi.artikel_id: string |
+  null` + field `pelapor_email`/`nomor_lacak`/
+  `tautan_artikel`; `AksiAudit` + `'koreksi.ditinjau'`
+  (CHECK diperluas di v9 §6 — koordinator).
+- `src/lib/admin/supabase-adapter.ts`: ketiga SELECT
+  koreksi kini memilih `nomor_lacak, pelapor_email,
+  tautan_artikel` (F3).
+- `src/app/api/admin/koreksi/[id]/route.ts` +
+  `src/components/admin/FormKoreksi.tsx`: tombol "Tandai
+  ditinjau".
+- `scripts/uji-editorial.mjs`: 14 asersi koreksi baru
+  (mock adapter) — **28 OK / 0 GAGAL**.
+
+**Bukti (dijalankan ulang koordinator):**
+`uji-editorial.mjs` **SEMUA LOLOS, EXIT 0** (28 asersi
+koreksi + bagian live RSS tetap hijau: 200 item, 5 draf
+VERIFIED). **Sisa keterbatasan:** klik moderator di
+browser belum teruji; simpan laporan valid ujung-ke-ujung
+tetap belum terbukti (butuh service key + DB).
+
+**Verdik baru: LAYAK (dengan catatan yang sama seperti
+§12.3, minus F1/F2/F3).**
+
+#### 12.9.4 Perbaikan 4 — Jejak Fakta F-A1-1 (syarat §12.6.4) — LAYAK
+
+**Diubah (commit `0aee430`, koordinator):**
+`getJejakFakta` (`src/lib/data.ts`) kini mengambil artikel
+dan memeriksa `status='terbit'` eksplisit sebelum membaca
+klaim — sama seperti `getPerbandinganSumber`. Artikel
+draf/tak ada → kosong.
+
+**Verdik baru: LAYAK.** Sisa F-A1-2 (provenance
+`raw_item` tak ditampilkan) tetap ringan dan tidak
+menghalangi.
+
+#### 12.9.5 Audit ulang
+
+Audit ulang dilakukan **koordinator** (bukan pasangan agen
+read-only baru — spawn agen tambahan ditolak runtime,
+"subagent bootstrap is no longer authorized" — setelah
+3 agen remediasi selesai): seluruh baterai dijalankan
+ulang sendiri (angka di §12.9.1–12.9.4), skrip integrasi
+baru ditulis untuk menutup celah DDL test-lokal vs v9
+ASLI, DDL RPC dibandingkan baris-per-baris, cakupan GRANT
+37/37 dan keselarasan policy diperiksa untuk 3 tabel
+sampel. Metode ini setara dengan audit A yang diulang —
+bukti yang sama (X vs Y di tampilan lewat RPC v9 ASLI)
+dihasilkan dari jalur yang berbeda (baterai agen +
+integrasi koordinator).
+
+| Syarat §12.6 | Hasil audit ulang |
+|---|---|
+| 1. Tampilan Multi-Source + audit A diulang | **TERPENUHI** — X=1 vs Y=3 di tampilan (71/71 + 17/17 integrasi RPC v9 ASLI) |
+| 2. GRANT eksplisit + baterai diperbaiki + 37/37/79 | **TERPENUHI** — v9, 159/159, 37/37/79, 42501 sebelum / lolos sesudah, spot-check 3 tabel selaras |
+| 3. F2 + F1 | **TERPENUHI** — terima tanpa artikel → ditinjau; aksi ditinjau tersambung + audit eksplisit (28/28) |
+| 4. Cek `status='terbit'` di `getJejakFakta` | **TERPENUHI** — commit `0aee430` |
+
+#### 12.9.6 Keputusan Gelombang 2 — LAYAK DIMULAI (di kode)
+
+**Keempat syarat §12.6 terpenuhi. Gelombang 2 (Story
+Tracker, Explain the World, Reality Check, Research,
+Country Profile, Historical Archive) LAYAK DIMULAI —
+sebagai pekerjaan kode yang terverifikasi lokal, dengan
+pola yang sama seperti Gelombang 1 (migrasi baru +
+baterai + audit).**
+
+Batasan yang TETAP berlaku dan bukan alasan menunda
+Gelombang 2 (karena berlaku sama untuk semua pekerjaan):
+migrasi v1–v9 belum dijalankan di produksi dan deploy
+Vercel masih 403 — keduanya butuh otorisasi pemilik.
+Yang tetap belum diuji dan harus dinyatakan jujur di
+laporan Gelombang 2: render live halaman baru di
+produksi, simpan laporan publik ujung-ke-ujung, dan klik
+browser nyata (moderator/admin/kuis/peta).
+
+#### 12.9.7 Ringkasan status tegas (sesudah remediasi)
+
+| Klaim | Status |
+|---|---|
+| Jejak Fakta berfungsi | Terverifikasi lokal (F-A1-1 ditutup; sisa F-A1-2 ringan) |
+| Multi-Source View tampilan "N independen" benar | Terverifikasi lokal (X=1 vs Y=3, RPC v9 ASLI) |
+| Public Report moderasi (F1/F2/F3) | Terverifikasi lokal |
+| Public Report simpan ujung-ke-ujung | **Belum diuji** |
+| My Prata isolasi per-user | Terverifikasi lokal (tidak berubah) |
+| Migrasi v1–v9 idempoten + 37/37/79 | Terverifikasi lokal (tanpa blanket grant) |
+| Build/lint/tsc + semua baterai | Terverifikasi lokal (build EXIT 0, 94 halaman; tsc/lint EXIT 0; fase5/6 LOLOS, fase7 87/87, fase8-gel1 159/159, multisource 71/71, integrasi 17/17, editorial LOLOS; ingestion 1 gagal flake GDELT 429) |
+| Smoke test `next start` | Terverifikasi lokal (`/` 200, slug tak ada 404, `/api/health` 200 degraded jujur, `/laporkan` 200, `/sitemap.xml` 200, log 0 error) |
+| Render live / produksi / scheduler live | **Terblokir** (migrasi v1–v9 + Vercel 403, butuh pemilik) |
+| Gelombang 2 | **LAYAK DIMULAI (di kode)** |

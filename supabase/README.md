@@ -727,6 +727,11 @@ dengan 42501, Fase 4 membuktikan v9 menutupnya).
   dirinya sendiri ("relation rantai does not exist"); v9
   memakai `with recursive` (satu-satunya perubahan dari
   draf; nama/parameter/kolom/logika tidak berubah).
+- **§6 — perluasan CHECK aksi audit (F1, koordinator):**
+  `pf_audit_logs_aksi_check_v9` berisi 47 aksi (46 dari v8
+  + `'koreksi.ditinjau'`) agar penandaan status `ditinjau`
+  tercatat dengan aksi eksplisit, bukan lagi sebagai
+  `koreksi.terima` + status di kolom detail.
 
 Ekspektasi sesudah v9: **37 tabel** `pf_*` ber-RLS (TIDAK
 bertambah), total **79 policy** (TIDAK berubah), dan
