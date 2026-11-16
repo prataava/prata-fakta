@@ -632,3 +632,137 @@ where table_schema = 'public' and table_name = 'pf_quiz_questions'
 --      on public.pf_quiz_questions to anon, authenticated;
 --    (JANGAN grant select tingkat tabel lagi sesudahnya.)
 ```
+
+## Migrasi v9 — GRANT eksplisit + RPC akar salinan (Fase 8 remediasi F4, 16 Nov 2026)
+
+Berkas: `20261116_pf_v9_grants.sql`. Jalankan SETELAH v1–v8,
+di SQL Editor yang sama (idempoten — aman diulang). Dibuat
+sebagai migrasi BARU (bukan amend v8) karena CUTOVER.md
+melarang mengubah berkas migrasi apa pun.
+
+### Mengapa v9 (temuan F4, TINGGI — LAPORAN-FASE-8.md §12.5)
+
+v1–v8 tidak punya GRANT eksplisit untuk tabel baru (kecuali
+v8:190, grant per kolom kuis). Semua tabel mengandalkan
+"grant default Supabase" — yang berubah sejak 30 Okt 2026:
+tabel baru di proyek lama TIDAK LAGI otomatis mendapat grant
+ke anon/authenticated. Bukti PGlite: authenticated SELECT
+`pf_user_preferences` → 42501 sebelum grant. Karena cutover
+menjalankan v1–v8 sebagai tabel baru, tanpa v9 SEMUA tabel
+berpotensi putus. Baterai repo tidak menangkap ini selama
+gate karena memberi blanket grant di awal
+(`uji-fase8-gel1.mjs` lama baris 131) — baterai itu kini
+direstrukturisasi menjadi 4 fase (Fase 3 membuktikan F4
+dengan 42501, Fase 4 membuktikan v9 menutupnya).
+
+### Isi
+
+- **GRANT tingkat tabel (37 tabel), diturunkan dari
+  `pg_policies` pasca-v8** — tiap (tabel, perintah) diberi
+  GRANT ke anon + authenticated bila ada ≥ 1 policy dengan
+  command itu (semua policy v1–v8 berlaku untuk peran PUBLIC;
+  siapa yang benar-benar lolos diatur qual policy, bukan
+  grant). Grant adalah gerbang tingkat tabel; RLS tetap
+  penegak baris — grant di sini TIDAK melonggarkan apa pun
+  yang RLS tolak. Ringkasnya:
+  - SELECT saja (16): `pf_ai_runs`, `pf_audit_logs`,
+    `pf_claims`, `pf_daily_briefs`, `pf_data_indicators`,
+    `pf_data_points`, `pf_editorial_reviews`,
+    `pf_event_timeline`, `pf_events`, `pf_evidence`,
+    `pf_ingestion_runs`, `pf_knowledge_articles`,
+    `pf_questions`, `pf_raw_items`, `pf_scheduled_jobs`,
+    `pf_verification_records`.
+  - SELECT+INSERT+UPDATE (2): `pf_quiz_scores`,
+    `pf_user_preferences` (tanpa DELETE — tidak ada policy
+    DELETE).
+  - SELECT+INSERT+DELETE (1): `pf_followed_topics` (tanpa
+    policy UPDATE).
+  - SELECT+UPDATE (1): `pf_notifications` (ditulis service
+    role).
+  - SELECT+UPDATE+DELETE (1): `pf_correction_reports`
+    (tanpa INSERT — policy insert anonim dicabut v8, T5).
+  - SELECT+INSERT+UPDATE+DELETE (14): `pf_article_sources`,
+    `pf_article_tags`, `pf_article_versions`, `pf_articles`,
+    `pf_bookmarks`, `pf_categories`, `pf_permissions`,
+    `pf_profiles`, `pf_reading_history`,
+    `pf_role_permissions`, `pf_roles`, `pf_sources`,
+    `pf_tags`, `pf_user_roles`.
+  - Total pernyataan GRANT tingkat tabel: 37 (16 + 2 + 1 + 1
+    + 1 + 14 + 2 baris newsletter, lihat bawah). Ditambah
+    1 GRANT per kolom kuis (§3) dan 3 GRANT EXECUTE (§4–§5):
+    total 41 pernyataan GRANT + 2 REVOKE + 1 CREATE OR
+    REPLACE FUNCTION di v9.
+- **Pengecualian `pf_newsletter_subscribers` (T5):**
+  SELECT/UPDATE/DELETE ke anon + authenticated, tetapi
+  INSERT HANYA ke authenticated — satu-satunya policy tulis
+  tabel ini mensyaratkan super_admin, dan anon tidak pernah
+  bisa menjadi super_admin; INSERT anonim adalah persis
+  vektor penyalahgunaan T5.
+- **Pengecualian `pf_quiz_questions` (T1-sisa):** TANPA
+  GRANT SELECT tingkat tabel (hak tingkat tabel mengalahkan
+  pembatasan per kolom dan membuka kembali kolom `kunci`).
+  v9 menegaskan ulang v8:189-191 secara idempoten: REVOKE
+  SELECT tingkat tabel + GRANT SELECT per kolom untuk semua
+  kolom KECUALI `kunci`.
+- **GRANT EXECUTE (2):** `pf_has_role(text)` dan
+  `pf_is_super_admin()` ke anon + authenticated — keduanya
+  dipanggil dari qual policy RLS, dan pemanggilan dari policy
+  membutuhkan hak EXECUTE (dibuktikan PGlite: sesudah
+  `revoke execute ... from public`, anon SELECT
+  `pf_permissions` gagal "permission denied for function
+  pf_has_role"). TIDAK diberi grant: `pf_handle_new_user()`
+  (trigger signup — dipanggil sistem) dan
+  `pf_set_updated_at()` (fungsi trigger — dipicu DML).
+- **RPC `pf_akar_salinan(uuid, text[])` (Area 3):** resolusi
+  rantai salinan `disalin_dari` untuk Multi-Source View —
+  SECURITY DEFINER (pf_raw_items hanya boleh dibaca staf),
+  hanya mengembalikan metadata minimal yang sudah publik
+  (judul + nama sumber akar) untuk artikel TERBIT; artikel
+  tidak terbit / tidak ada → himpunan kosong. EXECUTE
+  dicabut dari PUBLIC lalu diberi ke anon + authenticated.
+  Kontrak dengan `getPerbandinganSumber` di `src/lib/data.ts`:
+  jangan ubah nama/kolom/parameter tanpa koordinasi dengan
+  agen tampilan. Catatan: draf kontrak awal memakai `with`
+  tanpa `recursive` — Postgres menolak CTE yang merujuk
+  dirinya sendiri ("relation rantai does not exist"); v9
+  memakai `with recursive` (satu-satunya perubahan dari
+  draf; nama/parameter/kolom/logika tidak berubah).
+
+Ekspektasi sesudah v9: **37 tabel** `pf_*` ber-RLS (TIDAK
+bertambah), total **79 policy** (TIDAK berubah), dan
+`information_schema.table_privileges` untuk anon/authenticated
+kini > 0 baris (sebelum v9: 0 — itulah F4).
+
+Verifikasi cepat:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 37
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 79
+
+select count(*) from information_schema.table_privileges
+where table_schema = 'public' and table_name like 'pf_%'
+  and grantee in ('anon','authenticated');
+-- ekspektasi: > 0 (sebelum v9: 0)
+
+-- Negatif T1-sisa tetap berlaku:
+select has_column_privilege('anon', 'public.pf_quiz_questions', 'kunci', 'SELECT'),
+       has_column_privilege('authenticated', 'public.pf_quiz_questions', 'kunci', 'SELECT');
+-- ekspektasi: false, false
+
+select proname from pg_proc where proname = 'pf_akar_salinan';
+-- ekspektasi: 1 baris
+```
+
+Validasi lokal (PGlite, tanpa menyentuh produksi): skrip
+`scripts/uji-fase8-gel1.mjs` di repo menjalankan v1–v7,
+blanket grant sementara (Fase 1), v8 2x (Fase 2), REVOKE
+blanket grant + bukti 42501 (Fase 3), lalu v9 2x (Fase 4)
+dan membuktikan perbaikan (preferensi pemilik terbaca,
+artikel terbit terbaca anon, T5/T8/T1 tetap berlaku, RPC
+rantai 3 item benar) — hasil 16 Nov 2026: **156/156 LOLOS**,
+termasuk semua asersi lama yang masih relevan.

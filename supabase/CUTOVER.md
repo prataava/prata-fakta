@@ -1,4 +1,4 @@
-# CUTOVER — PRATA FAKTA: Migrasi v1–v8 + Go-Live
+# CUTOVER — PRATA FAKTA: Migrasi v1–v9 + Go-Live
 
 **Dokumen:** prosedur cutover produksi (migrasi database + deploy +
 smoke test + rollback).
@@ -18,7 +18,7 @@ mengumumkan URL produksi sebelum itu.
   langsung di Dashboard Vercel / GitHub / `.env.local`, atau
   diserahkan ke Muse lewat Secure Vault bila Muse yang diminta
   menjalankan langkahnya.
-- Semua migrasi v1–v8 IDEMPOTEN (aman dijalankan ulang). Satu
+- Semua migrasi v1–v9 IDEMPOTEN (aman dijalankan ulang). Satu
   berkas gagal → perbaiki penyebabnya, lalu ULANGI berkas itu.
   JANGAN lanjut ke berkas berikutnya sebelum berkas saat ini lolos
   verifikasi.
@@ -36,6 +36,7 @@ Urutan ini TIDAK boleh dibalik. Alasannya ada di tiap tahap.
 | 3A | Migrasi **v1–v7** berurutan + verifikasi tiap berkas (§3) | SQL Editor |
 | 4 | Deploy kode ke Vercel (§5) — **WAJIB sebelum v8** | Dashboard Vercel |
 | 3B | Migrasi **v8** + verifikasi (§3) | SQL Editor |
+| 3C | Migrasi **v9** (GRANT eksplisit + RPC) + verifikasi (§3) | SQL Editor |
 | 5 | Validasi fungsi database (§4) | SQL Editor |
 | 6 | Smoke test produksi (§6) | Browser + curl |
 | 7 | Aktifkan scheduler GitHub Actions (§7) | GitHub repo |
@@ -55,11 +56,32 @@ Vercel saat ini masih blokir 403 (lihat §5), urutan amannya:
 v1–v7 dulu → bereskan deploy → baru v8.
 
 **Pengecualian yang dibolehkan:** bila pemilik menjalankan
-v1–v8 dalam satu sesi SQL Editor tanpa jeda deploy, situs tetap
+v1–v9 dalam satu sesi SQL Editor tanpa jeda deploy, situs tetap
 bisa live — dengan catatan ketiga route publik akan mengembalikan
 error sampai deploy selesai. Itu bukan kerusakan data, hanya
 jendela layanan mati. Pilihan ini dicatat sebagai risiko yang
 diterima pemilik, bukan prosedur yang dianjurkan.
+
+**v9 tepat sesudah v8 (F4 — GRANT eksplisit):** v1–v8 tidak
+punya GRANT eksplisit untuk tabel baru, dan default Supabase
+sejak 30 Okt 2026 tidak lagi memberi grant otomatis ke
+anon/authenticated — tanpa v9, SEMUA tabel berpotensi putus
+(bukti PGlite: authenticated SELECT `pf_user_preferences` →
+42501 sebelum grant). Migrasi v9
+(`20261116_pf_v9_grants.sql`) memberi GRANT eksplisit untuk
+ke-37 tabel `pf_*` selaras policy RLS tiap tabel, menegaskan
+ulang GRANT per kolom kuis, memberi EXECUTE
+`pf_has_role`/`pf_is_super_admin`, dan membuat RPC
+`pf_akar_salinan`. v9 HANYA MENAMBAH izin tingkat tabel (tidak
+mengubah satu policy pun), jadi aman dijalankan kapan pun
+sesudah v8 — tidak ada prasyarat deploy tambahan seperti v8.
+**Pengecualian yang dicatat:** v9 TIDAK memberi GRANT SELECT
+tingkat tabel pada `pf_quiz_questions` (hak tingkat tabel akan
+membuka kembali kolom `kunci` — T1-sisa); tabel itu hanya
+mendapat GRANT SELECT per kolom tanpa `kunci`, sama seperti
+v8. v9 juga TIDAK memberi GRANT INSERT ke anon pada
+`pf_newsletter_subscribers`, `pf_correction_reports`, dan
+`pf_questions` (T5 tetap berlaku).
 
 ---
 
@@ -229,7 +251,7 @@ Bila errornya **401 / "Invalid API key"**: key salah atau
 kedaluwarsa. Ambil ulang dari Dashboard → Settings → API.
 Jangan lanjut ke migrasi sebelum backup baseline ini dicoba.
 
-**Sesudah migrasi v1–v8 selesai (§3):** jalankan lagi perintah
+**Sesudah migrasi v1–v9 selesai (§3):** jalankan lagi perintah
 yang sama. Ekspektasi:
 
 ```text
@@ -262,7 +284,7 @@ pernah meng-commit berkas backup.
 
 ---
 
-## 3. Penerapan migrasi v1–v8 BERURUTAN
+## 3. Penerapan migrasi v1–v9 BERURUTAN
 
 **Tempat:** Supabase Dashboard → proyek `prata` → SQL Editor →
 New query.
@@ -522,7 +544,51 @@ Angka v8 ini diverifikasi dari berkas migrasi
 satu tabel baru, tiga policy dicabut, tiga policy baru —
 total policy tetap 79. Bukan angka asumsi.
 
-### 3.9 Bila satu berkas gagal
+### 3.9 v9 — GRANT eksplisit + RPC akar salinan (remediasi F4)
+
+- Berkas: `supabase/migrations/20261116_pf_v9_grants.sql`
+- Bergantung pada v1–v8. **Jalankan TEPAT SESUDAH v8**
+  (tidak ada prasyarat deploy tambahan — v9 hanya menambah
+  izin, tidak mengubah policy; lihat §0).
+- Isi: GRANT eksplisit ke anon + authenticated untuk ke-37
+  tabel `pf_*`, selaras dengan command tiap policy RLS
+  (SELECT saja 16 tabel; SELECT+INSERT+UPDATE 2 tabel;
+  SELECT+INSERT+DELETE 1; SELECT+UPDATE 1;
+  SELECT+UPDATE+DELETE 1; SELECT+INSERT+UPDATE+DELETE 14;
+  `pf_newsletter_subscribers` khusus: INSERT hanya ke
+  authenticated); penegasan ulang REVOKE SELECT tingkat tabel
+  + GRANT per kolom `pf_quiz_questions` tanpa `kunci`
+  (T1-sisa — JANGAN pernah grant SELECT tingkat tabel pada
+  tabel ini); GRANT EXECUTE `pf_has_role` /
+  `pf_is_super_admin` (dipanggil dari qual policy); RPC
+  `pf_akar_salinan(uuid, text[])` untuk Multi-Source View
+  (SECURITY DEFINER, EXECUTE ke anon + authenticated).
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from information_schema.table_privileges
+where table_schema = 'public' and table_name like 'pf_%'
+  and grantee in ('anon','authenticated');
+-- ekspektasi: > 0 (sebelum v9: 0 — itulah F4)
+
+select has_column_privilege('anon', 'public.pf_quiz_questions', 'kunci', 'SELECT'),
+       has_column_privilege('authenticated', 'public.pf_quiz_questions', 'kunci', 'SELECT');
+-- ekspektasi: false, false (T1-sisa tetap tertutup)
+
+select proname from pg_proc where proname = 'pf_akar_salinan';
+-- ekspektasi: 1 baris
+```
+
+| Pemeriksaan | Ekspektasi sesudah v9 |
+|---|---|
+| Jumlah tabel `pf_*` | **37** (tidak bertambah) |
+| Tabel ber-RLS | **37/37** |
+| Jumlah policy `pf_*` | **79** (tidak berubah) |
+| GRANT tabel anon/authenticated | **> 0** (sebelum v9: 0) |
+| `pf_akar_salinan` | ada (1 fungsi) |
+
+### 3.10 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
 2. Baca pesan error SQL Editor sampai habis. Penyebab paling
@@ -545,8 +611,8 @@ total policy tetap 79. Bukan angka asumsi.
 
 ## 4. Validasi fungsi database
 
-Jalankan sesudah v8 (atau sesudah v7 bila v8 ditunda — tetapi
-cutover penuh mensyaratkan v8). Semua kueri di SQL Editor.
+Jalankan sesudah v9 (atau sesudah v7 bila v8/v9 ditunda — tetapi
+cutover penuh mensyaratkan v9). Semua kueri di SQL Editor.
 
 ### 4.1 Fungsi SECURITY DEFINER + `search_path`
 
@@ -588,12 +654,13 @@ Ekspektasi: tiap tabel `pf_*` yang punya kolom
 `diperbarui_pada` memiliki satu trigger ini (termasuk
 `pf_quiz_scores` dari v7 dan `pf_user_preferences` dari v8).
 Bila ada tabel yang kehilangan triggernya, ulangi berkas
-migrasi yang membuat tabel itu (§3.9).
+migrasi yang membuat tabel itu (§3.10).
 
-### 4.3 Uji negatif keamanan (T5 + T1-sisa) — sesudah v8
+### 4.3 Uji negatif keamanan (T5 + T1-sisa) — sesudah v8/v9
 
 Uji ini membuktikan perbaikan keamanan v8 benar-benar aktif
-di produksi. Jalankan lewat REST dengan anon key (bukan SQL
+di produksi — dan tetap aktif sesudah v9 (v9 tidak mengubah
+policy apa pun). Jalankan lewat REST dengan anon key (bukan SQL
 Editor — SQL Editor memakai peran pemilik dan melewati RLS):
 
 ```bash
@@ -746,7 +813,7 @@ halaman, BUILD_ID `2SVs5ed_imVxww-5ff6ql`. Sesudah Gelombang 1
 
 ## 6. Smoke testing sesudah migrasi + deploy
 
-Jalankan sesudah §3 (v1–v8), §4, dan §5 selesai. Semua URL
+Jalankan sesudah §3 (v1–v9), §4, dan §5 selesai. Semua URL
 memakai URL produksi sebenarnya dari §5.2 (rencana:
 `https://prata-fakta.vercel.app`).
 
@@ -840,7 +907,7 @@ yang sama, mengganti `super_admin` dengan nama peran itu.
 
 ### 9.1 Gagal di satu berkas migrasi — TIDAK perlu rollback
 
-Semua migrasi idempoten. Prosedur baku (§3.9): berhenti,
+Semua migrasi idempoten. Prosedur baku (§3.10): berhenti,
 baca error, perbaiki penyebab, ulangi berkas yang sama.
 Jangan pernah "melompat" ke berkas berikutnya untuk
 menutupi kegagalan.
@@ -852,7 +919,7 @@ gagal karena data:
 
 1. Identifikasi tahap yang salah dari angka verifikasi
    (tabel §3.1–§3.8 menunjukkan tahap terakhir yang lolos).
-2. Ulangi berkas migrasi tahap itu (§3.9).
+2. Ulangi berkas migrasi tahap itu (§3.10).
 3. Bila pengulangan tidak memperbaiki: kumpulkan bukti
    (pesan error persis + hasil kueri verifikasi) dan
    hentikan cutover — jangan menebak-nebak perbaikan
@@ -960,6 +1027,7 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §3A: v1–v7 berurutan, tiap tahap cocok dengan tabel ekspektasi
 - [ ] §5: deploy berhasil (opsi A / B / C) + env vars terisi
 - [ ] §3B: v8 + verifikasi (37 tabel, 79 policy, uji negatif T5/T1 lolos)
+- [ ] §3C: v9 + verifikasi (37 tabel, 79 policy, GRANT tabel > 0, kunci kuis false/false, `pf_akar_salinan` ada)
 - [ ] §4: fungsi + trigger tervalidasi
 - [ ] §6: smoke test halaman + API lolos
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik

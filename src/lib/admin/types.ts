@@ -43,11 +43,7 @@ export type AksiAudit =
   | "verifikasi.ubah"
   | "koreksi.terima"
   | "koreksi.tolak"
-  // CATATAN: 'koreksi.ditinjau' BELUM ada di sini maupun di CHECK
-  // pf_audit_logs_aksi_check_v8 (migrasi v8) — penandaan 'ditinjau'
-  // dicatat dengan 'koreksi.terima' + status di kolom detail
-  // (lihat tindaklanjutiKoreksi). Tambahkan aksi itu ke tipe DAN
-  // ke CHECK lewat migrasi lanjutan bila sudah diputuskan.
+  | "koreksi.ditinjau"
   | "pengguna.role"
   | "pengguna.nonaktif"
   | "pengguna.aktifkan"

@@ -430,19 +430,14 @@ export async function tindaklanjutiKoreksi(
       `Laporan koreksi ini sudah ditindaklanjuti (status: '${koreksi.status}').`,
     );
   }
-  // AKSI AUDIT: tidak ada 'koreksi.ditinjau' di CHECK
-  // pf_audit_logs_aksi_check_v8 (migrasi v8: 46 aksi, hanya
-  // 'koreksi.terima'/'koreksi.tolak') — jadi penandaan 'ditinjau'
-  // dicatat dengan aksi 'koreksi.terima' yang sudah diizinkan dan
-  // status 'ditinjau' tertulis eksplisit di kolom detail (sesudah).
-  // Aksi audit 'koreksi.ditinjau' yang eksplisit butuh migrasi
-  // lanjutan (v9) yang memperluas CHECK tersebut.
+  // AKSI AUDIT: 'koreksi.ditinjau' eksplisit (CHECK
+  // pf_audit_logs_aksi_check_v9, migrasi v9 §6 — 47 aksi).
   if (input.aksi === "ditinjau") {
     if (koreksi.status === "ditinjau") {
       throw new Error("Laporan koreksi ini sudah ditinjau.");
     }
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
-    await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
+    await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditinjau", catatan });
     return { status: "ditinjau" };
@@ -462,7 +457,7 @@ export async function tindaklanjutiKoreksi(
       "Laporan umum tanpa artikel — diterima untuk ditinjau redaksi, " +
       "tidak ada artikel yang dikoreksi.";
     await adapter.perbaruiKoreksi({ id: koreksi.id, status: "ditinjau" });
-    await catat(adapter, aktor, "koreksi.terima", "pf_correction_reports", koreksi.id, {
+    await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditinjau", catatan: catatanUmum, catatan_moderator: catatan });
     return { status: "ditinjau" };

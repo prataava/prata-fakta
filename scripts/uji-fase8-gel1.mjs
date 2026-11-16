@@ -1,19 +1,32 @@
-// Uji Fase 8 Gelombang 1 PRATA FAKTA -> PGlite + pemeriksaan statis.
-// Langkah: (a) PGlite + stub auth + role anon/authenticated +
-// migrasi v1..v7 (v7 2x); (b) SEBELUM v8: INSERT anon ke 3 tabel
-// T5 berhasil + SELECT kunci berhasil + SELECT pf_roles terlihat
-// (membuktikan celah yang ditutup v8 memang ada); (c) migrasi v8
-// 2x (idempotensi); hitung tabel/RLS/policy; (d) SESUDAH v8:
-// uji negatif T5 (INSERT anon ditolak), T1-sisa (SELECT kunci
-// ditolak, kolom lain tetap bisa), T8 (baca pf_roles/
-// pf_permissions/pf_role_permissions/article_sources/
-// article_tags dibatasi), Area 1 (klaim/evidence/verification
-// hanya bila artikel terbit), CHECK enum D4, D1/D2, tabel
-// pf_user_preferences, kolom pf_article_sources,
-// perluasan pf_correction_reports; (e) pemeriksaan statis:
-// patch service role 3 route T5 + kuis/jawab + getKuisHarian,
-// perbaikan desain G1/G2/G3, berkas Area 1/3/13/7, uji fungsi
-// murni hitungStreakKuis / validasiTarget / nomor lacak.
+// Uji Fase 8 Gelombang 1 + remediasi F4 (v9) PRATA FAKTA -> PGlite +
+// pemeriksaan statis. Empat fase eksplisit (F4 = tanpa GRANT
+// eksplisit di v1-v8; Supabase mengubah default grant 30 Okt 2026):
+//   FASE 1 (pra-v8, simulasi default LAMA Supabase): blanket grant
+//     SEMENTARA (select+insert ke anon/authenticated) agar
+//     pembuktian celah T5/T8/T1 pra-v8 tetap bermakna — celah itu
+//     ada karena POLICY mengizinkan, bukan karena grant tak ada.
+//   FASE 2: migrasi v8 2x (idempotensi) + asersi penutupan
+//     T5/T8/T1-sisa, Area 1, CHECK enum D4, D1/D2, tabel/kolom
+//     baru — semua dengan blanket grant Fase 1 masih terpasang
+//     (sama seperti baterai sebelum remediasi).
+//   FASE 3 (simulasi default BARU Supabase pasca-30-Okt-2026):
+//     REVOKE semua grant blanket -> BUKTIKAN F4: authenticated
+//     SELECT pf_user_preferences -> 42501, anon SELECT pf_articles
+//     (terbit) -> 42501. Tanpa grant eksplisit, tabel baru putus.
+//   FASE 4: migrasi v9 2x (idempotensi) -> BUKTIKAN perbaikan:
+//     authenticated SELECT pf_user_preferences milik sendiri =
+//     1 baris; anon SELECT pf_articles terbit berhasil (RLS
+//     tetap menyembunyikan draf); anon SELECT pf_roles = 0 baris
+//     (T8 tetap berlaku); SELECT kunci kuis sebagai anon tetap
+//     ditolak (T1-sisa tetap berlaku); RPC pf_akar_salinan
+//     (rantai 3 item -> akar benar; draf -> kosong; anon tetap
+//     tak bisa SELECT pf_raw_items langsung); hitung akhir
+//     37 tabel / RLS 37/37 / policy 79 (v9 tak menambah
+//     tabel/policy).
+// Sesudah itu: pemeriksaan statis (patch service role 3 route T5
+// + kuis/jawab + getKuisHarian, perbaikan desain G1/G2/G3, berkas
+// Area 1/3/13/7, isi v9) + uji fungsi murni hitungStreakKuis /
+// validasiTarget / nomor lacak.
 // Keluar 0 bila semua asersi lolos, 1 bila ada yang gagal.
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -96,6 +109,64 @@ async function hitungSebagai(role, sql, params = []) {
   return Number(r.rows[0]?.n ?? 0);
 }
 
+/** Seperti sebagai(), tapi dengan auth.uid() = uid (pengguna login). */
+async function sebagaiUid(role, uid, sql, params = []) {
+  await db.query(`set role ${role}`);
+  await db.query(`select set_config('pf.uid_test', $1, false)`, [uid]);
+  try {
+    return await db.query(sql, params);
+  } finally {
+    await db.query(`select set_config('pf.uid_test', '', false)`);
+    await db.query("reset role");
+  }
+}
+
+async function hitungSebagaiUid(role, uid, sql, params = []) {
+  const r = await sebagaiUid(role, uid, sql, params);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/** true bila kueri sebagai role GAGAL dengan kode error yang diminta
+ *  (mis. '42501' = insufficient_privilege — bukti grant tak ada). */
+async function gagalDenganKode(role, sql, kode, params = []) {
+  try {
+    await sebagai(role, sql, params);
+    return false;
+  } catch (e) {
+    return e.code === kode || String(e.message).includes(kode);
+  }
+}
+
+async function gagalDenganKodeUid(role, uid, sql, kode, params = []) {
+  try {
+    await sebagaiUid(role, uid, sql, params);
+    return false;
+  } catch (e) {
+    return e.code === kode || String(e.message).includes(kode);
+  }
+}
+
+/** true bila kueri superuser GAGAL dengan kode error yang diminta
+ *  (dipakai untuk CHECK constraint — RLS/grant tak relevan). */
+async function gagalSuperuser(sql, kode, params = []) {
+  try {
+    await db.query(sql, params);
+    return false;
+  } catch (e) {
+    return e.code === kode || String(e.message).includes(kode);
+  }
+}
+
+/** true bila kueri superuser BERHASIL. */
+async function berhasilSuperuser(sql, params = []) {
+  try {
+    await db.query(sql, params);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const hitung = async (sql, params = []) =>
   Number((await db.query(sql, params)).rows[0].n);
 
@@ -106,7 +177,11 @@ await db.exec(
   `create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb);`,
 );
 await db.exec(
-  `create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;`,
+  // Stub auth.uid() yang bisa diatur per-pengujian: membaca GUC
+  // pf.uid_test (''/tak diatur -> null = anon / tanpa login).
+  // Perilaku default SAMA dengan stub lama (selalu null); uji
+  // authenticated memakai sebagaiUid() untuk menyetel uid-nya.
+  `create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('pf.uid_test', true), '')::uuid $$;`,
 );
 // Role Supabase (wajib ada sebelum v8: REVOKE FROM anon, authenticated).
 await db.exec(`create role anon nologin;`);
@@ -125,8 +200,12 @@ if (!ok) {
   process.exit(1);
 }
 
-// Simulasi grant default Supabase: anon/authenticated boleh
-// SELECT + INSERT (RLS yang membatasi, bukan grant).
+// ---------- FASE 1 (default LAMA Supabase): blanket grant SEMENTARA ----------
+// Simulasi grant default Supabase (pra-30-Okt-2026):
+// anon/authenticated boleh SELECT + INSERT (RLS yang membatasi,
+// bukan grant). Grant ini SEMENTARA — dicabut di Fase 3 untuk
+// membuktikan F4. JANGAN jadikan fixture permanen: itulah yang
+// menyembunyikan F4 dari baterai ini selama gate Fase 8.
 await db.exec(
   `grant select, insert on all tables in schema public to anon, authenticated;`,
 );
@@ -192,7 +271,9 @@ cek(
   (await hitungSebagai("anon", `select count(*) n from public.pf_roles`)) === 5,
 );
 
-// ---------- Migrasi v8 (2x, idempotensi) ----------
+// ---------- FASE 2: Migrasi v8 (2x, idempotensi) ----------
+// (Blanket grant Fase 1 masih terpasang di fase ini — sama
+// seperti baterai sebelum remediasi F4.)
 ok = await jalankan("v8 putaran 1", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v8 putaran 2 (idempotensi)", baca("20261116_pf_v8_expansion.sql"));
 if (!ok) {
@@ -678,6 +759,363 @@ cek(
      where table_schema='public' and table_name='pf_correction_reports'
        and column_name in ('pelapor_email','nomor_lacak','tautan_artikel')`,
   )) === 3,
+);
+
+// ---------- FASE 3 (default BARU Supabase): cabut blanket grant, BUKTIKAN F4 ----------
+// Simulasi default Supabase pasca-30-Okt-2026: tabel baru TIDAK
+// lagi otomatis mendapat grant. Cabut SEMUA grant blanket Fase 1
+// (select+insert ke anon/authenticated). v8 hanya memberi grant
+// per kolom kuis — dan REVOKE tingkat tabel ternyata ikut
+// mencabut grant per kolom itu (terbukti di PGlite: 40 -> 0 baris
+// column_privileges) — jadi BAHKAN kuis ikut putus di sini.
+// Bila satu pun asersi 42501 di bawah TIDAK terjadi, simulasi
+// F4-nya salah (bukan F4-nya hilang).
+await db.exec(
+  `revoke select, insert on all tables in schema public from anon, authenticated;`,
+);
+cek(
+  "F4: authenticated SELECT pf_user_preferences -> 42501 (tanpa grant)",
+  await gagalDenganKodeUid(
+    "authenticated",
+    userUji,
+    `select count(*) n from public.pf_user_preferences`,
+    "42501",
+  ),
+);
+cek(
+  "F4: anon SELECT pf_articles terbit -> 42501 (tanpa grant)",
+  await gagalDenganKode(
+    "anon",
+    `select count(*) n from public.pf_articles where status = 'terbit'`,
+    "42501",
+  ),
+);
+cek(
+  "F4: authenticated SELECT pf_raw_items -> 42501 (F4 mengenai tabel staf juga)",
+  await gagalDenganKodeUid(
+    "authenticated",
+    userUji,
+    `select count(*) n from public.pf_raw_items`,
+    "42501",
+  ),
+);
+cek(
+  "F4: revoke blanket ikut mencabut GRANT per kolom kuis v8 (0 sisa) — v9 WAJIB menegaskannya ulang",
+  (await hitung(
+    `select count(*) n from information_schema.column_privileges
+     where table_schema='public' and table_name='pf_quiz_questions'
+       and grantee in ('anon','authenticated')`,
+  )) === 0,
+);
+cek(
+  "F4: anon SELECT kolom kuis non-kunci pun -> 42501 sesudah revoke (kuis ikut putus)",
+  await gagalDenganKode(
+    "anon",
+    `select count(*) n from public.pf_quiz_questions where id = $1`,
+    "42501",
+    [soalKuisId],
+  ),
+);
+cek(
+  "F1: insert audit aksi 'koreksi.ditinjau' DITOLAK CHECK v8 (23514) sebelum v9",
+  await gagalSuperuser(
+    `insert into public.pf_audit_logs (aksi, entitas) values ('koreksi.ditinjau', 'pf_correction_reports')`,
+    "23514",
+  ),
+);
+
+// ---------- FASE 4: Migrasi v9 (2x, idempotensi) + BUKTIKAN perbaikan ----------
+// v9 memberi GRANT eksplisit selaras policy v1–v8 (lihat berkas
+// migrasi), menegaskan ulang grant per kolom kuis, memberi
+// EXECUTE pf_has_role/pf_is_super_admin, dan membuat RPC
+// pf_akar_salinan. Sesudah fase ini TIDAK ADA blanket grant
+// yang tersisa — semua akses berasal dari v9.
+ok = await jalankan("v9 putaran 1", baca("20261116_pf_v9_grants.sql"));
+if (ok) ok = await jalankan("v9 putaran 2 (idempotensi)", baca("20261116_pf_v9_grants.sql"));
+if (!ok) {
+  console.log("HASIL: MIGRASI v9 GAGAL");
+  process.exit(1);
+}
+cek(
+  "v9: tabel pf_* tetap 37 (v9 tak menambah tabel)",
+  (await hitung(
+    `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%'`,
+  )) === 37,
+);
+cek(
+  "v9: RLS tetap 37/37",
+  (await hitung(
+    `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
+  )) === 37,
+);
+cek(
+  "v9: policy tetap 79 (v9 tak menambah/mengubah policy)",
+  (await hitung(
+    `select count(*) n from pg_policies where schemaname='public' and tablename like 'pf_%'`,
+  )) === 79,
+);
+cek(
+  "v9 §6: constraint pf_audit_logs_aksi_check_v9 ada",
+  (await hitung(
+    `select count(*) n from pg_constraint where conrelid = 'public.pf_audit_logs'::regclass and conname = 'pf_audit_logs_aksi_check_v9'`,
+  )) === 1,
+);
+cek(
+  "v9 §6: insert audit aksi 'koreksi.ditinjau' BERHASIL sesudah v9 (CHECK 47 aksi)",
+  await berhasilSuperuser(
+    `insert into public.pf_audit_logs (aksi, entitas) values ('koreksi.ditinjau', 'pf_correction_reports')`,
+  ),
+);
+cek(
+  "v9: ada GRANT tabel ke anon/authenticated (sebelum v9: 0 — itulah F4)",
+  (await hitung(
+    `select count(*) n from information_schema.table_privileges
+     where table_schema='public' and table_name like 'pf_%'
+       and grantee in ('anon','authenticated')`,
+  )) > 0,
+);
+cek(
+  "v9: kunci kuis tetap tertutup (has_column_privilege anon = false)",
+  (await db.query(
+    `select has_column_privilege('anon', 'public.pf_quiz_questions', 'kunci', 'SELECT') as v`,
+  )).rows[0].v === false,
+);
+cek(
+  "v9: kunci kuis tetap tertutup (has_column_privilege authenticated = false)",
+  (await db.query(
+    `select has_column_privilege('authenticated', 'public.pf_quiz_questions', 'kunci', 'SELECT') as v`,
+  )).rows[0].v === false,
+);
+cek(
+  "F4 tertutup: authenticated SELECT pf_user_preferences milik sendiri = 1 baris",
+  (await hitungSebagaiUid(
+    "authenticated",
+    userUji,
+    `select count(*) n from public.pf_user_preferences where user_id = $1`,
+    [userUji],
+  )) === 1,
+);
+const userLain = (
+  await db.query(`select gen_random_uuid() as id`)
+).rows[0].id;
+await db.query(`insert into auth.users (id, email) values ($1, 'lain@contoh.id')`, [
+  userLain,
+]);
+cek(
+  "F4 tertutup + isolasi: authenticated lain melihat 0 baris preferensi userUji",
+  (await hitungSebagaiUid(
+    "authenticated",
+    userLain,
+    `select count(*) n from public.pf_user_preferences`,
+  )) === 0,
+);
+cek(
+  "F4 tertutup: anon SELECT pf_articles = 1 baris (hanya terbit; draf tetap tersembunyi RLS)",
+  (await hitungSebagai("anon", `select count(*) n from public.pf_articles`)) === 1,
+);
+cek(
+  "T8 tetap berlaku sesudah v9: anon SELECT pf_roles = 0 baris",
+  (await hitungSebagai("anon", `select count(*) n from public.pf_roles`)) === 0,
+);
+cek(
+  "T8 tetap berlaku sesudah v9: anon SELECT pf_permissions = 0 baris",
+  (await hitungSebagai("anon", `select count(*) n from public.pf_permissions`)) === 0,
+);
+cek(
+  "T1-sisa tetap berlaku sesudah v9: SELECT kunci sebagai anon DITOLAK",
+  !(await berhasilSebagai(
+    "anon",
+    `select kunci from public.pf_quiz_questions where id = $1`,
+    [soalKuisId],
+  )),
+);
+cek(
+  "T1-sisa tetap berlaku sesudah v9: SELECT kolom non-kunci sebagai anon TETAP bisa",
+  (await hitungSebagai(
+    "anon",
+    `select count(*) n from public.pf_quiz_questions where id = $1`,
+    [soalKuisId],
+  )) === 1,
+);
+cek(
+  "T5 tetap berlaku sesudah v9: INSERT anon newsletter DITOLAK",
+  !(await berhasilSebagai(
+    "anon",
+    `insert into public.pf_newsletter_subscribers (email) values ('pasca-v9@contoh.id')`,
+  )),
+);
+cek(
+  "T5 tetap berlaku sesudah v9: INSERT anon correction_reports DITOLAK",
+  !(await berhasilSebagai(
+    "anon",
+    `insert into public.pf_correction_reports (artikel_id, jenis, pesan) values ($1, 'typo', 'uji')`,
+    [artikelTerbitId],
+  )),
+);
+cek(
+  "T5 tetap berlaku sesudah v9: INSERT anon questions DITOLAK",
+  !(await berhasilSebagai(
+    "anon",
+    `insert into public.pf_questions (user_id, pertanyaan, jawaban, status) values (null, 'apa itu?', null, 'menunggu')`,
+  )),
+);
+
+// ---------- FASE 4: RPC pf_akar_salinan ----------
+// Rantai salinan 3 item: A (akar) <- B <- C, artikel terbit + draf.
+const sumberAkarId = (
+  await db.query(
+    `insert into public.pf_sources (nama, jenis, url) values ('Kantor Berita Akar', 'resmi', 'https://akar.example') returning id`,
+  )
+).rows[0].id;
+const sumberSalinId = (
+  await db.query(
+    `insert into public.pf_sources (nama, jenis, url) values ('Portal Penyalin', 'rss', 'https://salin.example') returning id`,
+  )
+).rows[0].id;
+const rawAkarId = (
+  await db.query(
+    `insert into public.pf_raw_items (sumber_id, url, hash_url, judul, hash_judul, waktu_terbit_asli, status)
+     values ($1, 'https://akar.example/a', 'h-akar', 'Judul Akar Asli', 'hj-akar', '2026-11-01 00:00:00+00', 'baru') returning id`,
+    [sumberAkarId],
+  )
+).rows[0].id;
+const rawSalinBId = (
+  await db.query(
+    `insert into public.pf_raw_items (sumber_id, url, hash_url, judul, hash_judul, disalin_dari_id, status)
+     values ($1, 'https://salin.example/b', 'h-salin-b', 'Judul Salinan B', 'hj-salin-b', $2, 'disalin_dari') returning id`,
+    [sumberSalinId, rawAkarId],
+  )
+).rows[0].id;
+const rawSalinCId = (
+  await db.query(
+    `insert into public.pf_raw_items (sumber_id, url, hash_url, judul, hash_judul, disalin_dari_id, status)
+     values ($1, 'https://salin.example/c', 'h-salin-c', 'Judul Salinan C', 'hj-salin-c', $2, 'disalin_dari') returning id`,
+    [sumberSalinId, rawSalinBId],
+  )
+).rows[0].id;
+const akarC = (
+  await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+    artikelTerbitId,
+    ["https://salin.example/c"],
+  ])
+).rows[0];
+cek(
+  "RPC: rantai 3 item -> akar benar (anon, artikel terbit)",
+  Boolean(
+    akarC &&
+      akarC.item_id === rawSalinCId &&
+      akarC.akar_id === rawAkarId &&
+      akarC.akar_sumber_id === sumberAkarId &&
+      akarC.akar_nama === "Kantor Berita Akar" &&
+      akarC.disalin === true &&
+      akarC.judul === "Judul Salinan C" &&
+      akarC.akar_judul === "Judul Akar Asli",
+  ),
+  akarC ? `akar=${akarC.akar_nama}, disalin=${akarC.disalin}` : "0 baris",
+);
+const akarA = (
+  await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+    artikelTerbitId,
+    ["https://akar.example/a"],
+  ])
+).rows[0];
+cek(
+  "RPC: item akar sendiri -> disalin = false",
+  Boolean(akarA && akarA.akar_id === rawAkarId && akarA.disalin === false),
+);
+cek(
+  "RPC: URL berslash akhir tetap cocok (normalisasi rtrim)",
+  (
+    await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+      artikelTerbitId,
+      ["https://salin.example/c/"],
+    ])
+  ).rows.length === 1,
+);
+cek(
+  "RPC: artikel draf -> himpunan kosong",
+  (
+    await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+      artikelDrafId,
+      ["https://salin.example/c"],
+    ])
+  ).rows.length === 0,
+);
+cek(
+  "RPC: artikel tak ada -> himpunan kosong",
+  (
+    await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+      "00000000-0000-0000-0000-000000000000",
+      ["https://salin.example/c"],
+    ])
+  ).rows.length === 0,
+);
+cek(
+  "RPC: URL tak dikenal -> himpunan kosong",
+  (
+    await sebagai("anon", `select * from public.pf_akar_salinan($1, $2)`, [
+      artikelTerbitId,
+      ["https://tidak-ada.example/x"],
+    ])
+  ).rows.length === 0,
+);
+cek(
+  "RPC: anon SELECT pf_raw_items langsung tetap 0 baris (RLS staf-only, bukan grant)",
+  (await hitungSebagai("anon", `select count(*) n from public.pf_raw_items`)) === 0,
+);
+
+// ---------- Pemeriksaan statis: isi v9 ----------
+const v9 = baca("20261116_pf_v9_grants.sql");
+const v9Rata = v9.replace(/\s+/g, " ");
+const TABEL_37 = [
+  "pf_profiles", "pf_roles", "pf_permissions", "pf_role_permissions",
+  "pf_user_roles", "pf_categories", "pf_sources", "pf_newsletter_subscribers",
+  "pf_articles", "pf_article_versions", "pf_article_sources", "pf_tags",
+  "pf_article_tags", "pf_bookmarks", "pf_reading_history", "pf_correction_reports",
+  "pf_ingestion_runs", "pf_raw_items",
+  "pf_ai_runs", "pf_claims", "pf_evidence", "pf_verification_records", "pf_daily_briefs",
+  "pf_audit_logs", "pf_editorial_reviews", "pf_scheduled_jobs",
+  "pf_knowledge_articles", "pf_followed_topics", "pf_notifications",
+  "pf_quiz_questions", "pf_data_indicators", "pf_data_points", "pf_events",
+  "pf_event_timeline", "pf_questions",
+  "pf_quiz_scores", "pf_user_preferences",
+];
+cek(
+  "v9: GRANT menyebut ke-37 tabel pf_*",
+  TABEL_37.every((t) => new RegExp(`grant[^;]*on public\\.${t}[\\s(]`).test(v9Rata)),
+);
+cek(
+  "v9: TIDAK ada GRANT SELECT tingkat tabel pada pf_quiz_questions",
+  !/grant select on public\.pf_quiz_questions /.test(v9Rata),
+);
+cek(
+  "v9: menegaskan ulang REVOKE tabel + GRANT per kolom kuis tanpa kunci",
+  v9.includes("revoke select on public.pf_quiz_questions from anon, authenticated") &&
+    v9.includes("grant select (id, tanggal, pertanyaan, opsi, penjelasan, sumber_url, sumber_nama, artikel_id, dibuat_pada)"),
+);
+cek(
+  "v9: TIDAK ada GRANT INSERT ke anon pada 3 tabel T5",
+  !/grant[^;]*insert[^;]*pf_newsletter_subscribers[^;]*to anon/.test(v9Rata) &&
+    !/grant[^;]*insert[^;]*pf_correction_reports/.test(v9Rata) &&
+    !/grant[^;]*insert[^;]*pf_questions/.test(v9Rata),
+);
+cek(
+  "v9: INSERT newsletter hanya ke authenticated (super_admin login)",
+  v9.includes("grant insert on public.pf_newsletter_subscribers to authenticated;"),
+);
+cek(
+  "v9: GRANT EXECUTE pf_has_role + pf_is_super_admin ke anon/authenticated",
+  v9.includes("grant execute on function public.pf_has_role(text) to anon, authenticated;") &&
+    v9.includes("grant execute on function public.pf_is_super_admin() to anon, authenticated;"),
+);
+cek(
+  "v9: RPC pf_akar_salinan didefinisikan persis (nama + parameter + kolom)",
+  v9.includes("create or replace function public.pf_akar_salinan(p_artikel_id uuid, p_url text[])") &&
+    v9.includes("grant execute on function public.pf_akar_salinan(uuid, text[]) to anon, authenticated;"),
+);
+cek(
+  "v9: RPC memakai WITH RECURSIVE (tanpa itu Postgres menolak CTE rantai)",
+  v9.includes("with recursive artikel_ok as ("),
 );
 
 // ---------- Pemeriksaan statis: patch T5 / T1-sisa ----------

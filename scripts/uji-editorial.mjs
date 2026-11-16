@@ -618,7 +618,7 @@ try {
     const h1 = await tindaklanjutiKoreksi(m1, { koreksi_id: "k1", aksi: "terima", catatan: "Laporan umum valid." }, AKTOR_UJI);
     cek("F2 terima tanpa artikel -> 'ditinjau' (bukan throw)", h1.status === "ditinjau", `status=${h1.status}`);
     cek("F2 tanpa artikel: tidak ada versi/verifikasi artikel dibuat", m1.versiDisimpan === 0 && m1.verifikasiDisimpan.length === 0);
-    cek("F2 tanpa artikel: audit memakai aksi yang diizinkan CHECK v8", m1.audit[0]?.aksi === "koreksi.terima" && m1.audit[0]?.sesudah?.status === "ditinjau", `aksi=${m1.audit[0]?.aksi}, sesudah=${JSON.stringify(m1.audit[0]?.sesudah)}`);
+    cek("F2 tanpa artikel: audit memakai aksi eksplisit 'koreksi.ditinjau' (CHECK v9)", m1.audit[0]?.aksi === "koreksi.ditinjau" && m1.audit[0]?.sesudah?.status === "ditinjau", `aksi=${m1.audit[0]?.aksi}, sesudah=${JSON.stringify(m1.audit[0]?.sesudah)}`);
 
     // 2. Terima DENGAN artikel -> 'diperbaiki' (perilaku lama tetap).
     const m2 = new AdapterMockKoreksi([buatKoreksi("k2", "baru", "a1")]);
@@ -630,7 +630,7 @@ try {
     const m3 = new AdapterMockKoreksi([buatKoreksi("k3", "baru", "a1")]);
     const h3 = await tindaklanjutiKoreksi(m3, { koreksi_id: "k3", aksi: "ditinjau", catatan: "Sedang diperiksa redaksi." }, AKTOR_UJI);
     cek("F1 tandai ditinjau dari 'baru' -> 'ditinjau'", h3.status === "ditinjau", `status=${h3.status}`);
-    cek("F1 tandai ditinjau: audit 'koreksi.terima' + sesudah.status 'ditinjau'", m3.audit[0]?.aksi === "koreksi.terima" && m3.audit[0]?.sesudah?.status === "ditinjau");
+    cek("F1 tandai ditinjau: audit 'koreksi.ditinjau' + sesudah.status 'ditinjau'", m3.audit[0]?.aksi === "koreksi.ditinjau" && m3.audit[0]?.sesudah?.status === "ditinjau");
 
     // 4. F1: tandai 'ditinjau' dari 'ditinjau' -> error.
     const m4 = new AdapterMockKoreksi([buatKoreksi("k4", "ditinjau", "a1")]);
