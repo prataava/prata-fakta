@@ -681,7 +681,7 @@ const adminF = new AdapterF(dbF);
   const sal1 = { id: "u3", sumber_id: "s2", url: "https://b.example/2", judul: "Harga Pangan Naik", ringkasan: "", waktu_terbit_asli: "2026-10-01T10:00:00Z", disalin_dari_id: "u1" };
   const sal2 = { id: "u4", sumber_id: "s3", url: "https://c.example/2", judul: "Harga Pangan Naik", ringkasan: "", waktu_terbit_asli: "2026-10-01T10:00:00Z", disalin_dari_id: "u1" };
   const hasilS = tentukanKeputusanVerifikasi(utama, [sal1, sal2], tier, SEKARANG);
-  cek("F1 3 item dari 1 akar = 1 independen -> UNCONFIRMED (bukan VERIFIED)", hasilS.keputusan === "UNCONFIRMED" && hasilS.sumberIndependen === 1, hasilS.alasan);
+  cek("F1 3 item dari 1 akar = 1 independen -> CROSS-CHECKED (bukan VERIFIED)", hasilS.keputusan === "CROSS-CHECKED" && hasilS.sumberIndependen === 1, hasilS.alasan);
   let gateLolos = false;
   try {
     await periksaGateTerbit(adminF, ART1);

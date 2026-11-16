@@ -809,12 +809,16 @@ const admin = new AdapterPGliteAdmin(db);
   cek("P1-1 antrean: item tanpa tanggal (D) sesudah item bertanggal (C)", idxD > idxC && idxD >= 0, `idxC=${idxC}, idxD=${idxD}`);
 }
 
-// ---------- §C. Pipeline run 1: A+B VERIFIED, C DEVELOPING, D UNCONFIRMED ----------
+// ---------- §C. Pipeline run 1: A+B VERIFIED, C+D CROSS-CHECKED ----------
+// (Ambang dilonggarkan 16 Nov 2026 atas permintaan pemilik: 1 sumber
+// tier-1 saja cukup untuk draf — C (3 item judul sama, 1 sumber S1)
+// dan D (1 sumber S1) kini CROSS-CHECKED + dibuatkan draf, bukan
+// DEVELOPING/UNCONFIRMED.)
 const hasil1 = await jalankanPipelineEditorial(ai, { limit: 10, fetchFn: fetchMati });
 cek(
-  "pipeline run 1: 6 diproses, 2 draf, 2 VERIFIED, 3 DEVELOPING, 1 UNCONFIRMED",
-  hasil1.diproses === 6 && hasil1.draf === 2 && hasil1.terverifikasi === 2 &&
-    hasil1.developing === 3 && hasil1.unconfirmed === 1,
+  "pipeline run 1: 6 diproses, 6 draf, 2 VERIFIED, 4 CROSS-CHECKED, 0 DEVELOPING, 0 UNCONFIRMED",
+  hasil1.diproses === 6 && hasil1.draf === 6 && hasil1.terverifikasi === 2 &&
+    hasil1.cross_checked === 4 && hasil1.developing === 0 && hasil1.unconfirmed === 0,
   JSON.stringify(hasil1),
 );
 cek("pipeline run 1: rekonsiliasi jalan, 0 yatim", hasil1.rekonsiliasi?.didukung === true && hasil1.rekonsiliasi.diperiksa === 0, JSON.stringify(hasil1.rekonsiliasi));
@@ -861,7 +865,7 @@ const idDrafB = drafB.rows[0].id;
 {
   const st = await db.query(`select id, status_verifikasi from public.pf_raw_items where id = any($1)`, [[idA, idB, ...idC, idD]]);
   const peta = new Map(st.rows.map((r) => [r.id, r.status_verifikasi]));
-  cek("status item: A+B VERIFIED, C DEVELOPING, D UNCONFIRMED", peta.get(idA) === "VERIFIED" && peta.get(idB) === "VERIFIED" && idC.every((c) => peta.get(c) === "DEVELOPING") && peta.get(idD) === "UNCONFIRMED");
+  cek("status item: A+B VERIFIED, C+D CROSS-CHECKED (ambang dilonggarkan 16 Nov 2026)", peta.get(idA) === "VERIFIED" && peta.get(idB) === "VERIFIED" && idC.every((c) => peta.get(c) === "CROSS-CHECKED") && peta.get(idD) === "CROSS-CHECKED");
 }
 
 // ---------- §D. Evidence dedup + draf dipakai ulang (P2-10, P1-2) ----------
@@ -871,7 +875,7 @@ const hasil2 = await jalankanPipelineEditorial(ai, { limit: 10, fetchFn: fetchMa
 const evidenceSesudah = (await db.query(`select count(*)::int as n from public.pf_evidence`)).rows[0].n;
 const jumlahDraf = (await db.query(`select count(*)::int as n from public.pf_articles`)).rows[0].n;
 cek("P2-10: run ulang TIDAK menambah evidence duplikat", evidenceSesudah === evidenceSebelum, `sebelum=${evidenceSebelum}, sesudah=${evidenceSesudah}`);
-cek("P1-2: run ulang TIDAK menduplikasi draf (dipakai ulang)", jumlahDraf === 2, `draf=${jumlahDraf}`);
+cek("P1-2: run ulang TIDAK menduplikasi draf (dipakai ulang)", jumlahDraf === 6, `draf=${jumlahDraf}`);
 cek("P1-2: run ulang mengembalikan A+B ke VERIFIED", hasil2.terverifikasi === 2, `terverifikasi=${hasil2.terverifikasi}`);
 
 // ---------- §E. Draf gagal dibuat -> status TIDAK berubah (P1-2) ----------
@@ -895,10 +899,10 @@ cek(
   statusFG.rows.every((r) => r.status_verifikasi === "UNCONFIRMED"),
   JSON.stringify(statusFG.rows.map((r) => r.status_verifikasi)),
 );
-cek("P1-2: run gagal tidak menambah draf", (await db.query(`select count(*)::int as n from public.pf_articles`)).rows[0].n === 2, `gagal=${hasilGagal.gagal}`);
+cek("P1-2: run gagal tidak menambah draf", (await db.query(`select count(*)::int as n from public.pf_articles`)).rows[0].n === 6, `gagal=${hasilGagal.gagal}`);
 ai.gagalSimpanArtikel = false;
 const hasilPulih = await jalankanPipelineEditorial(ai, { limit: 10, fetchFn: fetchMati });
-cek("P1-2: run berikutnya membuat draf F+G (total 4)", hasilPulih.draf === 2 && (await db.query(`select count(*)::int as n from public.pf_articles`)).rows[0].n === 4, `draf run=${hasilPulih.draf}`);
+cek("P1-2: run berikutnya membuat draf F+G (total 8)", hasilPulih.draf === 2 && (await db.query(`select count(*)::int as n from public.pf_articles`)).rows[0].n === 8, `draf run=${hasilPulih.draf}`);
 const idDrafF = (await db.query(`select id from public.pf_articles where raw_item_id = $1`, [idF])).rows[0].id;
 
 // ---------- §F. Daily Brief memakai waktu terbit asli (P2-4) ----------

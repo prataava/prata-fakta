@@ -899,7 +899,7 @@ const SATU_ITEM = (judul, url) =>
     new Map([["s1", 1]]),
     SEKARANG,
   );
-  cek("E3 tanggal: 3 item tanpa tanggal -> item24Jam=0, tetap UNCONFIRMED", putusTanpaTanggal.item24Jam === 0 && putusTanpaTanggal.keputusan === "UNCONFIRMED", `item24Jam=${putusTanpaTanggal.item24Jam} keputusan=${putusTanpaTanggal.keputusan}`);
+  cek("E3 tanggal: 3 item tanpa tanggal -> item24Jam=0, CROSS-CHECKED (ambang dilonggarkan 16 Nov 2026: 1 tier-1 cukup untuk draf)", putusTanpaTanggal.item24Jam === 0 && putusTanpaTanggal.keputusan === "CROSS-CHECKED", `item24Jam=${putusTanpaTanggal.item24Jam} keputusan=${putusTanpaTanggal.keputusan}`);
 
   // E4: salinan tidak dihitung independen (rantai disalin_dari = 1 sumber).
   const rantai = [
@@ -912,10 +912,11 @@ const SATU_ITEM = (judul, url) =>
     new Map([["s1", 1], ["s2", 1], ["s3", 1]]),
     SEKARANG,
   );
-  // Ketiga item terbit < 24 jam + 1 sumber independen -> DEVELOPING
-  // (topik ramai, bukan VERIFIED): bila salinan dihitung 3 sumber,
-  // keputusan di sini akan jadi VERIFIED — justru itu yang dicegah.
-  cek("E4 salinan: rantai 3 salinan -> 1 sumber independen, DEVELOPING (bukan VERIFIED)", putusRantai.sumberIndependen === 1 && putusRantai.keputusan === "DEVELOPING", `independen=${putusRantai.sumberIndependen} keputusan=${putusRantai.keputusan}`);
+  // Ketiga item terbit < 24 jam + 1 sumber independen tier-1 ->
+  // CROSS-CHECKED (ambang dilonggarkan 16 Nov 2026; bukan VERIFIED):
+  // bila salinan dihitung 3 sumber, keputusan di sini akan jadi
+  // VERIFIED — justru itu yang dicegah.
+  cek("E4 salinan: rantai 3 salinan -> 1 sumber independen, CROSS-CHECKED (bukan VERIFIED)", putusRantai.sumberIndependen === 1 && putusRantai.keputusan === "CROSS-CHECKED", `independen=${putusRantai.sumberIndependen} keputusan=${putusRantai.keputusan}`);
 
   // E5: evidence independen untuk VERIFIED (2 tier-1) vs CROSS-CHECKED (2 tier-3).
   const duaTier1 = [
@@ -926,8 +927,8 @@ const SATU_ITEM = (judul, url) =>
   cek("E5 evidence: 2 independen tier-1 -> VERIFIED", putusV.keputusan === "VERIFIED" && putusV.sumberIndependen === 2, putusV.alasan);
   const putusC = tentukanKeputusanVerifikasi(duaTier1[0], [duaTier1[1]], new Map([["s1", 3], ["s2", 3]]), SEKARANG);
   cek("E5 evidence: 2 independen tier-3 -> CROSS-CHECKED (bukan VERIFIED)", putusC.keputusan === "CROSS-CHECKED");
-  const putusU = tentukanKeputusanVerifikasi(duaTier1[0], [], new Map([["s1", 1]]), SEKARANG);
-  cek("E5 evidence: 1 sumber saja -> UNCONFIRMED", putusU.keputusan === "UNCONFIRMED");
+  const putusC1 = tentukanKeputusanVerifikasi(duaTier1[0], [], new Map([["s1", 1]]), SEKARANG);
+  cek("E5 evidence: 1 sumber tier-1 saja -> CROSS-CHECKED (ambang dilonggarkan 16 Nov 2026)", putusC1.keputusan === "CROSS-CHECKED");
 
   // E6: pf_akar_salinan (RPC v9) — rantai 3 URL berakar di 1 item.
   const sAkar = await buatSumber("Akar Asli", "rss", "https://contoh.test/akar-asli.xml", 100);
