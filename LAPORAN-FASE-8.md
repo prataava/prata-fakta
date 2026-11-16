@@ -85,7 +85,7 @@ otorisasi pemilik.**
 | Tabel `pf_*` | 36 (Fase 7) → **37 (v8 Gelombang 1)** | Terverifikasi lokal |
 | RLS | **37/37** | Terverifikasi lokal |
 | Policy | **79** | Terverifikasi lokal |
-| Agen AI | 10 terdaftar (9 deterministik + Data Analysis) | Terverifikasi lokal |
+| Pipeline AI | 10 langkah deterministik (BUKAN agen LLM — lihat AUDIT-ULTIMATE.md N-T1; dikoreksi Gelombang B1) | Terverifikasi lokal |
 | Workflow GitHub Actions | **3 berkas / 5 jadwal** (koreksi atas "5 workflow" di LAPORAN-AKHIR) | Terverifikasi lokal |
 | Migrasi v1–v7 di Supabase produksi | Belum dijalankan | **Terblokir** |
 | Deploy Vercel | 403 akses tim `prataava` | **Terblokir** |
@@ -160,7 +160,8 @@ Semua di bawah ini ada di kode dan terverifikasi lokal
   (login saja), peta Leaflet, data + tren, timeline,
   pengetahuan, TTS browser. — Terverifikasi lokal
 - Admin: 13 halaman + 21 route `/api/admin/*`, Kesehatan
-  Sistem, `GET /api/ai/status` (10 agen nyata).
+  Sistem, `GET /api/ai/status` (10 langkah pipeline deterministik,
+  bukan agen LLM — lihat AUDIT-ULTIMATE.md N-T1).
   — Terverifikasi lokal
 - SEO: sitemap dinamis 32 URL, robots, RSS 2.0, JSON-LD,
   canonical/OG, noindex admin; header keamanan 4/4 di

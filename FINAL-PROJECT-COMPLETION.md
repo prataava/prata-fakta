@@ -404,18 +404,80 @@ punya alt ✓; 177 `<label>` / 115 `<input>` / 97 `<button>`
 (pasangan label-input + nama aksesibel tombol tidak
 diverifikasi via grep — audit penuh belum diuji).
 
+### 19b. Regression Gelombang B1 (16 Nov 2026 ±12.00–14.00 WIB)
+
+Ke-19 baterai di atas dijalankan ULANG sesudah perbaikan B1
+(PGlite + Node 24; harness `/tmp/pf-sqlcheck` dipasang ulang
+di tengah jalan karena `/tmp` dibersihkan). **Semua hijau.**
+Delapan asersi basi diperbarui dengan alasan terdokumentasi
+(bukan dihapus): nav pindah ke `HeaderNav.tsx`/`NavAdmin.tsx`
+(F-S6), formulir event pindah ke `FormEvent.tsx` (F-S8), arsip
+Q&A kini RLS policy v13 §3 (bukan service role), vote
+`membantu` kini dedup RPC (bukan Map `SUDAH_VOTE`), limiter
+`akademi/kuis/jawab` kini fail-closed `buatRateLimiterKeras(20)`,
+topik GDELT kini rantai per-sumber, backup mencakup 55 tabel,
+mock tahap13c dilengkapi `getReviewTerakhir` (gate B1
+memanggilnya) + review `setuju` untuk VERIFIED, `TIMEOUT_LOCK_MENIT`
+30→15, pemicu manual kini fail-closed (audit wajib).
+
+| Baterai | Hasil B1 |
+|---|---|
+| uji-fase5 | LOLOS |
+| uji-fase6 | SEMUA LOLOS |
+| uji-fase7 | **87/87** (skema v1–v13, 55 tabel, 107 policy) |
+| uji-fase8-gel1 | 159/159 |
+| uji-remediasi-multisource | 71/71 |
+| uji-remediasi-integrasi | SEMUA LOLOS |
+| uji-editorial | LOLOS (28; ±577 dtk di VM — fetchAman lambat) |
+| uji-fase8-gel2-migrasi | 28/28 |
+| uji-fase8-gel2-cerita | 66/66 |
+| uji-fase8-gel2-akademi | 106/106 |
+| uji-fase8-gel2-riset | 71/71 |
+| uji-fase8-gel2-negara | 77/77 |
+| uji-fase8-gel2-tanya-podcast | 72/72 |
+| uji-fase8-gel2-admin | **84/84** (was 83, +1 render NavAdmin) |
+| uji-tahap13a | **191/191** (was 126, +34 audit [id] +31 keamanan) |
+| uji-tahap13b | **109/109** (was 107, +2 batas DNS) |
+| uji-tahap13c | SEMUA LOLOS (119; stub next/server baru) |
+| uji-tahap13-migrasi | 15/15 |
+| uji-integrasi14 | **28/28** (was 27, +1 render HeaderNav) |
+| uji-ingestion (live) | **SEMUA LOLOS, 1 dilewati** (GDELT 429 eksternal; run 1: 35 dtk sesudah perbaikan DNS, dulu 696 dtk) |
+
+**Total 19 baterai B1: 1.434 asersi, 0 gagal**
+(naik dari 1.365: +65 tahap13a, +2 tahap13b, +1 admin,
++1 integrasi14 — semuanya asersi BARU, bukan pengurangan).
+
+Baterai ULTIMATE baru (Gelombang B1, semua EXIT 0):
+
+| Baterai | Hasil |
+|---|---|
+| uji-ultimate-gate | **77/77** (gate, mode kejar, terbit bersyarat) |
+| uji-ultimate-ingestion | **71/71** |
+| uji-ultimate-security | **108/108** (termasuk proxy Origin terpusat) |
+| uji-ultimate-backend | **115/115** (termasuk v13 §10 service_role 55/55) |
+
+**Total keseluruhan B1: 1.805 asersi terhitung, 0 gagal**
+(1.434 regression + 371 ultimate), + baterai ingestion live
+lolos dengan 1 skip terlihat (GDELT 429 eksternal).
+`npx tsc --noEmit` EXIT 0; `npm run lint` EXIT 0 (0 error,
+0 warning).
+
 ## 20. Build results
 
-- `npm run build` → **EXIT 0, 147/147 halaman** (generate
-  4,9 dtk), BUILD_ID `NyTEjrq_2Hs81joEYhase` (Tahap 15,
-  16 Nov 2026).
+- `npm run build` → **EXIT 0, 148/148 halaman** (generate
+  6,8 dtk), BUILD_ID `NuVJviTVNDHPrL8k97_Re` (Gelombang B1,
+  16 Nov 2026 ±14.00 WIB; naik dari 147 — halaman baru
+  `/jelajahi`).
 - Komposisi: ~14 statis (○) + mayoritas dinamis (ƒ, baca data
   per request — arsitektur sejak Fase 1–7, bukan regresi CSP)
   + sub-rute partial-prerender (◐).
 - Riwayat build: Fase 7: 87/87; Gelombang 2: 147/147; Tahap 15
   run pertama **EXIT 1** (prerender `/_not-found` +
   `/kategori/[slug]` gagal — `headers()` di root layout) →
-  diperbaiki (hash skrip tema) → EXIT 0.
+  diperbaiki (hash skrip tema) → EXIT 0; B1: 148/148 EXIT 0
+  (peringatan prerender `[baca] ... cookies() rejects ...` di
+  beberapa rute adalah galat baca DB yang ditangani saat
+  prerender, bukan kegagalan build).
 - `npx tsc --noEmit` EXIT 0; `npm run lint` EXIT 0 (0 error,
   0 warning).
 - Smoke `next start` port 3101: 12× 200 + 8× 404 jujur; CSP
@@ -463,15 +525,49 @@ tidak diperbaiki (bukan diabaikan — di luar otorisasi / butuh
 keputusan pemilik): T6 penutupan penuh, CSRF, arsip publik
 policy — lihat §23.
 
+### 22b. Bug ditemukan Gelombang B1 (integrasi + regression)
+
+| # | Bug | Dampak | Ditemukan di |
+|---|---|---|---|
+| 13 | `service_role` tanpa GRANT tabel di 54/55 tabel (v1–v13) | Backend mati total 42501 di produksi | Integrasi B1 (audit §10) |
+| 14 | DNS `lookup()` tanpa batas waktu di `ssrf.ts` | `fetchAman` menggantung >10 menit; tahap13b §E macet; run ingestion 696 dtk | Integrasi B1 (tahap13b macet) |
+| 15 | Gate B1 memanggil `getReviewTerakhir`, mock tahap13c tidak punya | Artikel VERIFIED tak pernah terbit di F12 (TypeError, bukan GalatGateTerbit) | Regression B1 (tahap13c) |
+| 16 | `audit.ts` impor `next/server`, loader tahap13c hanya stub `next/headers` | Baterai tahap13c crash `ERR_MODULE_NOT_FOUND` | Regression B1 (tahap13c §E) |
+| 17 | 8 asersi basi di baterai lama (nav/formulir pindah berkas, arsip RLS, vote RPC, limiter keras, topik GDELT, 55 tabel) | 7 baterai regression merah — BUKAN regresi kode | Regression B1 |
+| 18 | Uji ingestion "baru = 0" rapuh pada feed live | Gagal bila feed menerbitkan artikel baru di tengah run (Antara 7 + CNN 2) | Regression B1 (ingestion) |
+| 19 | Celah skor Academy MASIH TERBUKA: `POST /api/akademi/progres` menerima `skor` mentah 0–100 dari klien | Sertifikat bisa dipalsukan satu POST — WAJIB ditutup SEBELUM sertifikat diterbitkan (prasyarat B2) | Audit Ultimate (L-B1); dikonfirmasi ulang integrasi B1 |
+
+### 22c. Bug diperbaiki Gelombang B1
+
+| # | Perbaikan | Verifikasi |
+|---|---|---|
+| 13 | v13 §10: GRANT eksplisit service_role atas 55 tabel | Backend 115/115 (§10: 55/55 hak; INSERT service_role lolos) |
+| 14 | `BATAS_DNS_MS = 5000` + race di semua resolve DNS (`resolusiHost`, `fetchTerpin`, `periksaUlangResolusi`); timeout = gagal jaringan (fallback), bukan "URL ditolak" | Tahap13b 109/109 (+2 asersi batas DNS); ingestion run 1: 696 dtk → 35 dtk |
+| 15 | Mock tahap13c: `getReviewTerakhir` + review `setuju` untuk VERIFIED di setup F12 | Tahap13c SEMUA LOLOS |
+| 16 | Stub `next/server` baru (NextResponse.json fungsional) + loader | Tahap13c SEMUA LOLOS |
+| 17 | 8 asersi diperbarui ke perilaku baru yang disengaja (alasan di tiap edit) | 7 baterai hijau (84/106/66/77/72/28/87) |
+| 18 | Dedup diuji presisi (0 URL ganda di DB + semua "baru" adalah URL baru + baru <10%); GDELT 429 = skip terlihat | Ingestion SEMUA LOLOS (1 dilewati) |
+| 19 | BELUM diperbaiki — prasyarat Gelombang B2 (skor dihitung server dari jawaban tersimpan) | — |
+
 ## 23. Sisa risiko
 
 1. **T6 penutupan penuh belum terverifikasi** — pinning tidak
    bisa tersambung dari VM; butuh verifikasi dari egress
-   langsung (Vercel/staging).
-2. **T3 fail-open sampai v11 diterapkan** — limiter DB tidak
-   aktif sebelum migrasi v11; NAT/CGNAT berbagi ember.
-3. **CSRF sebagian** — tanpa cek Origin; bersandar SameSite Lax.
-4. **Flag cookie sesi belum diuji.**
+   langsung (Vercel/staging). Perbaikan B1: DNS kini dibatasi
+   5 dtk (fail-fast), jadi kegagalan pinning tidak lagi
+   menggantung ingestion.
+2. **T3 fail-open di kode TERTUTUP untuk 12 route mutasi
+   berisiko** (limiter keras + 503 bila RPC gagal) — TAPI
+   GET + route admin internal masih fail-open sesuai desain,
+   dan T3 baru AKTIF sesudah migrasi v11 diterapkan di
+   produksi.
+3. **CSRF: cek Origin TERPUSAT di proxy.ts** (semua mutasi
+   `/api/*`) + per-route lapis kedua — di kode TERTUTUP;
+   verifikasi HTTP live (403/429/503) BELUM dilakukan.
+4. **Flag cookie sesi belum diuji.** `httpOnly` TETAP `false`
+   (terbukti memecahkan sesi klien — butuh refactor
+   `AuthArea`/`profil`/`masuk` ke Server Components sebelum
+   flip); `Secure: true` di produksi sudah diterapkan.
 5. **Run live GitHub Actions 0** — lock antar-run bersamaan,
    retry, dan assert `jq` di runner nyata belum teruji.
 6. **Uji login + klik browser nyata + HP/desktop belum diuji.**
@@ -488,10 +584,28 @@ policy — lihat §23.
 12. **Pendaftaran lewat Supabase Auth API langsung** tetap
     mungkin bila flag dimatikan (penegakan penuh = nonaktifkan
     signup di dashboard — wewenang pemilik).
-13. **Arsip Q&A publik** dibaca via service role (utang policy).
-14. **Audio Podcast / Traffic Analytics / sertifikat** belum
-    bisa (tanpa layanan gratis / penilaian).
-15. **Vercel 403** — deploy terblokir sampai pemilik bertindak.
+13. **Arsip Q&A publik — TERTUTUP di B1** (policy RLS v13 §3;
+    bukan lagi service role). Dihapus dari daftar risiko.
+14. **Audio Podcast / Traffic Analytics / sertifikat** —
+    dievaluasi ulang di Audit Ultimate (16 BISA DIBANGUN);
+    dikerjakan Gelombang B2. **Celah skor Academy (L-B1)
+    MASIH TERBUKA** — sertifikat HANYA sesudah skor dihitung
+    server.
+15. **Vercel 403** — deploy terblokir sampai pemilik bertindak
+    (bukti segar 16 Nov 2026 ±13.00 WIB: requestId
+    `iad1:sfo1:iad1:sfo1::8qk7g-1794807437316-bdccdae0b466`;
+    `authorize_team_access`/`authorize_team_sso` TIDAK
+    didukung wrapper MCP di VM ini; `authorize-url` ditolak
+    karena konektor sudah connected — jalan keluar: disconnect
+    + hubungkan ulang dengan persetujuan tim, atau import
+    manual di dashboard).
+16. **Migrasi produksi v1–v13 belum dijalankan** — di VM ini
+    TIDAK ADA `SUPABASE_ACCESS_TOKEN`, service-role key,
+    Supabase CLI, atau `psql`; satu-satunya kredensial lokal
+    adalah anon key di `.env.local` (bukti: 0 tabel `pf_*` di
+    produksi, PGRST205). Jalur tersisa: SQL Editor via
+    browser, atau pemilik menyerahkan service-role key lewat
+    Secure Vault.
 
 ## 24. Commit hashes
 
@@ -512,6 +626,8 @@ policy — lihat §23.
 | `d5cfaad` | Tahap 13 — Keamanan + Scheduler (T3/T10/T4/T6/CSP; v11+v12) |
 | `63dd17b` | Tahap 14 — Integrasi 14 area (artikel ↔ cerita ↔ negara) |
 | `7ff50f0` | Tahap 15–17 — regression + readiness + dokumentasi |
+| `de3f876` | Audit Ultimate (Tahap A) — audit dari nol 6 agen: 94 temuan + 25 putusan keterbatasan + Vercel 403 terbukti (sudah di-push agen utama) |
+| `ebd4cf7` | Gelombang B1 — perbaikan P0–P3 + migrasi v13 + 5 baterai ultimate + integrasi (BELUM di-push; butuh token GitHub — agen utama yang push) |
 
 Catatan: koordinator (subagen) hanya commit lokal; push
 dilakukan agen utama.
@@ -521,35 +637,48 @@ dilakukan agen utama.
 - **Tahap 13–17 (sejak `5d3b17b`): 128 berkas berubah,
   +7.246 / −926 baris** (diukur `git diff 5d3b17b --cached
   --stat` sesudah staging commit Tahap 15–17).
-- Baru: migrasi v11 + v12; `src/lib/csp.ts`;
-  `src/lib/admin/audit.ts`; `src/lib/ingestion/feed-allowlist.ts`;
-  `src/lib/scheduler/` (`jobs.ts`, `flags.ts`);
-  `src/components/DaftarForm.tsx`; 3 workflow
-  (editorial-pipeline, daily-brief, terbitkan-terjadwal);
-  baterai `uji-tahap13a/b/c`, `uji-tahap13-migrasi`,
-  `uji-integrasi14`; `FINAL-PROJECT-COMPLETION.md`;
-  `PANDUAN.md`.
-- Diubah: `src/lib/ai/route-auth.ts` (limiter DB),
-  `src/lib/ingestion/ssrf.ts` (~470 baris, pinning),
-  `src/proxy.ts` (CSP header), `src/app/layout.tsx` (hash tema),
-  `/artikel/[slug]` + `/pengetahuan/[slug]` (nonce JSON-LD +
-  bar konteks), 74 berkas sapuan limiter, 13 berkas T4,
-  route admin (audit fail-closed), 5 workflow/route cron,
-  `src/lib/admin/editorial.ts` (backoff), `LAPORAN-FASE-8.md`
-  (§14), `LAPORAN-AKHIR.md` (§14), `AUDIT-EXPANSION.md` (§9.8),
-  `README.md`, `DEPLOY.md`, `supabase/CUTOVER.md` (v1–v12),
-  `supabase/README.md`, `scripts/backup-pf.mjs` (54 tabel).
+- **Audit Ultimate + Gelombang B1 (sejak `dbcada7`):
+  161 berkas, +14.142 / −4.017 baris**
+  (`git diff dbcada7..ebd4cf7 --shortstat`); B1 saja
+  (sejak `de3f876`): **160 berkas, +13.600 / −4.017**.
+- Baru (B1): migrasi v13 (694 baris, §1–§10);
+  `src/lib/asal.ts` (cek Origin terpusat),
+  `src/lib/galat.ts`, `src/lib/format.ts`;
+  `src/components/HeaderNav.tsx`, `src/components/admin/NavAdmin.tsx`,
+  `src/components/Kartu.tsx`, `src/components/admin/FormEvent.tsx`
+  (+ FormCerita/FormKursus/FormPengetahuan/FormStrukturAkademi),
+  `src/components/laporan/FormLaporanUmum.tsx`,
+  `src/components/saya/ProfilKeamanan.tsx`;
+  `src/app/jelajahi/`, `src/app/loading.tsx`, `error.tsx`,
+  `not-found.tsx`, `src/app/admin/error.tsx`;
+  `src/lib/ingestion/retry.ts`, `src/lib/ingestion/pemeliharaan.ts`;
+  workflow `.github/workflows/backup.yml`;
+  4 baterai ultimate (`uji-ultimate-gate/ingestion/security/backend`)
+  + stub `uji-tahap13c-next-server-stub.mjs`;
+  `AUDIT-ULTIMATE.md` (542 baris).
+- Diubah (B1): `src/lib/admin/editorial.ts` (gate P0-2,
+  terbit bersyarat, mode kejar), `src/lib/ingestion/ssrf.ts`
+  (batas DNS), `src/lib/ingestion/engine.ts` (topik GDELT,
+  dedup, retry), `src/lib/ai/route-auth.ts` (limiter keras +
+  Origin), `src/proxy.ts` (Origin terpusat), 12 route mutasi
+  (fail-closed), 3 route `[id]` (audit wajib), `src/lib/admin/kendali.ts`
+  (audit pemicu manual), `src/lib/admin/audit.ts`
+  (`catatAuditWajib`, `responGalatAudit`), `next.config.ts`,
+  2 workflow scheduler, 8 baterai lama (asersi basi),
+  `supabase/CUTOVER.md` (§3.13 v13) + `supabase/README.md`,
+  `scripts/backup-pf.mjs` (55 tabel), `AUDIT-EXPANSION.md`,
+  `LAPORAN-FASE-8.md` (klaim "10 agen AI" dikoreksi).
 - Dihapus: `.github/workflows/editorial.yml` (dipecah 3).
-- Total repo: 77 halaman + 80 rute API; 54 tabel migrasi;
-  20+ baterai uji di `scripts/`.
+- Total repo: 78 halaman + 80 rute API (build 148 halaman);
+  55 tabel migrasi; 25 baterai uji di `scripts/`.
 
 ## 26. Status production
 
 | Aspek | Status |
 |---|---|
-| Kode | **Selesai, terverifikasi lokal** (Tahap 13–17) |
-| Migrasi produksi | **Terblokir** — v1–v12 belum dijalankan (butuh pemilik) |
-| Deploy Vercel | **Terblokir** — 403 akses tim `prataava` (butuh pemilik) |
+| Kode | **Selesai, terverifikasi lokal** (Tahap 13–17 + Audit Ultimate + Gelombang B1, commit `ebd4cf7`, build 148/148) |
+| Migrasi produksi | **Terblokir akses** — v1–v13 belum dijalankan; di VM tidak ada SUPABASE_ACCESS_TOKEN / service-role key / Supabase CLI / psql (hanya anon key di `.env.local`); 0 tabel `pf_*` di produksi terverifikasi (PGRST205) |
+| Deploy Vercel | **Terblokir** — 403 akses tim `prataava` (bukti segar 16 Nov 2026 ±13.00 WIB, requestId `iad1:sfo1:iad1:sfo1::8qk7g-1794807437316-bdccdae0b466`); `authorize_team_access` TIDAK didukung wrapper MCP; `authorize-url` ditolak (konektor sudah connected) |
 | Env vars Vercel (6) | **Belum diisi** — nama di `DEPLOY.md`; nilai dari pemilik |
 | Secret GitHub Actions (3) | **Belum diisi** — nama di `DEPLOY.md`; nilai dari pemilik |
 | Backup produksi | **Belum dijalankan** — menunggu migrasi |
@@ -563,34 +692,42 @@ berhasil + diuji.**
 
 ## 27. Hambatan yang memerlukan pemilik
 
-1. **Jalankan migrasi v1–v12** di Supabase produksi via SQL
-   Editor (prosedur `supabase/CUTOVER.md` §3, tahap 3A–3F;
-   validasi 54/54/106 + seed 5 job). Alternatif: berikan
-   service-role key lewat Secure Vault agar Muse menjalankan.
+1. **Jalankan migrasi v1–v13** di Supabase produksi via SQL
+   Editor (prosedur `supabase/CUTOVER.md` §3, tahap 3A–3G;
+   validasi 55/55/107 + seed 5 job; **v13 §10 wajib ikut —
+   tanpa itu backend mati 42501**). Alternatif: berikan
+   service-role key lewat Secure Vault agar Muse menjalankan
+   (di VM saat ini tidak ada akses API/CLI ke Supabase).
 2. **Pulihkan akses deploy Vercel 403** — putuskan opsi A
-   (hubungkan ulang di Muse + setujui akses tim `prataava`),
-   B (import manual di dashboard Vercel), atau C (ZIP sumber).
+   (disconnect konektor di Muse → hubungkan ulang + setujui
+   akses tim `prataava` di layar OAuth; ±5 menit, nol risiko
+   proyek lama — `authorize-url` tidak bisa dipakai selama
+   konektor masih connected), B (import manual di dashboard
+   Vercel), atau C (ZIP sumber). JANGAN buat proyek duplikat.
 3. **Isi 6 env var Vercel + 3 secret GitHub Actions** (nama
    saja di `DEPLOY.md`; nilai tidak pernah lewat chat).
-4. **Backup baseline + pasca-migrasi 54/54.**
+4. **Backup baseline + pasca-migrasi 55/55.**
 5. **Tetapkan super_admin pertama** sesudah migrasi.
 6. **Nonaktifkan signup di dashboard Supabase Auth** bila
    pendaftaran ingin ditutup penuh (flag aplikasi saja tidak
    cukup).
 7. **Keputusan T3 edge** (rate limit di edge) bila diinginkan.
-8. **Keputusan audio Podcast** (file MP3 server) bila diinginkan.
+8. **Keputusan email Resend** (akun + API key + domain
+   terverifikasi; Free 3.000/bln) bila notifikasi email
+   diinginkan — Gelombang B2 butuh ini untuk hapus akun
+   (verifikasi tautan email).
 9. **Uji live sesudah deploy:** login + klik browser nyata +
    HP/desktop; verifikasi pinning T6 dari egress langsung;
    uji CSRF live + flag cookie sesi.
 
 ## 28. Langkah terakhir menuju peluncuran
 
-1. Pemilik menjalankan migrasi v1–v12 + validasi 54/54/106
+1. Pemilik menjalankan migrasi v1–v13 + validasi 55/55/107
    (§27.1).
 2. Pemilik memulihkan deploy Vercel + isi env/secret (§27.2–3).
-3. Muse deploy kode (commit Tahap 13–17, sudah di-push) +
+3. Muse deploy kode (commit B1 `ebd4cf7`, sesudah di-push) +
    verifikasi `GET /api/health` = `db: "ok"`.
-4. Backup pasca-migrasi 54/54 + tetapkan super_admin pertama.
+4. Backup pasca-migrasi 55/55 + tetapkan super_admin pertama.
 5. Verifikasi live: 12× 200 + 8× 404 (seperti smoke lokal),
    CSP header + nonce unik, login 3 peran, klik alur utama,
    HP 320–430px + desktop, pinning T6, CSRF + cookie.
@@ -599,14 +736,97 @@ berhasil + diuji.**
 7. Umumkan URL produksi + pantau `/api/health` dan
    `/admin/monitoring` 24 jam pertama.
 
-**Kriteria "LIVE" (tegas):** migrasi 54/54/106 terverifikasi
+**Kriteria "LIVE" (tegas):** migrasi 55/55/107 terverifikasi
 di produksi + deploy Vercel berhasil + `/api/health`
 `db: "ok"` + login + klik browser nyata lolos + tanpa error
 di log. Sebelum itu, status tetap **BELUM LIVE**.
 
 ---
 
-*Dokumen ini ditulis 16 November 2026, sesudah Tahap 15–17.
+## 29. Ultimate — Audit dari Nol + Gelombang B1 (16 Nov 2026)
+
+Mandat pemilik ±10.13 WIB: Muse sebagai lead autonomous
+agent + project execution owner; audit ulang dari nol,
+selesaikan 14 area terintegrasi (DB+backend, bukan hanya UI),
+evaluasi ulang batasan "belum bisa", uji ulang keamanan,
+ketahanan news intelligence, investigasi Vercel 403 mandiri,
+QC penuh, laporan per milestone. Otorisasi penuh ±12.28 WIB
+("LANJUTKAN SEMUA, KALO ADA PERTANYAAN DLL IZIN DLL IZINKAN
+SEMUANYA") — termasuk langkah produksi (migrasi + deploy).
+Tetap dilarang: hapus repo/proyek, pindah kepemilikan, buat
+proyek produksi duplikat.
+
+### 29.1 Tahap A — Audit Ultimate (commit `de3f876`, di-push)
+
+6 agen audit paralel (read-only) + verifikasi independen
+koordinator. Laporan: `AUDIT-ULTIMATE.md` (542 baris).
+
+- **94 temuan kode** (2 KRITIS, 12 TINGGI, 33 SEDANG,
+  25 RENDAH) + 22 temuan keamanan (14 TERTUTUP / 7 TERBUKA /
+  1 BELUM DIUJI).
+- **N-K1 (KRITIS):** gate terbit terputus dari verifikasi
+  pipeline — draf VERIFIED pipeline TIDAK PERNAH bisa lolos
+  gate (`artikel_id` tidak ditulis).
+- **N-K2 (KRITIS):** artikel DEVELOPING bisa tayang tanpa
+  review (`getReviewTerakhir` tidak pernah dipanggil di
+  jalur terbit).
+- **N-T1 (TINGGI):** "AI via Muse" tanpa satu pun integrasi
+  di repo; "10 agen AI" = 10 langkah deterministik; agen
+  translation selalu `dilewati`.
+- **Keterbatasan:** 16 BISA DIBANGUN, 5 TETAP BELUM BISA,
+  2 BUTUH PEMILIK (email Resend; metode verifikasi hapus
+  akun), 2 sudah terjamin. Putusan baru: TTS Podcast via
+  Piper (VITS gratis, suara `id_ID` ada — verifikasi lisensi
+  CC-BY dulu); sertifikat Academy internal (BUKAN resmi);
+  terjemahan via MyMemory; hapus akun mandiri; analytics DB
+  sendiri; notifikasi in-app + push VAPID; penjawab draf Ask
+  the World; PG kompleks / isian singkat / benar-salah.
+- **Vercel 403 — penyebab TERBUKTI:** token integrasi Muse
+  hanya memegang scope identitas, tanpa grant ke tim
+  `prataava` (`list_teams` → 0 tim; `list_projects` → 403).
+  Bukti segar B1: requestId
+  `iad1:sfo1:iad1:sfo1::8qk7g-1794807437316-bdccdae0b466`.
+
+### 29.2 Gelombang B1 — Perbaikan (commit `ebd4cf7`)
+
+5 agen perbaikan paralel (kepemilikan berkas terpisah) +
+integrasi + regression penuh oleh koordinator. Ringkas:
+
+- **Gate & Verifikasi:** P0-1/P0-2 (N-K1/N-K2) tertutup;
+  tanggal-null bukan baru; draf dulu baru ubah status;
+  VERIFIED butuh evidence independen; dedup evidence.
+- **Ingestion & Scheduler:** sumber basi, dedup lunak,
+  retry, antrean kedaluwarsa, lock 15 menit, topik GDELT.
+- **Keamanan:** 12 route fail-closed; Origin terpusat di
+  proxy; audit wajib + compensating; vote RPC; cookie
+  Secure (httpOnly tertunda — refactor Server Components).
+- **Backend + v13 (§1–§10):** kunci kuis terpisah, RPC
+  atomik, policy arsip Q&A, §10 GRANT service_role 55 tabel.
+- **Frontend:** HeaderNav/NavAdmin, `/saya`, `/jelajahi`,
+  pemecahan halaman admin, label "Pipeline AI".
+- **Integrasi koordinator:** terbit bersyarat status, hapus
+  `cron_muse`, mode kejar antrean, batas DNS 5 dtk, stub
+  next/server, 8 asersi basi diperbarui (bukan dihapus).
+- **Pengujian:** 1.805 asersi terhitung, 0 gagal (§19b);
+  tsc 0; lint 0; build 148/148
+  (BUILD_ID `NuVJviTVNDHPrL8k97_Re`).
+- **Sisa untuk Gelombang B2:** 16 keterbatasan yang bisa
+  dibangun (TTS Piper, hapus akun, sertifikat — SESUDAH
+  celah skor Academy ditutup, notifikasi, penjawab draf,
+  MyMemory, jenis soal kuis, analytics DB, push VAPID).
+
+### 29.3 Residual risk sesudah B1
+
+Lihat §23 (diperbarui): T6 butuh verifikasi egress
+langsung; T3 aktif hanya sesudah v11 di produksi; CSRF +
+cookie butuh uji live; **celah skor Academy MASIH TERBUKA**
+(prasyarat B2); Vercel 403 + migrasi produksi menunggu
+akses pemilik (§27).
+
+---
+
+*Dokumen ini ditulis 16 November 2026, sesudah Tahap 15–17,
+diperbarui Gelombang B1 (commit `ebd4cf7`, §29).
 Semua angka dari pengujian nyata lokal (PGlite + Node 24 +
 `next start`); tidak ada angka dari production karena situs
 belum live. Bila satu angka di sini terbukti salah, perbaiki

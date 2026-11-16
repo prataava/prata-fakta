@@ -540,3 +540,96 @@ Klaim paling berdampak dari laporan agen saya periksa sendiri di kode sebelum di
   DB gagal (fail-open…)"); return true; }`.
 - Repo saat audit: branch `main`, HEAD `dbcada7`, working tree bersih, 77 `page.tsx` + 80
   `route.ts` API + 56 komponen + 53 lib + 12 migrasi + 5 workflow (dihitung koordinator).
+
+---
+
+## ADDENDUM — Temuan Integrasi Gelombang B1 (16 Nov 2026, commit `ebd4cf7`)
+
+Addendum ini TIDAK menulis ulang laporan Tahap A di atas.
+Isinya: temuan BARU yang muncul saat perbaikan B1
+diintegrasikan + regression penuh dijalankan. Semua sudah
+diperbaiki di kode (kecuali yang ditandai BELUM).
+
+### I-1 (P0, KRITIS): `service_role` tanpa GRANT tabel — backend mati 42501 di produksi
+
+Audit koordinator menemukan **service_role TIDAK PUNYA grant
+tabel di 54/55 tabel** (satu-satunya grant ke service_role di
+v1–v13 adalah `pf_quiz_answers` §1; v9/v10 hanya memberi grant
+ke `anon, authenticated`). Diverifikasi dari dokumen Supabase
+(pencarian web 16 Nov 2026, docs diperbarui 2026-10-22 +
+beberapa sumber independen): **Supabase menghentikan grant
+otomatis untuk tabel baru di `public` pada 30 Okt 2026**
+(default baru proyek baru sejak 30 Mei 2026, diterapkan ke
+SEMUA proyek lama 30 Okt 2026) — tabel baru tidak mendapat
+grant apa pun, **termasuk service_role**, sampai ada GRANT
+eksplisit; tanpa grant, Data API (PostgREST/supabase-js, jalur
+SELURUH service client) menjawab **42501 bahkan untuk
+service_role** (service_role hanya melewati RLS, BUKAN lapisan
+grant). Tabel yang sudah ada sebelum 30 Okt 2026 tidak
+terpengaruh (grant lama dipertahankan) — tabel PRATA/TASIK
+aman; tapi migrasi pf_* belum pernah dijalankan di produksi
+dan akan dijalankan sesudah 30 Okt 2026. **Tanpa perbaikan,
+seluruh backend mati total di produksi** (pipeline, admin,
+ingestion, scheduler — semua 42501). Bukti PGlite: probe
+menunjukkan `service_role insert pf_evidence GAGAL: 42501`
+sebelum perbaikan.
+**Perbaikan:** v13 §10 memberi `GRANT SELECT, INSERT, UPDATE,
+DELETE` eksplisit ke service_role atas SEMUA 55 tabel.
+**Verifikasi:** `uji-ultimate-backend` 115/115 (55/55 tabel
+punya keempat hak; service_role bisa INSERT pf_claims).
+
+### I-2 (TINGGI): DNS `lookup()` tanpa batas waktu — ingestion menggantung
+
+`resolusiHost`, `fetchTerpin`, dan `periksaUlangResolusi`
+(`src/lib/ingestion/ssrf.ts`) memanggil `lookup()` TANPA
+batas waktu — SEBELUM `gabungSignal` dibuat — sehingga
+`AbortSignal.timeout()` pemanggil tidak pernah memutus
+resolver yang menggantung (middlebox egress VM). Bukti:
+tahap13b §E (fetch live example.com) macet >10 menit;
+`uji-ingestion` run 1: 696 dtk. Ini juga vektor DoS:
+handler yang memanggil `fetchAman` tertahan selamanya.
+**Perbaikan:** `BATAS_DNS_MS = 5000` + race di semua resolve
+DNS; timeout = gagal jaringan (fallback ke fetch biasa),
+BUKAN "URL ditolak:". **Verifikasi:** tahap13b 109/109
+(+2 asersi batas DNS); ingestion run 1: 696 dtk → 35 dtk.
+
+### I-3 (SEDANG): `httpOnly: true` TERBUKTI memecahkan sesi klien
+
+Dibuktikan dengan `@supabase/ssr` nyata: cookie httpOnly-only
+dari refresh proxy → `getSession()` NULL di klien, pengguna
+dianggap keluar. Diterapkan alternatif aman: `Secure: true`
+di produksi, `sameSite: "lax"`, `httpOnly: false` eksplisit +
+komentar alasan. **Follow-up (Gelombang B2/C):** refactor
+`AuthArea`/`profil`/`masuk` ke Server Components, baru flip
+`httpOnly: true`.
+
+### I-4 (SEDANG): Celah skor Academy MASIH TERBUKA (L-B1)
+
+Dikonfirmasi ulang integrasi B1: `POST /api/akademi/progres`
+menerima `skor` mentah 0–100 dari klien (`src/app/api/akademi/progres/route.ts`,
+`validasiProgres` hanya memeriksa rentang). Sertifikat Academy
+bisa dipalsukan dengan satu POST. **BELUM diperbaiki — WAJIB
+ditutup SEBELUM sertifikat diterbitkan** (prasyarat Gelombang
+B2: skor dihitung server dari jawaban tersimpan).
+
+### I-5 (RENDAH): Uji ingestion "baru = 0" rapuh pada feed live
+
+Feed nyata menerbitkan artikel baru selama run (Antara 7 +
+CNN 2 dalam jendela run 1 yang lambat) — asersi "baru = 0"
+gagal padahal dedup bekerja (347/347 duplikat dikenali).
+**Perbaikan:** dedup diuji presisi — 0 URL ganda di DB +
+semua "baru" adalah URL baru + baru <10%. GDELT 429 kini
+skip TERLIHAT (bukan gagal, bukan lolos diam-diam).
+
+### I-6 (RENDAH): 8 asersi basi di baterai lama
+
+Nav pindah ke `HeaderNav.tsx`/`NavAdmin.tsx` (F-S6),
+formulir event ke `FormEvent.tsx` (F-S8), arsip Q&A kini RLS
+policy v13 §3, vote `membantu` kini dedup RPC, limiter
+akademi kini fail-closed, topik GDELT kini rantai per-sumber,
+backup 55 tabel, mock tahap13c tanpa `getReviewTerakhir`
+(gate B1 memanggilnya — artikel VERIFIED tak terbit, TypeError
+bukan GalatGateTerbit), `TIMEOUT_LOCK_MENIT` 30→15, pemicu
+manual kini fail-closed (audit wajib). Semua diperbarui
+dengan alasan terdokumentasi — TIDAK ADA tes yang dihapus
+agar angka bagus.

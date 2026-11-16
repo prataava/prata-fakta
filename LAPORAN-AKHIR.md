@@ -554,3 +554,38 @@ benar-benar berhasil + diuji.
 
 *PRATA FAKTA Tahap 13–17 selesai di kode + terverifikasi lokal,
 16 November 2026. Laporan akhir proyek: `FINAL-PROJECT-COMPLETION.md`.*
+
+## 15. Audit Ultimate + Gelombang B1 (16 Nov 2026)
+
+Mandat pemilik ±10.13 WIB (lead autonomous agent) +
+otorisasi penuh ±12.28 WIB (termasuk langkah produksi).
+Detail penuh: `AUDIT-ULTIMATE.md` (+ addendum integrasi),
+`FINAL-PROJECT-COMPLETION.md` §29.
+
+### 15.1 Tahap A — audit dari nol (commit `de3f876`, di-push)
+
+6 agen audit paralel + verifikasi independen: **94 temuan
+kode (2 KRITIS, 12 TINGGI, 33 SEDANG, 25 RENDAH)**; N-K1
+(gate terbit terputus — draf VERIFIED tak pernah lolos),
+N-K2 (DEVELOPING bisa tayang tanpa review); "10 agen AI"
+= 10 langkah deterministik (bukan LLM); 16 keterbatasan
+BISA DIBANGUN (Piper TTS, hapus akun, sertifikat internal,
+MyMemory, analytics DB, notifikasi, penjawab draf,
+jenis soal kuis); Vercel 403 TERBUKTI (token tanpa scope
+tim `prataava`).
+
+### 15.2 Gelombang B1 — perbaikan (commit `ebd4cf7`)
+
+5 agen + integrasi koordinator + regression penuh.
+Migrasi **v13** (§1–§10; 55 tabel / RLS 55/55 / policy 107),
+termasuk §10 GRANT service_role (tanpa ini backend mati
+42501 di produksi). Gate wajib review + tolak DEVELOPING;
+12 route fail-closed; Origin terpusat di proxy; audit wajib
++ compensating; batas DNS 5 dtk (ingestion 696 dtk → 35 dtk).
+**Pengujian: 1.805 asersi, 0 gagal; tsc 0; lint 0; build
+148/148** (`NuVJviTVNDHPrL8k97_Re`). Celah skor Academy
+MASIH TERBUKA — prasyarat B2. **Status: BELUM LIVE**
+(migrasi produksi + deploy Vercel menunggu akses pemilik;
+di VM tidak ada SUPABASE_ACCESS_TOKEN / service-role key /
+Supabase CLI / psql; Vercel 403 dikonfirmasi ulang,
+`authorize_team_access` tidak didukung wrapper MCP).
