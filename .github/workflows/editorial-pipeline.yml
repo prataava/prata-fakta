@@ -49,14 +49,15 @@ name: Pipeline Editorial PRATA FAKTA
 
 on:
   schedule:
-    # Pipeline editorial setiap 6 jam.
-    - cron: "0 0,6,12,18 * * *"
+    # Pipeline editorial setiap 2 jam (dinaikkan dari 6 jam pada
+    # 16 Nov 2026 atas permintaan pemilik — draf cepat terisi).
+    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       limit:
         description: "Jumlah item yang diproses pipeline (1-50)"
         required: false
-        default: "10"
+        default: "50"
         type: string
 
 concurrency:
@@ -71,7 +72,7 @@ jobs:
       - name: Pemicu pipeline editorial
         run: |
           LIMIT="${{ inputs.limit }}"
-          if [ -z "$LIMIT" ]; then LIMIT="10"; fi
+          if [ -z "$LIMIT" ]; then LIMIT="50"; fi
           RESP="$(mktemp)"
           curl --fail-with-body -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/ai/jalankan" \
