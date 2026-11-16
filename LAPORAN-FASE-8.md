@@ -976,7 +976,7 @@ cutover produksi, bukan satu fitur.
 | `bd86bb3` | Gate — Cutover (`CUTOVER.md`, `DEPLOY.md`, backup 37 tabel, `LAPORAN-AKHIR.md` §11/§12) |
 | `98a831b` | Gate — Keamanan (patch T6 SSRF + T4 nonaktif; v8 tak diubah) |
 | `a76e028` | Gate — Regression + laporan (`uji-fase7.mjs` sadar-v8, `AUDIT-EXPANSION.md` §9, `LAPORAN-FASE-8.md`) |
-| `248a895` | Gate — Audit mendalam (dokumen ini §12 + koreksi `AUDIT-EXPANSION.md` §9.2/§9.4) |
+| `4029fe6` | Gate — Audit mendalam (dokumen ini §12 + koreksi `AUDIT-EXPANSION.md` §9.2/§9.4) |
 
 Berkas gate yang berubah (vs `f1e68d6`): `DEPLOY.md`
 (baru), `supabase/CUTOVER.md` (baru),
