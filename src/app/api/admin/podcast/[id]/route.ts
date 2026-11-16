@@ -15,6 +15,7 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { kirimNotifikasiPodcast } from "@/lib/notifikasi/tulis";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -178,6 +179,17 @@ export async function PATCH(
       sesudah: patch,
       ip: ipDariRequest(req),
     });
+    // B2-D (E1): status diubah ke terbit → beri tahu pengguna yang
+    // mengaktifkan notifikasi podcast. Dedup kunci podcast:<id>
+    // mencegah notifikasi ganda bila PATCH terbit diulang.
+    // Best-effort — TIDAK PERNAH menggagalkan perubahan.
+    if (patch.status === "terbit") {
+      try {
+        await kirimNotifikasiPodcast(null, id);
+      } catch {
+        // Diam-diam: episode sudah tersimpan.
+      }
+    }
     return NextResponse.json({ ok: true, episode: data });
   } catch (err) {
     return responGalatAdmin(err);

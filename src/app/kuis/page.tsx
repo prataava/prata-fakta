@@ -71,16 +71,22 @@ export default async function Kuis() {
   // Kunci jawaban TIDAK PERNAH dikirim ke klien (T1, Fase 7):
   // petakan ke tipe publik yang menghilangkan field `kunci`.
   // Pemeriksaan jawaban dilakukan server via POST /api/kuis/jawab.
-  const soalPublik: PfKuisSoalPublik[] = soal.map((s) => ({
-    id: s.id,
-    tanggal: s.tanggal,
-    pertanyaan: s.pertanyaan,
-    opsi: s.opsi,
-    penjelasan: s.penjelasan,
-    sumber_url: s.sumber_url,
-    sumber_nama: s.sumber_nama,
-    artikel_id: s.artikel_id,
-  }));
+  // Kuis harian HANYA memainkan soal pilihan_ganda (B2-B): soal
+  // jenis lain (kompleks/isian/esai) milik pelajaran Academy dan
+  // dijawab lewat /api/akademi/kuis/jawab, bukan di sini.
+  const soalPublik: PfKuisSoalPublik[] = soal
+    .filter((s) => s.jenis === "pilihan_ganda")
+    .map((s) => ({
+      id: s.id,
+      tanggal: s.tanggal,
+      pertanyaan: s.pertanyaan,
+      opsi: s.opsi,
+      jenis: s.jenis,
+      penjelasan: s.penjelasan,
+      sumber_url: s.sumber_url,
+      sumber_nama: s.sumber_nama,
+      artikel_id: s.artikel_id,
+    }));
 
   // Pengguna login mendapat riwayat skor (Fase 7 — migrasi v7);
   // pengguna anonim tetap bisa bermain, skornya hanya tampil di sesi.

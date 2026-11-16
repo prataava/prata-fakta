@@ -1,0 +1,71 @@
+# PRATA FAKTA — Penjawab Draf Ask the World (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SITE_URL   = URL deploy, mis. https://prata-fakta.vercel.app
+#                   (TANPA trailing slash)
+#   PF_AI_SECRET=<redacted>
+#                   env PF_AI_SECRET di Vercel.
+#
+# Catatan: workflow ini TIDAK AKTIF sampai ada deploy + kedua secret di atas
+# terisi + migrasi v14 dijalankan (kolom jawaban_draf / referensi_draf /
+# draf_dibuat_pada di pf_questions). Bila secret belum terisi, job gagal
+# dengan HTTP 503 yang jujur dari endpoint (bukan error workflow).
+#
+# Jadwal: draf jawaban setiap hari 01.00 UTC (= 08.00 WIB) — memproses
+# 10 pertanyaan 'menunggu' tertua yang belum punya draf.
+#
+# LARANGAN KERAS — TIDAK ADA AUTO-PUBLISH: endpoint /api/tanya/draf
+# HANYA menulis kolom jawaban_draf / referensi_draf / draf_dibuat_pada.
+# Status tetap 'menunggu', publik tetap false, kolom jawaban resmi
+# TIDAK PERNAH disentuh. Draf hanya menjadi jawaban resmi bila editor
+# menyetujui lewat /admin/tanya (PATCH aksi_draf=setujui).
+# Bila basis pengetahuan tidak punya referensi yang cukup, draf TIDAK
+# dibuat (dihitung tidak_ada_data) — job TIDAK PERNAH mengarang jawaban.
+#
+# Concurrency: satu run draf pada satu waktu (cancel-in-progress false —
+# run yang sedang jalan tidak dibatalkan, run baru menunggu giliran).
+# Retry: curl --retry 2 --retry-delay 10 (gagal jaringan / HTTP 408/429/5xx
+# sementara dicoba ulang 2x).
+# Assert respons: sukses palsu ditolak — job gagal bila `ok != true`
+# atau `gagal > 0`, bukan hanya bila HTTP non-2xx.
+#
+# Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
+# terlihat di tab Actions (log run + badge workflow).
+
+name: Penjawab Draf Ask the World PRATA FAKTA
+
+on:
+  schedule:
+    # Draf jawaban harian 01.00 UTC (= 08.00 WIB).
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Jumlah pertanyaan yang diproses (1-20)"
+        required: false
+        default: "10"
+        type: string
+
+concurrency:
+  group: prata-fakta-tanya-jawab-draf
+  cancel-in-progress: false
+
+jobs:
+  draf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pemicu penjawab draf Ask the World
+        run: |
+          LIMIT="${{ inputs.limit }}"
+          if [ -z "$LIMIT" ]; then LIMIT="10"; fi
+          RESP="$(mktemp)"
+          curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
+            "${{ secrets.PF_SITE_URL }}/api/tanya/draf" \
+            -H "x-pf-ai-secret: <redacted>" \
+            -H "Content-Type: application/json" \
+            -d "{\"limit\":$LIMIT}" \
+            -o "$RESP"
+          echo "Respons draf: $(cat "$RESP")"
+          jq -e '.ok == true and (.gagal // 0) == 0' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: draf melaporkan gagal > 0 atau ok != true"; exit 1; }

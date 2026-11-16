@@ -987,6 +987,117 @@ SEBELUM deploy kode baru — koordinasikan dengan pemilik):
    itu di-drop, kembalikan juga deploy kode lama (atau
    jalankan ulang langkah 1–2 lalu deploy ulang kode lama).
 
+## Migrasi v14 — Gelombang B2: evaluasi ulang keterbatasan (16 Nov 2026)
+
+Berkas: `20261116_pf_v14_gelombang_b2.sql`. Jalankan SETELAH
+v1–v13 (idempoten — aman diulang). ADITIF, kecuali dua
+penggantian CHECK (jenis notifikasi + CHECK audit, keduanya
+via do-block pemeriksa constraint) dan penggantian CHECK
+opsi soal v8 dengan CHECK v14.
+
+Isi:
+
+- **§1 — B2-E (Ask the World + Terjemahan): kolom draf di
+  `pf_questions`.** `jawaban_draf` text, `referensi_draf`
+  jsonb NOT NULL default `'[]'`, `draf_dibuat_pada`
+  timestamptz + index `pf_questions_draf_menunggu_idx`
+  (antrean draf menunggu). Draf HANYA ditulis job
+  `/api/tanya/draf`; satu-satunya jalan menjadi jawaban
+  resmi adalah setujui admin di `PATCH /api/admin/tanya/[id]`
+  (auto-publish tetap mati secara struktural).
+- **§2 — B2-C (Podcast): kolom audio di
+  `pf_podcast_episodes`.** `audio_bytes` bigint,
+  `tts_suara` text. TTS server tetap BELUM BISA (satu-satunya
+  suara id_ID Piper lisensinya tidak jelas) — kolom ini
+  untuk unggahan manual + workflow bila suara berlisensi ada.
+  Bucket `podcast-audio` TIDAK dibuat via migrasi (buat
+  manual di Dashboard Storage).
+- **§3 — B2-B (Academy): jenis soal + jawaban tersimpan +
+  sertifikat + trigger skor server-side.** Kolom
+  `pf_quiz_questions.jenis` (5 jenis, default
+  `pilihan_ganda`); CHECK opsi v8 diganti CHECK v14
+  (isian/esai tanpa opsi dibebaskan); `pf_quiz_answers`
+  boleh `kunci` null + kolom `kunci_teks` / `kunci_jamaks`
+  + 2 CHECK (minimal satu kunci; rentang jamak 0–4). Tabel
+  baru `pf_quiz_user_answers` (jawaban tersimpan per
+  user/pelajaran/soal, 1 policy baca sendiri, GRANT hanya
+  SELECT ke authenticated + penuh ke service_role) dan
+  `pf_certificates` (kode verifikasi 12 karakter, 1 policy
+  baca sendiri). Trigger `pf_course_progress_skor_server` +
+  fungsi `pf_hitung_skor_progres()` (SECURITY DEFINER):
+  skor dihitung ulang dari jawaban tersimpan di setiap
+  INSERT/UPDATE progres; `selesai=true` untuk kuis tanpa
+  jawaban di-RAISE; non-kuis selalu NULL — menulis langsung
+  lewat REST pun tidak bisa memalsukan skor.
+- **§4 — B2-D (Notifikasi + Analytics):** CHECK jenis
+  `pf_notifications` diganti (8 jenis: + `jawaban`,
+  `podcast`) + kolom `kunci_dedup` + unique index dedup;
+  3 kolom `pf_user_preferences` (`notifikasi_jawaban`,
+  `notifikasi_podcast`, `push_notifikasi`); tabel baru
+  `pf_push_subscriptions` (4 policy pemilik),
+  `pf_kunjungan` (HANYA path + user_id + masuk + waktu;
+  policy baca staf), `pf_app_errors` (policy baca staf);
+  GRANT service_role atas `pf_notifications` (penulis E1);
+  RPC `pf_kunjungan_harian` / `pf_kunjungan_jalur`
+  (security invoker — RLS staf tetap berlaku) +
+  `pf_bersihkan_data_lama()` (retensi 90 hari, dipanggil
+  workflow `.github/workflows/retensi.yml` tiap tanggal 1).
+- **§5 — B2-A (Akun & Privasi):** tabel baru
+  `pf_account_deletions` (jejak hapus akun; 0 policy, GRANT
+  hanya service_role; TANPA FK ke auth.users agar jejak
+  bertahan pasca-hapus); CHECK audit diganti v14 (57 aksi:
+  53 v11 + `akun.hapus.minta`, `akun.hapus`,
+  `akun.hapus.gagal`, `data.hapus`); 4 policy DELETE pemilik
+  (`pf_quiz_scores`, `pf_notifications`,
+  `pf_user_preferences`, `pf_questions`) + GRANT DELETE ke
+  authenticated (v9 tidak memberinya — policy saja tidak
+  cukup, tanpa GRANT hapus ditolak 42501).
+  **KOREKSI:** `pf_account_deletions` diklaim ada di v13
+  oleh AUDIT-ULTIMATE.md — klaim itu SALAH (grep v1–v13:
+  0 hasil); tabel ini baru ada di v14.
+
+Ekspektasi sesudah v14: **61 tabel** `pf_*` ber-RLS,
+**119 policy** (+12), fungsi baru:
+`pf_hitung_skor_progres`, `pf_kunjungan_harian`,
+`pf_kunjungan_jalur`, `pf_bersihkan_data_lama`. Validasi
+lokal: `scripts/uji-ultimate-b2-migrasi.mjs` (PGlite,
+v1–v14 2× idempoten TANPA blanket grant; 0 grant ke PUBLIC;
+GRANT service_role atas 6 tabel baru). Deploy kode B2
+Wajib sebelum/saat v14 (kolom draf + audio dibaca select;
+tanpa v14: PGRST204); route hapus/jawab/progres menjawab
+503 jujur bila tabel v14 belum ada.
+
+Rollback v14 (bila v14 gagal total dan harus dibatalkan
+— TIDAK PERNAH diuji di produksi; jalankan hanya bila
+v14 belum pernah dipakai menulis data baru):
+
+```sql
+drop trigger if exists pf_course_progress_skor_server
+  on public.pf_course_progress;
+drop function if exists public.pf_hitung_skor_progres();
+drop function if exists public.pf_kunjungan_harian(integer);
+drop function if exists public.pf_kunjungan_jalur(integer, integer);
+drop function if exists public.pf_bersihkan_data_lama();
+drop table if exists public.pf_quiz_user_answers;
+drop table if exists public.pf_certificates;
+drop table if exists public.pf_account_deletions;
+drop table if exists public.pf_push_subscriptions;
+drop table if exists public.pf_kunjungan;
+drop table if exists public.pf_app_errors;
+alter table public.pf_questions
+  drop column if exists jawaban_draf,
+  drop column if exists referensi_draf,
+  drop column if exists draf_dibuat_pada;
+alter table public.pf_podcast_episodes
+  drop column if exists audio_bytes,
+  drop column if exists tts_suara;
+-- CHECK audit: kembalikan CHECK v11 dari berkas
+-- 20261116_pf_v11_rate_limit_audit.sql §3 (do-block yang
+-- sama, dengan nama pf_audit_logs_aksi_check_v11).
+-- CHECK jenis notifikasi: kembalikan 6 jenis v6.
+-- Kolom preferensi + kunci_dedup boleh dibiarkan.
+```
+
 ## Uji restore berkala (prosedur — BUKAN klaim sudah diuji)
 
 Restore BELUM PERNAH dijalankan terhadap database produksi;

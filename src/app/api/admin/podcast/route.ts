@@ -18,6 +18,7 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { kirimNotifikasiPodcast } from "@/lib/notifikasi/tulis";
 import { buatSlug } from "@/lib/ai/slug";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -217,6 +218,18 @@ export async function POST(req: Request) {
       },
       ip: ipDariRequest(req),
     });
+    // B2-D (E1): episode dibuat langsung terbit → beri tahu
+    // pengguna yang mengaktifkan notifikasi podcast. Best-effort.
+    if (status === "terbit") {
+      try {
+        await kirimNotifikasiPodcast(
+          null,
+          (data as { id: string } | null)?.id ?? "",
+        );
+      } catch {
+        // Diam-diam: episode sudah tersimpan.
+      }
+    }
     return NextResponse.json({ ok: true, episode: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

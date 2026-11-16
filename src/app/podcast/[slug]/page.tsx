@@ -6,11 +6,12 @@ import PemutarPodcast from "@/components/podcast/PemutarPodcast";
 import TombolPlaylist from "@/components/podcast/TombolPlaylist";
 import { createClient } from "@/lib/supabase/server";
 import {
+  atribusiSuaraTts,
   formatDurasi,
   getEpisode,
   getPlaylist,
   getRiwayat,
-  labelAudio,
+  labelSumberAudio,
   LABEL_JENIS_EPISODE,
 } from "@/lib/podcast";
 
@@ -70,7 +71,8 @@ export default async function DetailPodcast({
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-episode">
         <span className="hero-label">
-          {LABEL_JENIS_EPISODE[episode.jenis]} · {labelAudio(episode)}
+          {LABEL_JENIS_EPISODE[episode.jenis]} ·{" "}
+          {labelSumberAudio(episode)}
         </span>
         <h1 id="judul-episode">{episode.judul}</h1>
         {episode.deskripsi && <p>{episode.deskripsi}</p>}
@@ -100,9 +102,12 @@ export default async function DetailPodcast({
           <h2 id="seksi-pemutar">Dengarkan</h2>
           <p>
             {episode.audio_url
-              ? "Episode ini punya file audio rekaman."
-              : "Episode ini belum punya file audio rekaman — dibacakan suara browser Anda dari naskah di bawah. Pembuatan file audio server belum bisa dilakukan (tanpa layanan TTS server gratis)."}
+              ? "Episode ini punya file audio MP3 (juga tercantum di umpan RSS podcast.xml)."
+              : "Episode ini belum punya file audio — dibacakan suara browser Anda dari naskah di bawah. Pembuatan file audio server (TTS Piper) belum bisa dipakai karena lisensi satu-satunya suara bahasa Indonesia Piper belum jelas; lihat status di halaman podcast."}
           </p>
+          {atribusiSuaraTts(episode) && (
+            <p>{atribusiSuaraTts(episode)}</p>
+          )}
         </div>
         <PemutarPodcast
           episodeId={episode.id}

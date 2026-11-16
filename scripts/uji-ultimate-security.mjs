@@ -708,7 +708,19 @@ cek("P2-13: guard.ts memakai randomBytes untuk kode galat", guard.includes("rand
       `${fnResponGalatAdmin?.replace("export function", "function") ?? ""}\n` +
       `return { responGalatAdmin };`,
   );
-  const { responGalatAdmin } = new Function("NextResponse", "randomBytes", kode)(NextResponseStub, randomBytes);
+  // B2-D: responGalatAdmin kini memanggil catatGalatAplikasi
+  // (hook log galat DB sendiri) — sediakan stub penangkap
+  // sebagai parameter, dan buktikan hook-nya terpanggil.
+  const galatTertangkap = [];
+  const stubCatatGalat = (e) => {
+    galatTertangkap.push(e);
+  };
+  const { responGalatAdmin } = new Function(
+    "NextResponse",
+    "randomBytes",
+    "catatGalatAplikasi",
+    kode,
+  )(NextResponseStub, randomBytes, stubCatatGalat);
   const logTangkap = [];
   const consoleAsli = console.error;
   console.error = (...args) => { logTangkap.push(args.join(" ")); };
@@ -723,6 +735,10 @@ cek("P2-13: guard.ts memakai randomBytes untuk kode galat", guard.includes("rand
   cek("P2-13: 500 TIDAK membocorkan nama tabel/kolom/constraint Postgres", r1.status === 500 && !String(r1.body.error).includes("pf_knowledge_articles") && !String(r1.body.error).includes("slug") && !String(r1.body.error).includes("duplicate key"));
   cek("P2-13: 500 membawa kode galat buram ERR-XXXXXXXX", /ERR-[0-9A-F]{8}/.test(String(r1.body.error)), String(r1.body.error));
   cek("P2-13: dua galat berbeda -> dua kode berbeda (acak)", String(r1.body.error) !== String(r2.body.error), `${r1.body.error} vs ${r2.body.error}`);
+  cek("P2-13: hook log galat DB (B2-D) terpanggil tiap galat admin",
+    galatTertangkap.length === 2 &&
+      galatTertangkap.every((g) => g.sumber === "responGalatAdmin" && typeof g.pesan === "string"),
+    `${galatTertangkap.length} panggilan`);
   let logJson = null;
   try { logJson = JSON.parse(logTangkap[0] ?? ""); } catch { logJson = null; }
   cek(

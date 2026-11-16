@@ -5,6 +5,7 @@ import EmptyState from "@/components/EmptyState";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
 import ProfilKeamanan from "@/components/saya/ProfilKeamanan";
 import FormPengaturan from "@/components/saya/FormPengaturan";
+import HapusDataPerItem from "./HapusDataPerItem";
 import { formatTanggalJam } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { getBookmarkPengguna, getBriefTerbit } from "@/lib/data";
@@ -82,6 +83,9 @@ export default async function Saya() {
           <Link className="tombol" href="#pengaturan-privasi">
             Pengaturan &amp; privasi
           </Link>
+          <Link className="tombol" href="#akun-data">
+            Akun &amp; data saya
+          </Link>
           <Link className="tombol" href="/feed-saya">
             Feed Saya
           </Link>
@@ -109,6 +113,23 @@ export default async function Saya() {
           </p>
         </div>
         <FormPengaturan />
+      </section>
+
+      <section className="seksi" aria-labelledby="seksi-akun-data" id="akun-data">
+        <div className="seksi-kepala">
+          <h2 id="seksi-akun-data">Akun &amp; Data Saya</h2>
+          <p>
+            Unduh seluruh data Anda, hapus data per jenis, atau hapus akun
+            beserta semua datanya. Jumlah di bawah dihitung dari data Anda
+            sendiri — bukan angka contoh.
+          </p>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          <Link className="tombol" href="/saya/hapus-akun">
+            Hapus akun saya…
+          </Link>
+        </div>
+        <HapusDataPerItem />
       </section>
 
       {!ringkasan.tersedia && (

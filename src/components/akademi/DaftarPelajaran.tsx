@@ -7,23 +7,28 @@ import type {
   PfKursusDetail,
   PfPelajaran,
   PfProgresPelajaran,
+  RiwayatNilaiSoal,
 } from "@/lib/akademi";
 import PembahasanKuis from "@/components/akademi/PembahasanKuis";
 
 // Daftar modul → pelajaran satu kursus (client). Menandai selesai
 // lewat POST /api/akademi/progres (login saja); kuis pelajaran
-// dimainkan lewat PembahasanKuis dan skornya disimpan sebagai
-// progres sesudah selesai. Progres tampil dari angka nyata
-// pf_course_progress, bukan dari state lokal semata.
+// dimainkan lewat PembahasanKuis dan skornya DIHITUNG SERVER dari
+// jawaban tersimpan — klien tidak pernah mengirim skor (B2-B,
+// L-B1/I-4). Progres tampil dari angka nyata pf_course_progress,
+// bukan dari state lokal semata. Riwayat nilai per soal (H6)
+// tampil dari pf_quiz_user_answers.
 export default function DaftarPelajaran({
   detail,
   progresAwal,
   soalKuis,
+  riwayatKuis,
   masuk,
 }: {
   detail: PfKursusDetail;
   progresAwal: Record<string, PfProgresPelajaran>;
   soalKuis: Record<string, PfKuisSoalPublik[]>;
+  riwayatKuis: Record<string, RiwayatNilaiSoal[]>;
   masuk: boolean;
 }) {
   const [progres, setProgres] =
@@ -45,10 +50,7 @@ export default function DaftarPelajaran({
   );
   const persen = total > 0 ? Math.round((selesaiCount / total) * 100) : 0;
 
-  async function tandaiSelesai(
-    lessonId: string,
-    skor: number | null,
-  ): Promise<boolean> {
+  async function tandaiSelesai(lessonId: string): Promise<boolean> {
     if (!masuk) {
       setPesan("Masuk terlebih dahulu untuk menyimpan progres belajar.");
       return false;
@@ -62,7 +64,6 @@ export default function DaftarPelajaran({
         body: JSON.stringify({
           lesson_id: lessonId,
           selesai: true,
-          skor,
         }),
       });
       const data = (await res.json()) as {
@@ -172,9 +173,48 @@ export default function DaftarPelajaran({
                       <span className="kartu-judul">{p.judul}</span>
                       {sudah && skor !== null && p.jenis === "kuis" && (
                         <span className="kartu-meta">
-                          Skor kuis Anda: {skor} dari {soal.length > 0 ? soal.length : "—"}
+                          Skor kuis Anda (dihitung server dari jawaban
+                          tersimpan): {skor} benar
+                          {(() => {
+                            const dinilai = (
+                              riwayatKuis[p.id] ?? []
+                            ).filter((r) => r.benar !== null).length;
+                            return dinilai > 0
+                              ? ` dari ${dinilai} soal yang dinilai`
+                              : "";
+                          })()}
                         </span>
                       )}
+                      {p.jenis === "kuis" &&
+                        (riwayatKuis[p.id] ?? []).length > 0 && (
+                          <span className="kartu-meta">
+                            Riwayat nilai per soal:{" "}
+                            {soal.length > 0
+                              ? soal.map((s, i) => {
+                                  const r = (riwayatKuis[p.id] ?? []).find(
+                                    (x) => x.soal_id === s.id,
+                                  );
+                                  const label =
+                                    !r || r.benar === null
+                                      ? "menunggu penilaian"
+                                      : r.benar
+                                        ? "benar ✓"
+                                        : "salah ✗";
+                                  return `Soal ${i + 1}: ${label}`;
+                                }).join(" · ")
+                              : (riwayatKuis[p.id] ?? [])
+                                  .map((r, i) => {
+                                    const label =
+                                      r.benar === null
+                                        ? "menunggu penilaian"
+                                        : r.benar
+                                          ? "benar ✓"
+                                          : "salah ✗";
+                                    return `Soal ${i + 1}: ${label}`;
+                                  })
+                                  .join(" · ")}
+                          </span>
+                        )}
                       <div
                         style={{
                           display: "flex",
@@ -198,7 +238,7 @@ export default function DaftarPelajaran({
                             className="tombol tombol-primer"
                             type="button"
                             disabled={menyimpan === p.id}
-                            onClick={() => void tandaiSelesai(p.id, null)}
+                            onClick={() => void tandaiSelesai(p.id)}
                           >
                             {menyimpan === p.id
                               ? "Menyimpan…"
@@ -242,12 +282,12 @@ export default function DaftarPelajaran({
                                 lessonId={p.id}
                                 soal={soal}
                                 masuk={masuk}
-                                onSelesai={(benar, totalSoal) => {
-                                  void tandaiSelesai(p.id, benar).then(
+                                onSelesai={(benar, totalDinilai) => {
+                                  void tandaiSelesai(p.id).then(
                                     (ok) => {
                                       if (ok) {
                                         setPesan(
-                                          `Kuis selesai: ${benar} dari ${totalSoal} benar. Progres tersimpan.`,
+                                          `Kuis selesai: ${benar} dari ${totalDinilai} soal yang dinilai benar. Progres tersimpan.`,
                                         );
                                       }
                                     },

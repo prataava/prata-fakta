@@ -42,6 +42,7 @@ Urutan ini TIDAK boleh dibalik. Alasannya ada di tiap tahap.
 | 3E | Migrasi **v11** (Tahap 13A: rate limiter DB + audit T10) + verifikasi (§3) | SQL Editor |
 | 3F | Migrasi **v12** (Tahap 13C: seed 5 job scheduler) + verifikasi (§3) | SQL Editor |
 | 3G | Migrasi **v13** (Gelombang B1: kunci kuis terpisah, RPC PATCH kursus atomik, policy arsip/profil) + verifikasi (§3) | SQL Editor |
+| 3H | Migrasi **v14** (Gelombang B2: draf tanya, audio podcast, Academy, notifikasi + analytics, akun) + verifikasi (§3) | SQL Editor |
 | 5 | Validasi fungsi database (§4) | SQL Editor |
 | 6 | Smoke test produksi (§6) | Browser + curl |
 | 7 | Aktifkan scheduler GitHub Actions (§7) | GitHub repo |
@@ -803,7 +804,90 @@ order by proname;
 | Kolom `pf_quiz_questions.kunci` | **tidak ada** |
 | Baris `pf_quiz_answers` | **= jumlah soal** |
 
-### 3.14 Bila satu berkas gagal
+### 3.14 v14 — Gelombang B2 (evaluasi ulang keterbatasan)
+
+- Berkas: `supabase/migrations/20261116_pf_v14_gelombang_b2.sql`
+- Bergantung pada v1–v13. **Jalankan TEPAT SESUDAH v13.**
+  v14 ADITIF, kecuali dua penggantian CHECK (§4a CHECK jenis
+  notifikasi diganti dengan 8 jenis; §5b CHECK audit diganti
+  dengan 57 aksi) dan §3 yang mengganti CHECK opsi soal v8
+  dengan CHECK v14 — semuanya idempoten (do-block pemeriksa
+  constraint) dan teruji 2× di PGlite.
+- **PRASYARAT DEPLOY (jendela seperti v8/v13):** kode B2 yang
+  membaca kolom baru WAJIB sudah deploy sebelum/saat v14
+  dijalankan — select episode kini memuat `audio_bytes` /
+  `tts_suara` dan select pertanyaan memuat `jawaban_draf` /
+  `referensi_draf` (tanpa v14: PGRST204). Sebaliknya route
+  hapus akun/data + jawab kuis + progres menjawab 503 jujur
+  bila tabel v14 belum ada (fail-closed), jadi urutan aman
+  bila ragu: deploy kode dulu, baru v14.
+- Isi: §1 kolom draf Ask the World di `pf_questions`
+  (`jawaban_draf`, `referensi_draf`, `draf_dibuat_pada`) +
+  index antrean draf; §2 kolom audio podcast
+  (`pf_podcast_episodes.audio_bytes`, `tts_suara` — TTS
+  server tetap BELUM BISA, lisensi suara id_ID tidak jelas);
+  §3 Academy — kolom `pf_quiz_questions.jenis` + CHECK opsi
+  v14, kolom kunci baru `pf_quiz_answers` (`kunci_teks`,
+  `kunci_jamaks`) + `kunci` boleh null, tabel baru
+  `pf_quiz_user_answers` (jawaban tersimpan, 1 policy baca
+  sendiri) + `pf_certificates` (1 policy baca sendiri) +
+  trigger skor server-side
+  `pf_course_progress_skor_server` + fungsi
+  `pf_hitung_skor_progres()`; §4 notifikasi + analytics —
+  CHECK jenis notifikasi 8 jenis + `kunci_dedup` + unique
+  index dedup, 3 kolom preferensi, tabel baru
+  `pf_push_subscriptions` (4 policy pemilik),
+  `pf_kunjungan` + `pf_app_errors` (policy baca staf), GRANT
+  service_role atas `pf_notifications`, RPC
+  `pf_kunjungan_harian` / `pf_kunjungan_jalur` /
+  `pf_bersihkan_data_lama()` (retensi 90 hari); §5 akun —
+  tabel baru `pf_account_deletions` (0 policy, GRANT hanya
+  service_role; TANPA FK ke auth.users agar jejak bertahan
+  pasca-hapus), CHECK audit v14 (57 aksi: 53 v11 + 4 aksi
+  hapus akun/data), 4 policy DELETE pemilik + GRANT DELETE.
+  **KOREKSI ATAS AUDIT:** `pf_account_deletions` diklaim ada
+  di v13 oleh AUDIT-ULTIMATE.md — klaim itu SALAH (grep
+  v1–v13: 0 hasil); tabel ini baru ada di v14.
+- Tervalidasi lokal (PGlite,
+  `scripts/uji-ultimate-b2-migrasi.mjs`): v1–v14 dijalankan
+  2× idempoten TANPA blanket grant; 61 tabel, RLS 61/61,
+  119 policy, 0 grant ke PUBLIC, GRANT service_role
+  SELECT/INSERT/UPDATE/DELETE atas 6 tabel baru.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 61 (55 v13 + 6 baru)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 119 (107 v13 + 12 baru)
+
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%'
+  and rowsecurity;
+-- ekspektasi: 61 (RLS 61/61)
+
+select pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.pf_audit_logs'::regclass
+  and conname = 'pf_audit_logs_aksi_check_v14';
+-- ekspektasi: 1 baris; memuat 'akun.hapus', 'data.hapus'
+
+select count(*) from public.pf_account_deletions;
+-- ekspektasi: 0 (tabel baru, kosong)
+```
+
+| Pemeriksaan | Ekspektasi sesudah v14 |
+|---|---|
+| Jumlah tabel `pf_*` | **61** |
+| Tabel ber-RLS | **61/61** |
+| Jumlah policy `pf_*` | **119** |
+| CHECK audit | **v14 (57 aksi)** |
+| Tabel baru | **6 (jawaban kuis, sertifikat, jejak hapus akun, push, kunjungan, galat)** |
+
+### 3.15 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
 2. Baca pesan error SQL Editor sampai habis. Penyebab paling
@@ -1247,12 +1331,13 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §3E: v11 + verifikasi (54 tabel, 54/54 RLS, 106 policy, RPC limiter true/true/false, CHECK audit 53 aksi)
 - [ ] §3F: v12 + verifikasi (54 tabel, 106 policy, seed 5 job dengan cron benar)
 - [ ] §3G: v13 + verifikasi (55 tabel, 55/55 RLS, 107 policy, kolom kunci hilang, `pf_quiz_answers` = jumlah soal, 3 fungsi SECURITY DEFINER + search_path)
+- [ ] §3H: v14 + verifikasi (61 tabel, 61/61 RLS, 119 policy, CHECK audit v14 57 aksi, 6 tabel baru)
 - [ ] §4: fungsi + trigger tervalidasi
 - [ ] §6: smoke test halaman + API lolos
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik
 - [ ] §7: secret GitHub Actions terisi, workflow terpantau
 - [ ] §8: super_admin pertama ditetapkan
-- [ ] §2: backup pasca-migrasi (55/55 tabel) disimpan di luar repo
+- [ ] §2: backup pasca-migrasi (61/61 tabel) disimpan di luar repo
 
 Bila semua kotak tercentang, situs dinyatakan **LIVE** dan URL
 produksi dicatat di `LAPORAN-AKHIR.md` §12. Sebelum itu, status
@@ -1268,7 +1353,7 @@ tetap **BELUM LIVE** — apa pun hasil tes lokalnya.
 - `ARSITEKTUR.md` §2–§3 — audit Supabase proyek `prata` +
   audit deploy Vercel.
 - `AUDIT-EXPANSION.md` §8 — blokir Fase 8.
-- `scripts/backup-pf.mjs` — skrip backup (55 tabel sesudah v13;
+- `scripts/backup-pf.mjs` — skrip backup (61 tabel sesudah v14;
   dijalankan harian otomatis oleh `.github/workflows/backup.yml`).
 - `DEPLOY.md` (root repo) — ringkasan deploy untuk pemilik.
 

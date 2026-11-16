@@ -399,8 +399,16 @@ function ekstrakValidator(src, nama) {
   return ekstrakFungsi(src, nama);
 }
 const jawabAkademiSrc = bacaRepo("src/app/api/akademi/kuis/jawab/route.ts");
+// PERUBAHAN Gelombang B2-B: validasiJawabanAkademi kini memanggil
+// validasiBentukJawaban (lib/akademi/penilaian.ts) untuk lima jenis
+// soal — ekstraksi lama (hanya validator) crash ReferenceError.
+// Ikut ekstrak dependensinya; asersi lama (jawaban angka default)
+// tetap berlaku karena default jenis = pilihan_ganda.
+const penilaianSrc = bacaRepo("src/lib/akademi/penilaian.ts");
 const potonganJawab = [
   ekstrakKonst(jawabAkademiSrc, "POLA_UUID"),
+  ekstrakFungsi(penilaianSrc, "normalisasiIsian"),
+  ekstrakFungsi(penilaianSrc, "validasiBentukJawaban"),
   ekstrakValidator(jawabAkademiSrc, "validasiJawabanAkademi"),
 ];
 cek("validasiJawabanAkademi dapat diekstrak", potonganJawab.every(Boolean));
@@ -432,11 +440,18 @@ if (potonganProgres.every(Boolean)) {
     transpileKeJs(`${potonganProgres.join("\n")}\nreturn validasiProgres;`),
   )();
   const UUID_UJI = "11111111-1111-1111-1111-111111111111";
-  cek("progres: terima body sah",
-    v({ lesson_id: UUID_UJI, selesai: true, skor: 4 }).ok === true);
+  // PERUBAHAN Gelombang B2-B (L-B1 / Addendum I-4): `skor` dari
+  // klien TIDAK LAGI diterima — skor dihitung server dari jawaban
+  // tersimpan. Asersi lama "terima body sah (skor: 4)" mengabadikan
+  // celah pemalsuan sertifikat, diganti asersi penolakan di bawah
+  // (bukan dihapus agar angka bagus — perilaku lama didokumentasi
+  // di sini sebagai usang).
+  cek("progres: tolak skor dari klien (B2-B, I-4)",
+    v({ lesson_id: UUID_UJI, selesai: true, skor: 4 }).ok === false);
   cek("progres: terima tanpa skor",
-    v({ lesson_id: UUID_UJI, selesai: true }).ok === true &&
-      v({ lesson_id: UUID_UJI, selesai: true }).skor === null);
+    v({ lesson_id: UUID_UJI, selesai: true }).ok === true);
+  cek("progres: terima skor null (kompat klien lama)",
+    v({ lesson_id: UUID_UJI, selesai: true, skor: null }).ok === true);
   cek("progres: tolak selesai bukan boolean",
     v({ lesson_id: UUID_UJI, selesai: "ya" }).ok === false);
   cek("progres: tolak skor 101",
@@ -569,13 +584,20 @@ cek("jawab akademi: respons sukses ada dan tanpa field kunci",
     !/\{\s*kunci\s*[,}]/.test(responsSukses),
   responsSukses.length === 0 ? "respons sukses tidak ditemukan" : "");
 cek("jawab akademi: kunci hanya dipakai membandingkan di server",
-  jawabAkademiSrc.includes("valid.jawaban === kunci"));
+  // PERUBAHAN Gelombang B2-B: perbandingan kunci pindah dari route
+  // ke fungsi murni nilaiJawaban (lib/akademi/penilaian.ts) agar
+  // lima jenis soal dinilai satu tempat. Asersi lama (string
+  // "valid.jawaban === kunci" di route) usang — diganti: route
+  // mendelegasikan ke nilaiJawaban, dan nilaiJawaban membandingkan
+  // jawaban dengan kunci server.
+  jawabAkademiSrc.includes("nilaiJawaban(kunciSoal, valid.jawaban)") &&
+    bacaRepo("src/lib/akademi/penilaian.ts").includes("jawaban === kunciSoal.kunci"));
 cek("jawab akademi: hanya soal tanggal pelajaran",
   jawabAkademiSrc.includes("tanggal !== kuisTanggal"));
 cek("jawab akademi: rate limit 20/mnt (fail-closed, P0-7)",
   jawabAkademiSrc.includes("buatRateLimiterKeras(20)"));
-cek("progres akademi: rate limit 20/mnt",
-  progresSrc.includes("buatRateLimiter(20)"));
+cek("progres akademi: rate limit 20/mnt (fail-closed, B2)",
+  progresSrc.includes("buatRateLimiterKeras(20)"));
 cek("progres akademi: wajib login (401)",
   progresSrc.includes("Anda harus masuk terlebih dahulu") &&
     progresSrc.includes("status: 401"));

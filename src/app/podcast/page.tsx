@@ -4,6 +4,7 @@ import EmptyState from "@/components/EmptyState";
 import KartuEpisode from "@/components/podcast/KartuEpisode";
 import { createClient } from "@/lib/supabase/server";
 import {
+  EVALUASI_SUARA_ID_ID,
   getDaftarEpisode,
   getPlaylist,
   getRiwayat,
@@ -49,12 +50,31 @@ export default async function Podcast() {
         <p>
           Dengarkan Daily Brief, artikel pilihan, dan episode mingguan.
           Episode berlabel &ldquo;Audio rekaman&rdquo; diputar dari file
-          audio; episode berlabel &ldquo;Audio TTS browser&rdquo; dibacakan
-          suara perangkat Anda dari naskahnya — karena pembuatan file
-          audio server belum bisa dilakukan (tanpa layanan TTS server
-          gratis), belum ada unduhan MP3 dan belum ada feed RSS
-          podcast.
+          audio MP3-nya dan tercantum di umpan RSS{" "}
+          <Link href="/podcast.xml">podcast.xml</Link> (dengan{" "}
+          <code>enclosure</code>); episode berlabel &ldquo;Audio TTS
+          browser&rdquo; dibacakan suara perangkat Anda dari naskahnya.
         </p>
+      </section>
+
+      <section className="seksi" aria-labelledby="seksi-status-audio">
+        <div className="seksi-kepala">
+          <h2 id="seksi-status-audio">Status audio server</h2>
+          <p>
+            Pembuatan file audio server (TTS Piper, dijalankan berkala
+            oleh workflow — bukan server 24/7) BELUM BISA dipakai:
+            satu-satunya suara bahasa Indonesia Piper (
+            <code>{EVALUASI_SUARA_ID_ID.kunci}</code>) lisensi data
+            latihnya tidak jelas — MODEL_CARD-nya hanya menulis
+            &ldquo;License: See URL&rdquo; yang menunjuk korpus
+            Malayalam, dan suara ini di-fine-tune dari suara lessac
+            berlisensi riset. Sampai ada suara id_ID yang lisensinya
+            jelas membolehkan, tidak ada episode yang dibuat dengan
+            TTS server; episode yang sudah punya file audio berasal
+            dari unggahan manual redaksi. Detail verifikasi ada di
+            kode (<code>src/lib/podcast.ts</code>).
+          </p>
+        </div>
       </section>
 
       {penggunaId && playlist.length > 0 && (

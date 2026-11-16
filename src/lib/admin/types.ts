@@ -36,6 +36,9 @@ export type StatusKoreksi = "baru" | "ditinjau" | "diperbaiki" | "ditolak";
 // insert service-client langsung karena tipenya tak memuat aksi
 // mereka. Jangan tambah aksi di sini tanpa menambahkannya dulu ke
 // CHECK lewat migrasi baru (insert aksi di luar CHECK gagal 23514).
+// Aksi akun.hapus.* + data.hapus (Gelombang B2-A) MASUK CHECK
+// v14 (pf_audit_logs_aksi_check_v14) — sampai v14 diterapkan,
+// route hapus akun / hapus data menjawab 503 jujur, bukan 500.
 export type AksiAudit =
   | "artikel.buat"
   | "artikel.ubah"
@@ -85,6 +88,10 @@ export type AksiAudit =
   | "kuis.ubah"
   | "preferensi.ubah"
   | "ekspor.data"
+  | "akun.hapus.minta"
+  | "akun.hapus"
+  | "akun.hapus.gagal"
+  | "data.hapus"
   | "sumber.buat"
   | "sumber.ubah"
   | "sumber.hapus"

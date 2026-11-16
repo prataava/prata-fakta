@@ -382,6 +382,17 @@ export class SupabaseAiAdapter implements AiAdapter {
     if (error) throw new Error(`perbaruiStatusItem gagal: ${error.message}`);
   }
 
+  async simpanMetadataItem(
+    id: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const { error } = await this.klien
+      .from("pf_raw_items")
+      .update({ metadata })
+      .eq("id", id);
+    if (error) throw new Error(`simpanMetadataItem gagal: ${error.message}`);
+  }
+
   async ambilKlaimTanpaVerifikasi(
     limit: number,
   ): Promise<KlaimTanpaVerifikasi[]> {

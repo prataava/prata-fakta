@@ -46,7 +46,7 @@ import type {
   KlaimKoroborasi,
 } from "./verification.ts";
 import { buatRingkasan } from "./summarization.ts";
-import { periksaTerjemahan } from "./translation.ts";
+import { periksaTerjemahan, cobaTerjemahkanJudul } from "./translation.ts";
 import { susunDrafArtikel } from "./writing.ts";
 import type { SumberDraf } from "./writing.ts";
 import { periksaKualitasDraf } from "./quality.ts";
@@ -739,9 +739,16 @@ async function verifikasiSatuItem(
     return;
   }
 
-  // 5. Translation-check — heuristik bahasa; TIDAK ADA terjemahan mesin.
-  // Selalu 'dilewati': Indonesia -> 'tidak diperlukan', Inggris/tak
-  // dikenal -> 'menunggu terjemahan Muse (cron/chat)'.
+  // 5. Translation — heuristik bahasa + MyMemory untuk item
+  // Inggris nyata (B2-E, G2). Indonesia -> 'tidak diperlukan'
+  // (dilewati). Inggris -> coba terjemahkan JUDUL saja via
+  // MyMemory (hemat kuota harian anonim 5.000 karakter);
+  // berhasil -> terjemahan disimpan sebagai DRAF TERPISAH di
+  // metadata item (metadata.terjemahan.judul_id + atribusi),
+  // teks asli TIDAK PERNAH ditimpa, langkah dicatat berhasil.
+  // Gagal MyMemory (jaringan/timeout/kuota/respons) -> langkah
+  // 'dilewati' dengan alasan jujur; item tetap diproses
+  // (terjemahan bukan prasyarat draf artikel).
   await jalankanLangkah(
     adapter,
     "translation",
@@ -750,11 +757,61 @@ async function verifikasiSatuItem(
     dipicu,
     async () => {
       const t = periksaTerjemahan(item, { nama: item.sumber_nama });
+      if (t.bahasa !== "en") {
+        return {
+          nilai: t,
+          dilewati: true,
+          alasanDilewati: t.alasan,
+          detail: { bahasa: t.bahasa, alasan: t.alasan },
+        };
+      }
+      const hasil = await cobaTerjemahkanJudul(item.judul);
+      if (!hasil.ok) {
+        return {
+          nilai: t,
+          dilewati: true,
+          alasanDilewati: `terjemahan MyMemory gagal (${hasil.alasan}: ${hasil.detail}) — teks asli dipertahankan`,
+          detail: {
+            bahasa: t.bahasa,
+            alasan: t.alasan,
+            mymemory: "gagal",
+            mymemory_alasan: hasil.alasan,
+          },
+        };
+      }
+      try {
+        await adapter.simpanMetadataItem(item.id, {
+          ...(item.metadata ?? {}),
+          terjemahan: {
+            judul_id: hasil.terjemahan,
+            sumber: hasil.sumber,
+            atribusi: hasil.atribusi,
+            diterjemahkan_pada: new Date().toISOString(),
+          },
+        });
+      } catch (err) {
+        return {
+          nilai: t,
+          dilewati: true,
+          alasanDilewati: `terjemahan MyMemory berhasil tetapi gagal disimpan: ${err instanceof Error ? err.message : String(err)}`,
+          detail: {
+            bahasa: t.bahasa,
+            alasan: t.alasan,
+            mymemory: "gagal_simpan",
+          },
+        };
+      }
       return {
         nilai: t,
-        dilewati: true,
-        alasanDilewati: t.alasan,
-        detail: { bahasa: t.bahasa, alasan: t.alasan },
+        dilewati: false,
+        detail: {
+          bahasa: t.bahasa,
+          alasan: t.alasan,
+          mymemory: "berhasil",
+          segmen: hasil.segmen,
+          karakter: hasil.karakter,
+          atribusi: hasil.atribusi,
+        },
       };
     },
   );

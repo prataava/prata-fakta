@@ -1,0 +1,47 @@
+# PRATA FAKTA — Retensi data analytics + galat (GitHub Actions)
+#
+# Memanggil RPC `pf_bersihkan_data_lama()` (migrasi v14 §4g):
+# menghapus baris `pf_kunjungan` + `pf_app_errors` lebih tua dari
+# 90 hari. Tanpa ini kedua tabel tumbuh tanpa batas.
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SUPABASE_URL        = URL proyek Supabase, mis. https://xyz.supabase.co
+#   PF_SERVICE_ROLE_KEY    = service-role key proyek Supabase (RPC ini
+#                            hanya di-grant ke service_role).
+#
+# Jadwal: tiap tanggal 1 pukul 03.30 UTC (≈10.30 WIB) + manual dispatch.
+# Concurrency: satu run pada satu waktu (cancel-in-progress false).
+# Job gagal bila secret belum diisi atau RPC menjawab bukan HTTP 200.
+
+name: Retensi 90 Hari PRATA FAKTA
+
+on:
+  schedule:
+    # Tanggal 1 tiap bulan, 03.30 UTC.
+    - cron: "30 3 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: prata-fakta-retensi
+  cancel-in-progress: false
+
+jobs:
+  retensi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Panggil pf_bersihkan_data_lama
+        env:
+          PF_SUPABASE_URL: ${{ secrets.PF_SUPABASE_URL }}
+          PF_SERVICE_ROLE_KEY: ${{ secrets.PF_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$PF_SUPABASE_URL" || { echo "PF_SUPABASE_URL belum diisi"; exit 1; }
+          test -n "$PF_SERVICE_ROLE_KEY" || { echo "PF_SERVICE_ROLE_KEY belum diisi"; exit 1; }
+          RESP=$(curl -sS -w "\n%{http_code}" -X POST "$PF_SUPABASE_URL/rest/v1/rpc/pf_bersihkan_data_lama" \
+            -H "apikey: $PF_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $PF_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "$RESP"
+          CODE=$(echo "$RESP" | tail -1)
+          test "$CODE" = "200" || { echo "RPC gagal (HTTP $CODE)"; exit 1; }

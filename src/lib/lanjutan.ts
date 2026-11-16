@@ -8,6 +8,8 @@ import { cobaServiceClient } from "@/lib/supabase/service";
 import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import { tanggalWibHariIni } from "@/lib/rutin";
 import type { PfArtikelRingkas } from "@/lib/data";
+import type { JenisSoalKuis } from "@/lib/akademi/penilaian";
+import { jenisSoalKuisDari } from "@/lib/akademi/penilaian";
 
 /* ============================================================
    Tipe
@@ -86,6 +88,9 @@ export type PfKuisSoal = {
   pertanyaan: string;
   opsi: string[];
   kunci: number;
+  /** Jenis soal kuis (B2-B, H2–H6; default 'pilihan_ganda' bila
+   *  kolom v14 belum ada). */
+  jenis: JenisSoalKuis;
   penjelasan: string | null;
   sumber_url: string | null;
   sumber_nama: string | null;
@@ -680,16 +685,38 @@ export async function getKuisHarian(tanggal: string): Promise<PfKuisSoal[]> {
       "Layanan kuis belum tersedia (kunci layanan belum diatur).",
     );
   }
+  // B2-B: kolom `jenis` (v14) dibaca bila ada; bila migrasi v14
+  // belum dijalankan, PostgREST menjawab PGRST204 dan fungsi
+  // mundur ke select tanpa jenis (semua soal dianggap
+  // pilihan_ganda) — kuis lama tetap jalan.
+  const KOLOM_SOAL =
+    "id, tanggal, pertanyaan, opsi, penjelasan, sumber_url, sumber_nama, artikel_id, jenis";
+  const KOLOM_SOAL_LAMA =
+    "id, tanggal, pertanyaan, opsi, penjelasan, sumber_url, sumber_nama, artikel_id";
   let data: unknown;
   try {
-    const { data: soal, error } = await service
-      .from("pf_quiz_questions")
-      .select(
-        "id, tanggal, pertanyaan, opsi, penjelasan, sumber_url, sumber_nama, artikel_id",
-      )
-      .eq("tanggal", tanggal)
-      .order("id", { ascending: true })
-      .limit(5);
+    // Anotasi longgar: dua select (dengan/tanpa kolom jenis) punya
+    // tipe respons berbeda menurut supabase-js; yang dipakai hanya
+    // data + kode galat.
+    let soalRes: { data: unknown; error: { code?: string } | null } =
+      await service
+        .from("pf_quiz_questions")
+        .select(KOLOM_SOAL)
+        .eq("tanggal", tanggal)
+        .order("id", { ascending: true })
+        .limit(5);
+    if (
+      soalRes.error &&
+      (soalRes.error as { code?: string }).code === "PGRST204"
+    ) {
+      soalRes = await service
+        .from("pf_quiz_questions")
+        .select(KOLOM_SOAL_LAMA)
+        .eq("tanggal", tanggal)
+        .order("id", { ascending: true })
+        .limit(5);
+    }
+    const { data: soal, error } = soalRes;
     if (error) {
       if (catatGalatBaca("getKuisHarian", error)) return [];
       throw new GalatBaca("getKuisHarian", error);
@@ -753,6 +780,7 @@ export async function getKuisHarian(tanggal: string): Promise<PfKuisSoal[]> {
       pertanyaan: String(r.pertanyaan ?? ""),
       opsi,
       kunci,
+      jenis: jenisSoalKuisDari(r.jenis),
       penjelasan: (r.penjelasan as string | null) ?? null,
       sumber_url: (r.sumber_url as string | null) ?? null,
       sumber_nama: (r.sumber_nama as string | null) ?? null,

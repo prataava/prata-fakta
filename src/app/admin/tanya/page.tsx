@@ -21,6 +21,9 @@ type Pertanyaan = {
   publik: boolean;
   membantu: number;
   dibuat_pada: string | null;
+  jawaban_draf: string | null;
+  referensi_draf: Referensi[];
+  draf_dibuat_pada: string | null;
 };
 
 const KATEGORI = ["umum", "ekonomi", "dunia", "indonesia", "sains", "teknologi"];
@@ -50,6 +53,10 @@ export default function AdminTanya() {
   const [galat, setGalat] = useState<string | null>(null);
   const [filter, setFilter] = useState("semua");
   const [jawaban, setJawaban] = useState<Record<string, string>>({});
+  // Draf jawaban dari job /api/tanya/draf (B2-E, F1): editor bisa
+  // menyunting, menyetujui (menjadi jawaban resmi), atau menolak.
+  // Draf TIDAK PERNAH terbit sendiri.
+  const [draf, setDraf] = useState<Record<string, string>>({});
   const [refJudul, setRefJudul] = useState<Record<string, string>>({});
   const [refUrl, setRefUrl] = useState<Record<string, string>>({});
   const [kategori, setKategori] = useState<Record<string, string>>({});
@@ -151,6 +158,23 @@ export default function AdminTanya() {
     void kirimPatch(id, { status: "tidak_ada_data" });
   }
 
+  function setujuiDraf(id: string) {
+    void kirimPatch(id, { aksi_draf: "setujui" });
+  }
+
+  function tolakDraf(id: string) {
+    void kirimPatch(id, { aksi_draf: "tolak" });
+  }
+
+  function simpanEditDraf(id: string) {
+    const d = (draf[id] ?? "").trim();
+    if (!d) {
+      setPesan((p) => ({ ...p, [id]: "Draf kosong — isi draf atau tekan Tolak draf." }));
+      return;
+    }
+    void kirimPatch(id, { jawaban_draf: d });
+  }
+
   return (
     <section className="seksi" aria-labelledby="judul-admin-tanya">
       <div className="seksi-kepala">
@@ -159,7 +183,9 @@ export default function AdminTanya() {
           Pertanyaan pembaca yang belum terjawab. Jawab dengan referensi
           yang sudah ada di PRATA FAKTA — jangan mengarang. Bila tidak
           ada data yang bisa menjawab, tolak sebagai tidak_ada_data.
-          Dijawab Muse/editor — tanpa jawaban otomatis instan.
+          Dijawab Muse/editor — tanpa jawaban otomatis instan. Draf
+          dari job terjadwal hanya usulan: draf TIDAK PERNAH menjadi
+          jawaban resmi sebelum editor menekan &quot;Setujui draf&quot;.
         </p>
       </div>
 
@@ -194,6 +220,25 @@ export default function AdminTanya() {
               </span>
               <span className="kartu-judul">{q.pertanyaan}</span>
               {q.jawaban && <span className="kartu-teks">{q.jawaban}</span>}
+              {q.jawaban_draf && (
+                <span className="kartu-teks">
+                  <strong>DRAF (menunggu review — bukan jawaban resmi):</strong>{" "}
+                  {q.jawaban_draf}
+                  {q.referensi_draf && q.referensi_draf.length > 0 && (
+                    <>
+                      {" "}
+                      Referensi draf:{" "}
+                      {q.referensi_draf.map((r, i) => (
+                        <span key={`${r.url ?? r.judul ?? i}-${i}`}>
+                          {i > 0 ? " · " : ""}
+                          {r.url ? <a href={r.url}>{r.judul ?? r.url}</a> : (r.judul ?? "Referensi")}
+                        </span>
+                      ))}
+                    </>
+                  )}
+                  {q.draf_dibuat_pada && <> (dibuat {formatTanggal(q.draf_dibuat_pada)})</>}
+                </span>
+              )}
               {q.referensi.length > 0 && (
                 <span className="kartu-teks">
                   Referensi:{" "}
@@ -282,6 +327,26 @@ export default function AdminTanya() {
                   >
                     Simpan jawaban
                   </button>{" "}
+                  {q.jawaban_draf && q.status === "menunggu" && (
+                    <>
+                      <button
+                        type="button"
+                        className="tombol tombol-primer"
+                        disabled={sibuk}
+                        onClick={() => setujuiDraf(q.id)}
+                      >
+                        Setujui draf
+                      </button>{" "}
+                      <button
+                        type="button"
+                        className="tombol"
+                        disabled={sibuk}
+                        onClick={() => tolakDraf(q.id)}
+                      >
+                        Tolak draf
+                      </button>{" "}
+                    </>
+                  )}
                   <button
                     type="button"
                     className="tombol"
@@ -299,6 +364,30 @@ export default function AdminTanya() {
                     Tolak (tidak ada data)
                   </button>
                 </span>
+                {q.jawaban_draf && q.status === "menunggu" && (
+                  <label>
+                    Edit draf (tetap draf — tidak mempublikasikan)
+                    <textarea
+                      value={draf[q.id] ?? q.jawaban_draf ?? ""}
+                      onChange={(e) =>
+                        setDraf((v) => ({ ...v, [q.id]: e.target.value }))
+                      }
+                      rows={3}
+                      maxLength={2000}
+                      placeholder="Sunting draf sebelum disetujui…"
+                    />
+                    <span>
+                      <button
+                        type="button"
+                        className="tombol"
+                        disabled={sibuk}
+                        onClick={() => simpanEditDraf(q.id)}
+                      >
+                        Simpan edit draf
+                      </button>
+                    </span>
+                  </label>
+                )}
                 {pesan[q.id] && (
                   <span className="kartu-meta" role="status">
                     {pesan[q.id]}

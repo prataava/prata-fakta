@@ -26,6 +26,18 @@ type RunIngestion = {
   dipicu_oleh: string;
 };
 
+// Galat aplikasi dari tabel sendiri (Gelombang B2-D, D1):
+// ditulis lib/analytics/galat.ts oleh responGalatAdmin + route
+// baru; TIDAK PERNAH berisi isi pribadi pengguna.
+type GalatAplikasi = {
+  id: string;
+  sumber: string;
+  pesan: string;
+  kode: string | null;
+  rute: string | null;
+  dibuat_pada: string;
+};
+
 async function hitung(
   supabase: Awaited<ReturnType<typeof createClient>>,
   tabel: string,
@@ -45,6 +57,10 @@ export default async function AdminMonitoring() {
   let runs: RunIngestion[] = [];
   let antrean: Record<string, number> = {};
   let totalItem = 0;
+  // Galat aplikasi: kegagalan membaca tabel v14 TIDAK menggagalkan
+  // seluruh halaman (bagian ingestion tetap tampil).
+  let galatTersedia = true;
+  let galat: GalatAplikasi[] = [];
   try {
     const supabase = await createClient();
     const { data: dataRuns, error: errRuns } = await supabase
@@ -79,6 +95,20 @@ export default async function AdminMonitoring() {
       } else {
         antrean = { baru, duplikat, ditolak, disalin_dari: disalin };
         totalItem = total;
+      }
+    }
+    // Galat aplikasi (v14) — dibaca terpisah agar ketiadaannya
+    // tidak menutup monitoring ingestion.
+    if (tersedia) {
+      const { data: dataGalat, error: errGalat } = await supabase
+        .from("pf_app_errors")
+        .select("id,sumber,pesan,kode,rute,dibuat_pada")
+        .order("dibuat_pada", { ascending: false })
+        .limit(20);
+      if (errGalat) {
+        galatTersedia = false;
+      } else {
+        galat = (dataGalat ?? []) as GalatAplikasi[];
       }
     }
   } catch {
@@ -168,6 +198,53 @@ export default async function AdminMonitoring() {
               ))}
           </ul>
         )}
+      </section>
+
+      <section className="seksi" aria-labelledby="judul-galat">
+        <div className="seksi-kepala">
+          <h2 id="judul-galat">Galat Aplikasi (DB sendiri)</h2>
+        </div>
+        {!galatTersedia ? (
+          <p className="artikel-meta-kecil">
+            Log galat belum aktif — tabel pf_app_errors tidak dapat
+            dibaca (migrasi v14 belum dijalankan). Galat admin saat ini
+            hanya tercatat di log server (console), bukan di database.
+          </p>
+        ) : galat.length === 0 ? (
+          <p className="artikel-meta-kecil">
+            Belum ada galat aplikasi tercatat di database.
+          </p>
+        ) : (
+          <div className="tabel-gulir">
+            <table className="tabel-data">
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Sumber</th>
+                  <th>Pesan</th>
+                  <th>Kode</th>
+                  <th>Rute</th>
+                </tr>
+              </thead>
+              <tbody>
+                {galat.map((g) => (
+                  <tr key={g.id}>
+                    <td>{formatWaktu(g.dibuat_pada)}</td>
+                    <td>{g.sumber}</td>
+                    <td>{g.pesan}</td>
+                    <td>{g.kode ?? "—"}</td>
+                    <td>{g.rute ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="artikel-meta-kecil">
+          20 galat terbaru. Baris lebih tua dari 90 hari dihapus
+          (retensi v14). Log ini tidak pernah berisi isi pribadi
+          pengguna.
+        </p>
       </section>
     </>
   );

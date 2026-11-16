@@ -3,11 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
 import DaftarPelajaran from "@/components/akademi/DaftarPelajaran";
+import TombolSertifikat from "@/components/akademi/TombolSertifikat";
 import {
   getKursusDetail,
   getProgresPengguna,
+  getRiwayatNilaiPerSoal,
+  getStatusKelulusan,
   type PfProgresPelajaran,
+  type RiwayatNilaiSoal,
 } from "@/lib/akademi";
+import { getSertifikatPengguna } from "@/lib/akademi/sertifikat";
 import { labelTingkat } from "@/lib/explainer";
 import { getKuisHarian, KuisBelumTersediaError, type PfKuisSoalPublik } from "@/lib/lanjutan";
 import { createClient } from "@/lib/supabase/server";
@@ -52,6 +57,9 @@ export default async function AkademiDetail({
   // membaca materi tetapi progres tidak tersimpan.
   let masuk = false;
   let progres: Record<string, PfProgresPelajaran> = {};
+  let riwayatKuis: Record<string, RiwayatNilaiSoal[]> = {};
+  let statusKelulusan: Awaited<ReturnType<typeof getStatusKelulusan>> = null;
+  let kodeSertifikat: string | null = null;
   try {
     const supabase = await createClient();
     const { data } = await supabase.auth.getUser();
@@ -62,6 +70,24 @@ export default async function AkademiDetail({
       );
       const peta = await getProgresPengguna(data.user.id, lessonIds);
       progres = Object.fromEntries(peta.entries());
+      const kuisIds = detail.modul.flatMap((m) =>
+        m.pelajaran.filter((p) => p.jenis === "kuis").map((p) => p.id),
+      );
+      const petaRiwayat = await getRiwayatNilaiPerSoal(
+        data.user.id,
+        kuisIds,
+      );
+      riwayatKuis = Object.fromEntries(petaRiwayat.entries());
+      // Kelulusan + sertifikat (B2): dihitung server dari data
+      // nyata — tombol sertifikat hanya tampil bila lulus.
+      statusKelulusan = await getStatusKelulusan(data.user.id, slug);
+      if (statusKelulusan) {
+        const sertifikat = await getSertifikatPengguna(
+          data.user.id,
+          statusKelulusan.course_id,
+        );
+        kodeSertifikat = sertifikat?.kode_verifikasi ?? null;
+      }
     }
   } catch {
     masuk = false;
@@ -110,6 +136,7 @@ export default async function AkademiDetail({
         tanggal: s.tanggal,
         pertanyaan: s.pertanyaan,
         opsi: s.opsi,
+        jenis: s.jenis,
         penjelasan: s.penjelasan,
         sumber_url: s.sumber_url,
         sumber_nama: s.sumber_nama,
@@ -154,6 +181,28 @@ export default async function AkademiDetail({
         </section>
       )}
 
+      {masuk && statusKelulusan && (
+        <section className="seksi" aria-labelledby="judul-sertifikat">
+          <div className="seksi-kepala">
+            <h2 id="judul-sertifikat">Sertifikat penyelesaian</h2>
+            <p>
+              {`Pelajaran selesai ${statusKelulusan.kelulusan.persen_pelajaran}% · `}
+              {statusKelulusan.kelulusan.rata_rata_kuis === null
+                ? "Belum ada skor kuis yang dinilai"
+                : `Rata-rata skor kuis ${statusKelulusan.kelulusan.rata_rata_kuis}`}
+              {statusKelulusan.kelulusan.skor_kuis_akhir !== null &&
+                ` · Skor kuis akhir ${statusKelulusan.kelulusan.skor_kuis_akhir}`}
+            </p>
+          </div>
+          <TombolSertifikat
+            courseId={statusKelulusan.course_id}
+            kodeAda={kodeSertifikat}
+            lulus={statusKelulusan.kelulusan.lulus}
+            alasan={statusKelulusan.kelulusan.alasan}
+          />
+        </section>
+      )}
+
       {detail.total_pelajaran === 0 ? (
         <section className="seksi">
           <EmptyState
@@ -166,6 +215,7 @@ export default async function AkademiDetail({
           detail={detail}
           progresAwal={progres}
           soalKuis={soalKuis}
+          riwayatKuis={riwayatKuis}
           masuk={masuk}
         />
       )}

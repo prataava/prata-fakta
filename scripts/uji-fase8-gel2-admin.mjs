@@ -669,10 +669,12 @@ cek(
 );
 const analitik = bacaRepo("src/app/admin/analitik/page.tsx");
 cek(
-  "analitik: jujur 'Belum tersedia' tanpa angka palsu",
-  analitik.includes("Belum tersedia") &&
-    analitik.includes("TIDAK menampilkan angka") &&
-    !/pengunjung: \d|kunjungan: \d/.test(analitik),
+  "analitik: angka nyata dari DB sendiri; bila v14 belum ada, jujur 'belum tersedia' tanpa angka contoh (B2-D)",
+  analitik.includes("pf_kunjungan_harian") &&
+    analitik.includes("pf_kunjungan_jalur") &&
+    analitik.includes("Angka nyata dari tabel pf_kunjungan") &&
+    analitik.includes("Analitik belum tersedia") &&
+    analitik.includes("TIDAK menampilkan angka contoh"),
 );
 cek(
   "kualitas: jujur 'belum tersedia' bila tanpa run editorial_quality",

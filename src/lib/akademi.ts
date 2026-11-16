@@ -8,6 +8,11 @@
 // empty state jujur.
 import { createClient } from "@/lib/supabase/server";
 import type { PfReferensi } from "@/lib/lanjutan";
+import {
+  cekKelulusan,
+  hitungSkorKuis,
+  type HasilKelulusan,
+} from "@/lib/akademi/penilaian";
 
 export type TingkatKursus = "pemula" | "menengah" | "mendalam";
 export type JenisPelajaran = "materi" | "artikel" | "kuis";
@@ -401,4 +406,106 @@ export async function getProgresPerKursus(
   } catch {
     return hasil;
   }
+}
+
+/* ============================================================
+   Gelombang B2-B: riwayat nilai per soal (H6) + status
+   kelulusan (B1). Semua angka dari data nyata (pf_quiz_user_
+   answers + pf_course_progress); skor TIDAK PERNAH dari klien.
+   ============================================================ */
+
+export type RiwayatNilaiSoal = {
+  soal_id: string;
+  /** true/false bila sudah dinilai; null bila esai menunggu. */
+  benar: boolean | null;
+  status_penilaian: "otomatis" | "menunggu_penilaian" | "dinilai";
+  jenis: string;
+};
+
+/**
+ * Riwayat nilai per soal untuk daftar pelajaran kuis (H6):
+ * lesson_id → jawaban tersimpan per soal (terbaru per soal —
+ * satu baris per (pengguna, pelajaran, soal)). Hanya milik
+ * pengguna itu sendiri (RLS). Map kosong bila tabel v14 belum
+ * ada / belum ada jawaban.
+ */
+export async function getRiwayatNilaiPerSoal(
+  userId: string,
+  lessonIds: string[],
+): Promise<Map<string, RiwayatNilaiSoal[]>> {
+  const hasil = new Map<string, RiwayatNilaiSoal[]>();
+  if (lessonIds.length === 0) return hasil;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("pf_quiz_user_answers")
+      .select("lesson_id, soal_id, benar, status_penilaian, jenis")
+      .eq("user_id", userId)
+      .in("lesson_id", lessonIds);
+    if (error || !data) return hasil;
+    for (const r of data as unknown as Record<string, unknown>[]) {
+      const lessonId = String(r.lesson_id ?? "");
+      if (!lessonId) continue;
+      const status =
+        r.status_penilaian === "menunggu_penilaian" ||
+        r.status_penilaian === "dinilai"
+          ? (r.status_penilaian as RiwayatNilaiSoal["status_penilaian"])
+          : "otomatis";
+      const daftar = hasil.get(lessonId) ?? [];
+      daftar.push({
+        soal_id: String(r.soal_id ?? ""),
+        benar: typeof r.benar === "boolean" ? r.benar : null,
+        status_penilaian: status,
+        jenis: String(r.jenis ?? "pilihan_ganda"),
+      });
+      hasil.set(lessonId, daftar);
+    }
+    return hasil;
+  } catch {
+    return hasil;
+  }
+}
+
+/**
+ * Status kelulusan pengguna untuk satu kursus TERBIT (B1):
+ * dihitung server dari struktur kursus + progres + jawaban
+ * tersimpan. null bila kursus tidak ada / tabel belum ada.
+ * Pemanggil (halaman kursus) memakai ini untuk menampilkan
+ * tombol sertifikat hanya bila lulus.
+ */
+export async function getStatusKelulusan(
+  userId: string,
+  slug: string,
+): Promise<{ course_id: string; kelulusan: HasilKelulusan } | null> {
+  const detail = await getKursusDetail(slug);
+  if (!detail) return null;
+  const semuaPelajaran = detail.modul.flatMap((m) =>
+    m.pelajaran.map((p) => ({
+      ...p,
+      urutan_modul: m.modul.urutan,
+    })),
+  );
+  const lessonIds = semuaPelajaran.map((p) => p.id);
+  const [progres, riwayat] = await Promise.all([
+    getProgresPengguna(userId, lessonIds),
+    getRiwayatNilaiPerSoal(
+      userId,
+      semuaPelajaran.filter((p) => p.jenis === "kuis").map((p) => p.id),
+    ),
+  ]);
+  const kelulusan = cekKelulusan({
+    total_pelajaran: semuaPelajaran.length,
+    pelajaran_selesai: semuaPelajaran.filter(
+      (p) => progres.get(p.id)?.selesai === true,
+    ).length,
+    skor_kuis: semuaPelajaran
+      .filter((p) => p.jenis === "kuis")
+      .map((p) => ({
+        lesson_id: p.id,
+        urutan_modul: p.urutan_modul,
+        urutan_pelajaran: p.urutan,
+        persen: hitungSkorKuis(riwayat.get(p.id) ?? []).persen,
+      })),
+  });
+  return { course_id: detail.kursus.id, kelulusan };
 }

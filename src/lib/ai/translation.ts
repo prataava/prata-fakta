@@ -5,6 +5,17 @@
 // Muse (cron/chat)'} dan run dicatat 'dilewati', supaya terjemahan
 // dikerjakan Muse lewat cron/chat. Teks Indonesia dilewati dengan
 // alasan 'tidak diperlukan'.
+//
+// GELOMBANG B2-E (G2): terjemahan mesin NYATA kini tersedia lewat
+// MyMemory (src/lib/terjemahan/mymemory.ts) — dipakai pipeline
+// langkah translation HANYA untuk judul item Inggris nyata (bukan
+// ringkasan/isi, demi kuota harian anonim 5.000 karakter). Hasil
+// disimpan sebagai draf terpisah di metadata item
+// (metadata.terjemahan.judul_id + atribusi) — teks asli TIDAK
+// PERNAH ditimpa. Gagal MyMemory → item tetap 'dilewati' dengan
+// alasan jujur (lihat cobaTerjemahkanJudul di bawah).
+import { terjemahkanEnKeId } from "../terjemahan/mymemory.ts";
+import type { HasilTerjemahanMyMemory } from "../terjemahan/mymemory.ts";
 
 export interface HasilTerjemahan {
   diperlukan: boolean;
@@ -101,4 +112,19 @@ export function periksaTerjemahan(
     alasan: "menunggu terjemahan Muse (cron/chat)",
     bahasa: "tidak_diketahui",
   };
+}
+
+/**
+ * Terjemahkan JUDUL item Inggris nyata via MyMemory (B2-E, G2).
+ * Hanya dipanggil pipeline bila periksaTerjemahan mengembalikan
+ * bahasa 'en'. TIDAK PERNAH melempar dan TIDAK PERNAH mengarang:
+ * gagal → { ok: false, ... } dan pemanggil mencatat 'dilewati'
+ * dengan alasan jujur. Email MyMemory (kuota 50.000/hari) hanya
+ * dari env MYMEMORY_EMAIL — tidak ada secret di repo.
+ */
+export async function cobaTerjemahkanJudul(
+  judul: string,
+): Promise<HasilTerjemahanMyMemory> {
+  const email = process.env.MYMEMORY_EMAIL?.trim() || undefined;
+  return terjemahkanEnKeId(judul, { email });
 }

@@ -95,12 +95,13 @@ if (ok) ok = await jalankan("v5", baca("20261116_pf_v5_editorial.sql"));
 if (ok) ok = await jalankan("v6", baca("20261116_pf_v6_advanced.sql"));
 if (ok) ok = await jalankan("v7 putaran 1", baca("20261116_pf_v7_quiz_scores.sql"));
 if (ok) ok = await jalankan("v7 putaran 2 (idempotensi)", baca("20261116_pf_v7_quiz_scores.sql"));
-// v8 (Fase 8 Gelombang 1) + v9–v13 diterapkan di sini agar baterai
-// ini menguji skrip backup terhadap skema repo saat ini (55 tabel):
-// backup-pf.mjs mendaftar 55 tabel pasca-v13, jadi DB uji harus
-// v1–v13 — bukan v1–v8 — supaya perbandingan daftar = DB jujur.
+// v8 (Fase 8 Gelombang 1) + v9–v14 diterapkan di sini agar baterai
+// ini menguji skrip backup terhadap skema repo saat ini (61 tabel):
+// backup-pf.mjs mendaftar 61 tabel pasca-v14, jadi DB uji harus
+// v1–v14 — bukan v1–v8 — supaya perbandingan daftar = DB jujur.
 // (Diperbarui Gelombang B1: v9 GRANT, v10 16 tabel, v11 limiter,
-//  v12 seed 5 job, v13 pf_quiz_answers + GRANT service_role.)
+//  v12 seed 5 job, v13 pf_quiz_answers + GRANT service_role;
+//  Gelombang B2: v14 +6 tabel.)
 if (ok) ok = await jalankan("v8 putaran 1", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v8 putaran 2 (idempotensi)", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v9", baca("20261116_pf_v9_grants.sql"));
@@ -108,6 +109,7 @@ if (ok) ok = await jalankan("v10", baca("20261116_pf_v10_wave2.sql"));
 if (ok) ok = await jalankan("v11", baca("20261116_pf_v11_rate_limit_audit.sql"));
 if (ok) ok = await jalankan("v12", baca("20261116_pf_v12_seed_jobs.sql"));
 if (ok) ok = await jalankan("v13", baca("20261116_pf_v13_ultimate.sql"));
+if (ok) ok = await jalankan("v14", baca("20261116_pf_v14_gelombang_b2.sql"));
 if (!ok) {
   console.log("HASIL: MIGRASI GAGAL");
   process.exit(1);
@@ -117,31 +119,31 @@ const hitung = async (sql, params = []) =>
   Number((await db.query(sql, params)).rows[0].n);
 
 cek(
-  "tabel pf_* = 55",
+  "tabel pf_* = 61",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%'`,
-  )) === 55,
-  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences) + 16 (v10) + 1 (v11: pf_rate_limits) + 1 (v13: pf_quiz_answers)",
+  )) === 61,
+  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences) + 16 (v10) + 1 (v11: pf_rate_limits) + 1 (v13: pf_quiz_answers) + 6 (v14)",
 );
 cek(
-  "RLS 55/55",
+  "RLS 61/61",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
-  )) === 55,
+  )) === 61,
 );
 cek(
-  "policy total = 107",
+  "policy total = 119",
   (await hitung(
     `select count(*) n from pg_policies where schemaname='public' and tablename like 'pf_%'`,
-  )) === 107,
-  "79 (v1-v8) + 27 (v10) + 1 (v13: arsip Q&A publik)",
+  )) === 119,
+  "79 (v1-v8) + 27 (v10) + 1 (v13: arsip Q&A publik) + 12 (v14)",
 );
 cek(
-  "policy pf_quiz_scores = 3",
+  "policy pf_quiz_scores = 4",
   (await hitung(
     `select count(*) n from pg_policies where schemaname='public' and tablename='pf_quiz_scores'`,
-  )) === 3,
-  "baca pemilik, tambah pemilik, ubah pemilik",
+  )) === 4,
+  "baca pemilik, tambah pemilik, ubah pemilik, hapus pemilik (v14)",
 );
 
 // ---------- Skenario pf_quiz_scores ----------
@@ -323,11 +325,11 @@ cek(
   bacaRepo("src/components/peta/PetaDuniaLazy.tsx").includes("leaflet/dist/leaflet.css"),
 );
 
-// Skrip backup mencakup semua 55 tabel (pasca-v13).
+// Skrip backup mencakup semua 61 tabel (pasca-v14).
 const backup = bacaRepo("scripts/backup-pf.mjs");
 const daftarTabel = [...backup.matchAll(/"(pf_[a-z_]+)"/g)].map((m) => m[1]);
 const unikTabel = [...new Set(daftarTabel)];
-cek("backup: 55 tabel unik", unikTabel.length === 55, `${unikTabel.length} ditemukan`);
+cek("backup: 61 tabel unik", unikTabel.length === 61, `${unikTabel.length} ditemukan`);
 const tabelDb = (
   await db.query(
     `select tablename from pg_tables where schemaname='public' and tablename like 'pf_%'`,

@@ -1,23 +1,37 @@
 // POST /api/akademi/progres — tandai satu pelajaran selesai
-// (login saja). Body: { lesson_id: UUID, selesai: boolean,
-// skor?: number | null } — skor hanya untuk pelajaran kuis
-// (jumlah jawaban benar). Rate limit 20/menit/IP. RLS v10
-// memastikan pelajaran hanya bisa ditandai bila kursusnya terbit:
-// pelajaran dibaca dulu lewat session client; bila tidak terbaca
-// (draf / tidak ada) dijawab 404. Upsert satu baris per
-// (pengguna, pelajaran). 503 jujur bila tabel v10 belum ada.
+// (login saja). Body: { lesson_id: UUID, selesai: boolean }.
+// PERUBAHAN KEAMANAN Gelombang B2-B (L-B1 / Addendum I-4):
+// body TIDAK LAGI menerima `skor` — skor mentah dari klien
+// (0–100) adalah celah pemalsuan sertifikat (satu POST skor 100
+// tanpa menjawab kuis). Bila body mengandung `skor` non-null,
+// permintaan DITOLAK 400. Skor dihitung SERVER dari jawaban
+// tersimpan pengguna di pf_quiz_user_answers (v14):
+// - pelajaran kuis: skor = jumlah jawaban benar (benar = true)
+//   yang tersimpan untuk pelajaran itu; selesai=true DITOLAK
+//   bila belum ada satu pun jawaban tersimpan.
+// - pelajaran non-kuis (materi/artikel): skor selalu null.
+// Pertahanan berlapis di database: trigger v14
+// pf_course_progress_skor_server menghitung ulang skor yang
+// sama pada setiap INSERT/UPDATE (dan memaksa null untuk
+// non-kuis) — menulis langsung lewat REST pun tidak bisa
+// memalsukan skor. Rate limit 20/menit/IP. RLS v10 memastikan
+// pelajaran hanya bisa ditandai bila kursusnya terbit: pelajaran
+// dibaca dulu lewat session client; bila tidak terbaca (draf /
+// tidak ada) dijawab 404. Upsert satu baris per (pengguna,
+// pelajaran). 503 jujur bila tabel v10/v14 belum ada.
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const lolosRateLimit = buatRateLimiter(20);
+const lolosRateLimit = buatRateLimiterKeras(20);
 
 /** Validasi murni body permintaan (diekspos untuk uji). */
 export function validasiProgres(
@@ -27,7 +41,6 @@ export function validasiProgres(
       ok: true;
       lessonId: string;
       selesai: boolean;
-      skor: number | null;
     }
   | { ok: false; error: string } {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -40,23 +53,48 @@ export function validasiProgres(
   if (typeof selesai !== "boolean") {
     return { ok: false, error: "selesai harus boolean." };
   }
-  let skorValid: number | null = null;
+  // Skor dari klien TIDAK PERNAH diterima lagi (I-4): skor
+  // dihitung server dari jawaban tersimpan. `skor: null` atau
+  // tidak ada kunci skor masih diterima (kompatibel dengan klien
+  // lama yang mengirim null); angka apa pun ditolak tegas.
   if (skor !== undefined && skor !== null) {
-    if (
-      typeof skor !== "number" ||
-      !Number.isInteger(skor) ||
-      skor < 0 ||
-      skor > 100
-    ) {
-      return { ok: false, error: "Skor harus bilangan bulat 0 sampai 100." };
-    }
-    skorValid = skor;
+    return {
+      ok: false,
+      error:
+        "Skor dihitung server dari jawaban kuis tersimpan — skor dari klien tidak diterima.",
+    };
   }
-  return { ok: true, lessonId: lesson_id, selesai, skor: skorValid };
+  return { ok: true, lessonId: lesson_id, selesai };
+}
+
+/**
+ * Hitung skor server-side satu pelajaran kuis dari jawaban
+ * tersimpan (diekspos untuk uji): jumlah jawaban benar.
+ * `ambilJawaban` mengembalikan null bila tabel jawaban belum ada
+ * (PGRST205) agar pemanggil bisa menjawab 503 jujur; melempar
+ * bila baca gagal karena galat lain.
+ */
+export async function hitungSkorProgres(
+  ambilJawaban: (
+    userId: string,
+    lessonId: string,
+  ) => Promise<{ benar: boolean | null }[] | null>,
+  userId: string,
+  lessonId: string,
+): Promise<{ skor: number; jumlahJawaban: number } | null> {
+  const daftar = await ambilJawaban(userId, lessonId);
+  if (daftar === null) return null;
+  return {
+    skor: daftar.filter((r) => r.benar === true).length,
+    jumlahJawaban: daftar.length,
+  };
 }
 
 export async function POST(req: Request) {
-  if (!(await lolosRateLimit(req))) return responRateLimit();
+  const hasilRateLimit = await lolosRateLimit(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const supabase = await createClient();
   const {
@@ -91,9 +129,10 @@ export async function POST(req: Request) {
 
   // Defense-in-depth: pelajaran hanya terbaca lewat RLS bila
   // kursusnya terbit — pelajaran draf/tidak ada dijawab 404.
+  // Jenis pelajaran menentukan apakah skor dihitung dari jawaban.
   const { data: pelajaran, error: errPelajaran } = await supabase
     .from("pf_course_lessons")
-    .select("id")
+    .select("id, jenis")
     .eq("id", valid.lessonId)
     .maybeSingle();
   if (errPelajaran) {
@@ -118,6 +157,60 @@ export async function POST(req: Request) {
       { status: 404 },
     );
   }
+  const jenis = String((pelajaran as { jenis?: unknown }).jenis ?? "materi");
+
+  // Skor server-side: hanya pelajaran kuis yang punya skor,
+  // dihitung dari jawaban tersimpan (bukan dari body).
+  let skor: number | null = null;
+  if (jenis === "kuis") {
+    let hitung: { skor: number; jumlahJawaban: number } | null;
+    try {
+      hitung = await hitungSkorProgres(
+        async (uid: string, lid: string) => {
+          const { data, error } = await supabase
+            .from("pf_quiz_user_answers")
+            .select("benar")
+            .eq("user_id", uid)
+            .eq("lesson_id", lid);
+          if (error) {
+            if ((error as { code?: string }).code === "PGRST205") {
+              return null;
+            }
+            throw error;
+          }
+          return (data ?? []) as { benar: boolean | null }[];
+        },
+        user.id,
+        valid.lessonId,
+      );
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "Gagal menghitung skor kuis. Coba lagi." },
+        { status: 500 },
+      );
+    }
+    if (hitung === null) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Layanan akademi belum aktif (tabel jawaban belum dibuat — jalankan migrasi v14).",
+        },
+        { status: 503 },
+      );
+    }
+    if (valid.selesai && hitung.jumlahJawaban === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Jawab dulu kuis pelajaran ini — pelajaran kuis tidak bisa ditandai selesai tanpa jawaban tersimpan.",
+        },
+        { status: 409 },
+      );
+    }
+    skor = hitung.skor;
+  }
 
   const { data, error } = await supabase
     .from("pf_course_progress")
@@ -126,7 +219,7 @@ export async function POST(req: Request) {
         user_id: user.id,
         lesson_id: valid.lessonId,
         selesai: valid.selesai,
-        skor: valid.skor,
+        skor,
       },
       { onConflict: "user_id,lesson_id" },
     )

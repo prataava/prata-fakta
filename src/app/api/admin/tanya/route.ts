@@ -51,7 +51,7 @@ export async function GET(req: Request) {
     let query = service
       .from("pf_questions")
       .select(
-        "id, user_id, pertanyaan, jawaban, referensi, status, kategori, publik, membantu, dibuat_pada, dijawab_pada",
+        "id, user_id, pertanyaan, jawaban, referensi, status, kategori, publik, membantu, dibuat_pada, dijawab_pada, jawaban_draf, referensi_draf, draf_dibuat_pada",
       )
       .order("dibuat_pada", { ascending: false })
       .limit(100);

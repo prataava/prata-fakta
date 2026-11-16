@@ -507,16 +507,16 @@ cek(
     bacaRepo("src/lib/podcast.ts").includes('"Audio rekaman"'),
 );
 cek(
-  "halaman podcast menyatakan batas audio + tanpa RSS",
-  bacaRepo("src/app/podcast/page.tsx").includes("belum ada feed RSS") &&
-    bacaRepo("src/app/podcast/page.tsx").includes("belum ada unduhan MP3"),
+  "halaman podcast menautkan feed RSS + menyatakan batas TTS server jujur (B2-C)",
+  bacaRepo("src/app/podcast/page.tsx").includes("/podcast.xml") &&
+    bacaRepo("src/app/podcast/page.tsx").includes("enclosure") &&
+    bacaRepo("src/app/podcast/page.tsx").includes("BELUM BISA"),
 );
 cek(
-  "TIDAK ada RSS podcast enclosure (tanpa file audio — jangan klaim)",
-  !fs.existsSync(`${DIR_REPO}/src/app/podcast/rss.xml`) &&
-    !fs.existsSync(`${DIR_REPO}/src/app/api/podcast/rss`) &&
-    !bacaRepo("src/app/api/podcast/route.ts").includes("<enclosure") &&
-    !bacaRepo("src/app/podcast/page.tsx").includes("<enclosure"),
+  "RSS podcast ada di /podcast.xml; enclosure HANYA bila audio_url absolut (B2-C)",
+  fs.existsSync(`${DIR_REPO}/src/app/podcast.xml/route.ts`) &&
+    bacaRepo("src/lib/podcast/rss.ts").includes("<enclosure") &&
+    bacaRepo("src/lib/podcast/rss.ts").includes("if (!urlAudioAbsolut(ep.audio_url)) return null"),
 );
 cek(
   "admin podcast: audio_url opsional + validasi brief/artikel sendiri",

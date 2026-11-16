@@ -87,6 +87,15 @@ const TABEL_PF = [
   // (kunci kuis dipindah dari kolom pf_quiz_questions.kunci).
   // Total sesudah v13: 55 tabel.
   "pf_quiz_answers",
+  // v14 (Gelombang B2) — 6 tabel baru: jawaban kuis tersimpan +
+  // sertifikat (B2-B), jejak hapus akun (B2-A), langganan push +
+  // kunjungan + galat aplikasi (B2-D). Total sesudah v14: 61 tabel.
+  "pf_quiz_user_answers",
+  "pf_certificates",
+  "pf_account_deletions",
+  "pf_push_subscriptions",
+  "pf_kunjungan",
+  "pf_app_errors",
 ];
 
 function bacaEnvLocal() {

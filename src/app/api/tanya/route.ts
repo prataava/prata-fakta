@@ -100,7 +100,7 @@ export type ReferensiJawaban = {
   url: string | null;
 };
 
-type Kandidat = {
+export type Kandidat = {
   judul: string;
   ringkasan: string | null;
   url: string | null;
@@ -115,7 +115,9 @@ function formatAngka(n: number): string {
   return n.toLocaleString("id-ID");
 }
 
-async function cariKandidat(
+// Diekspor untuk job draf (POST /api/tanya/draf, B2-E F1) —
+// retrieval yang sama dipakai ulang, bukan diduplikasi.
+export async function cariKandidat(
   supabase: Awaited<ReturnType<typeof createClient>>,
   kata: string[],
 ): Promise<Kandidat[]> {

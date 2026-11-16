@@ -4,6 +4,10 @@
 // Supabase. Fungsi di sini melempar Error berbahasa Indonesia bila
 // aturan dilanggar; GalatGateTerbit dipakai route untuk menjawab 409.
 import { buatSlug } from "../ai/slug.ts";
+import {
+  kirimNotifikasiKoreksi,
+  kirimNotifikasiTopik,
+} from "../notifikasi/tulis.ts";
 import type {
   AdminAdapter,
   AksiAudit,
@@ -370,6 +374,13 @@ export async function terbitkanArtikel(
   await catat(adapter, aktor, "artikel.terbit", "pf_articles", id, {
     status: artikel.status,
   }, { status: "terbit", diterbitkan_pada: sekarang });
+  // B2-D (E1): beri tahu pengikut kategori/negara artikel ini.
+  // Best-effort — notifikasi TIDAK PERNAH menggagalkan penerbitan.
+  try {
+    await kirimNotifikasiTopik(null, baru.id);
+  } catch {
+    // Diam-diam: artikel sudah terbit; notifikasi hanya tambahan.
+  }
   return baru;
 }
 
@@ -726,6 +737,27 @@ export async function ubahStatusVerifikasi(
 
 // ---------- Koreksi ----------
 
+/**
+ * B2-D (E1): beri tahu pelapor hasil tindak lanjut koreksinya.
+ * Best-effort — TIDAK PERNAH melempar / menggagalkan tindak lanjut.
+ */
+async function beriNotifikasiKoreksi(
+  adapter: AdminAdapter,
+  koreksi: { id: string; artikel_id: string | null },
+  statusAkhir: "diperbaiki" | "ditolak" | "ditinjau",
+): Promise<void> {
+  try {
+    let slug: string | null = null;
+    if (koreksi.artikel_id) {
+      const artikel = await adapter.getArtikel({ id: koreksi.artikel_id });
+      slug = artikel?.slug ?? null;
+    }
+    await kirimNotifikasiKoreksi(null, koreksi.id, statusAkhir, slug);
+  } catch {
+    // Diam-diam: tindak lanjut sudah tersimpan.
+  }
+}
+
 export async function tindaklanjutiKoreksi(
   adapter: AdminAdapter,
   input: { koreksi_id: string; aksi: "terima" | "tolak" | "ditinjau"; catatan: string },
@@ -749,6 +781,7 @@ export async function tindaklanjutiKoreksi(
     await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditinjau", catatan });
+    await beriNotifikasiKoreksi(adapter, koreksi, "ditinjau");
     return { status: "ditinjau" };
   }
   if (input.aksi === "tolak") {
@@ -756,6 +789,7 @@ export async function tindaklanjutiKoreksi(
     await catat(adapter, aktor, "koreksi.tolak", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditolak", catatan });
+    await beriNotifikasiKoreksi(adapter, koreksi, "ditolak");
     return { status: "ditolak" };
   }
   // Terima laporan UMUM tanpa artikel_id (laporan masyarakat,
@@ -769,6 +803,7 @@ export async function tindaklanjutiKoreksi(
     await catat(adapter, aktor, "koreksi.ditinjau", "pf_correction_reports", koreksi.id, {
       status: koreksi.status,
     }, { status: "ditinjau", catatan: catatanUmum, catatan_moderator: catatan });
+    await beriNotifikasiKoreksi(adapter, koreksi, "ditinjau");
     return { status: "ditinjau" };
   }
   // Terima: laporan 'diperbaiki' + versi baru + artikel CORRECTED +
@@ -793,6 +828,7 @@ export async function tindaklanjutiKoreksi(
     status: koreksi.status,
     status_verifikasi: artikel.status_verifikasi,
   }, { status: "diperbaiki", status_verifikasi: "CORRECTED", catatan });
+  await beriNotifikasiKoreksi(adapter, koreksi, "diperbaiki");
   return { status: "diperbaiki" };
 }
 

@@ -2,6 +2,8 @@ import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import AuthArea from "@/components/AuthArea";
 import HeaderNav from "@/components/HeaderNav";
+import NotifikasiBadge from "@/components/NotifikasiBadge";
+import PelacakKunjungan from "@/components/PelacakKunjungan";
 import ThemeToggle from "@/components/ThemeToggle";
 import { bacaPemeliharaan } from "@/lib/scheduler/flags";
 
@@ -22,6 +24,7 @@ export default async function Header() {
         </div>
       ) : null}
       <header className="header">
+      <PelacakKunjungan />
       <div className="wadah">
         <div className="header-atas">
           <Link href="/" className="logo" aria-label="PRATA FAKTA — Beranda">
@@ -35,6 +38,7 @@ export default async function Header() {
           </div>
           <div className="header-aksi">
             <ThemeToggle />
+            <NotifikasiBadge />
             <AuthArea />
           </div>
         </div>

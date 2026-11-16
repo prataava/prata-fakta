@@ -10,6 +10,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import FormKursus, { type KursusAdmin } from "@/components/admin/FormKursus";
 import FormStrukturAkademi from "@/components/admin/FormStrukturAkademi";
 
@@ -166,6 +167,12 @@ export default function AdminAkademi() {
       <section className="seksi" aria-labelledby="judul-daftar-kursus">
         <div className="seksi-kepala">
           <h2 id="judul-daftar-kursus">Daftar Kursus</h2>
+          <p>
+            <Link href="/admin/akademi/esai">
+              Antrean penilaian esai
+            </Link>{" "}
+            — nilai jawaban esai pengguna yang masih menunggu.
+          </p>
         </div>
         {memuat ? (
           <div className="kerangka" role="status" aria-label="Memuat daftar kursus…" />

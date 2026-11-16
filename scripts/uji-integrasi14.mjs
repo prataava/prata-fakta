@@ -47,10 +47,13 @@ for (const f of jalanSemua(path.join(DIR_SRC, "app"), [".tsx", ".ts"])) {
     halaman.add(rute);
   }
   if (rel.endsWith("/route.ts")) {
-    // rel sudah berawalan "/api" (src/app/api/...) — jangan tambah prefix.
+    // Route handler di luar /api (mis. /podcast.xml, /rss.xml)
+    // adalah rute halaman, bukan API — masukkan ke kumpulan
+    // yang sesuai agar tautan ke sana tidak dikira mati.
     let rute = rel.slice(0, -"/route.ts".length);
     rute = rute.replace(/\[slug\]|\[kode\]|\[id\]/g, "*");
-    api.add(rute);
+    if (rute.startsWith("/api/")) api.add(rute);
+    else halaman.add(rute);
   }
 }
 console.log(`Rute halaman: ${halaman.size}, rute API: ${api.size}`);

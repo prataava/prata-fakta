@@ -1,0 +1,254 @@
+# PRATA FAKTA — Podcast TTS via Piper (Gelombang B2-C, L-C2)
+#
+# Men-generate MP3 SATU episode dari naskah yang SUDAH TERBIT
+# (status='terbit' — naskah draf DITOLAK; tidak ada auto-publish,
+# tidak ada jadwal otomatis). Piper berjalan sebagai langkah
+# batch di runner, BUKAN server 24/7: TTS server real-time
+# TIDAK diklaim.
+#
+# STATUS LISENSI SUARA (16 Nov 2026 — putusan: BELUM BISA):
+# Katalog resmi Piper (rhasspy/piper-voices) hanya punya SATU
+# suara id_ID: "id_ID-news_tts-medium". MODEL_CARD-nya tidak
+# menyatakan lisensi yang jelas ("License: See URL" menunjuk
+# notebook Kaggle korpus Malayalam — bukan data latihnya — dan
+# suara ini di-fine-tune dari lessac berlisensi riset; korpus
+# IndicTTS IIT Madras "ALL RIGHTS RESERVED"). Karena itu:
+#   1. Input `suara` TIDAK punya default — editor wajib memasok
+#      kunci suara secara eksplisit tiap dispatch.
+#   2. Input `konfirmasi_lisensi` wajib "ya" — editor menyatakan
+#      sudah memverifikasi lisensi suara itu memperbolehkan
+#      pemakaian ini (dan mencatat sumber lisensinya).
+#   3. Workflow MENOLAK mentah-mentah suara
+#      "id_ID-news_tts-medium" sampai lisensinya diklarifikasi
+#      tertulis (lihat langkah "Tolak suara yang lisensinya
+#      meragukan"). Jangan hapus gerbang ini tanpa putusan
+#      lisensi baru yang terdokumentasi di src/lib/podcast.ts.
+#   4. MODEL_CARD suara yang dipilih dicetak ke log run sebagai
+#      bukti verifikasi.
+#
+# ALTERNATIF LOKAL (bila Actions tidak dipakai): editor menjalankan
+# langkah yang sama di mesin sendiri — pip install piper-tts==1.8.0,
+# unduh .onnx + .onnx.json suara dari Hugging Face, generate WAV,
+# ffmpeg ke MP3, unggah ke bucket podcast-audio, lalu PATCH episode
+# lewat API admin (audio_url) — dan audio_bytes + tts_suara lewat
+# SQL/PostgREST service-role (API admin belum menerima kedua kolom
+# itu; di luar kepemilikan Gelombang B2-C).
+#
+# LANGKAH DEPLOY MANUAL (sekali, sebelum dispatch pertama):
+#   1. Supabase Dashboard → Storage → New bucket "podcast-audio",
+#      Public (supaya URL audio bisa dibuka pemutar + RSS).
+#      Bucket TIDAK bisa dibuat via migrasi SQL.
+#   2. GitHub repo → Settings → Secrets and variables → Actions:
+#        PF_SUPABASE_URL       = URL proyek Supabase (tanpa / di akhir)
+#        PF_SERVICE_ROLE_KEY   = service_role key proyek (RAHASIA —
+#                                jangan tulis di repo/log manapun)
+#      Nama secret sama dengan yang dipakai .github/workflows/backup.yml.
+#   3. Terapkan migrasi v14 (kolom audio_bytes + tts_suara) sebelum
+#      episode hasil workflow dibaca aplikasi (DDL di laporan B2-C).
+#
+# Cara pakai: Actions → Podcast TTS (Piper) → Run workflow →
+# isi episode_slug + suara + konfirmasi_lisensi=ya.
+# Output: MP3 di bucket podcast-audio/<slug>.mp3; baris episode
+# diperbarui (audio_url, durasi_detik, audio_bytes, tts_suara).
+# Episode lalu muncul dengan <enclosure> di /podcast.xml.
+#
+# Batas: naskah > 20.000 karakter ditolak (hindari run raksasa);
+# satu run = satu episode; concurrency satu run pada satu waktu.
+
+name: Podcast TTS (Piper) PRATA FAKTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode_slug:
+        description: "Slug episode TERBIT yang naskahnya akan diubah jadi MP3"
+        required: true
+        type: string
+      suara:
+        description: "Kunci suara Piper, mis. id_ID-<nama>-medium (TANPA default — wajib diisi; id_ID-news_tts-medium DITOLAK, lisensinya belum jelas)"
+        required: true
+        type: string
+      konfirmasi_lisensi:
+        description: "Saya sudah memverifikasi lisensi suara ini memperbolehkan pemakaian ini (wajib 'ya')"
+        required: true
+        type: choice
+        default: "tidak"
+        options:
+          - "tidak"
+          - "ya"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: podcast-tts
+  cancel-in-progress: false
+
+env:
+  SUPABASE_URL: ${{ secrets.PF_SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PF_SERVICE_ROLE_KEY }}
+  VOICES_JSON_URL: https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json
+  MODEL_BASE_URL: https://huggingface.co/rhasspy/piper-voices/resolve/main
+  BATAS_NASKAH_KARAKTER: "20000"
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Gerbang lisensi — konfirmasi editor wajib "ya"
+        run: |
+          if [ "${{ inputs.konfirmasi_lisensi }}" != "ya" ]; then
+            echo "::error::Dispatch dibatalkan: konfirmasi_lisensi bukan 'ya'. Editor wajib memverifikasi lisensi suara terlebih dulu (lihat header workflow ini)."
+            exit 1
+          fi
+          if [ -z "${{ inputs.episode_slug }}" ] || [ -z "${{ inputs.suara }}" ]; then
+            echo "::error::episode_slug dan suara wajib diisi."
+            exit 1
+          fi
+
+      - name: Tolak suara yang lisensinya meragukan
+        run: |
+          if [ "${{ inputs.suara }}" = "id_ID-news_tts-medium" ]; then
+            echo "::error::Suara id_ID-news_tts-medium DITOLAK: lisensi data latihnya tidak jelas (MODEL_CARD 'See URL' → korpus Malayalam; fine-tune dari lessac berlisensi riset). Lihat SUARA_TTS_TERPILIH di src/lib/podcast.ts. Jangan dispatch dengan suara ini sebelum ada klarifikasi lisensi tertulis."
+            exit 1
+          fi
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Siapkan Python + Piper
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instal piper-tts 1.8.0
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "piper-tts==1.8.0"
+          python -m piper --help > /tmp/piper-help.txt
+          head -5 /tmp/piper-help.txt
+
+      - name: Siapkan ffmpeg (MP3 + durasi)
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -version | head -1
+          command -v jq >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y jq; }
+
+      - name: Ambil episode terbit dari database
+        run: |
+          test -n "$SUPABASE_URL" || { echo "::error::Secret PF_SUPABASE_URL belum diisi."; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "::error::Secret PF_SERVICE_ROLE_KEY belum diisi."; exit 1; }
+          kode=$(curl -s -o episode.json -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/pf_podcast_episodes?slug=eq.${{ inputs.episode_slug }}&select=id,slug,judul,status,teks_naskah" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Accept: application/json")
+          test "$kode" = "200" || { echo "::error::Gagal membaca episode (HTTP $kode)."; cat episode.json; exit 1; }
+          python3 - <<'EOF'
+          import json
+          rows = json.load(open("episode.json"))
+          assert isinstance(rows, list) and len(rows) == 1, f"slug tidak ditemukan / tidak unik: {len(rows)} baris"
+          ep = rows[0]
+          assert ep.get("status") == "terbit", f"episode status={ep.get('status')!r} — hanya naskah TERBIT (disetujui editor) yang boleh diubah jadi audio"
+          naskah = (ep.get("teks_naskah") or "").strip()
+          assert naskah, "teks_naskah kosong"
+          open("episode_id.txt", "w").write(str(ep["id"]))
+          open("naskah.txt", "w", encoding="utf-8").write(naskah)
+          print(f"episode: {ep['slug']} — {len(naskah)} karakter")
+          EOF
+
+      - name: Batas panjang naskah
+        run: |
+          jumlah=$(python3 -c "print(len(open('naskah.txt', encoding='utf-8').read()))")
+          echo "Panjang naskah: $jumlah karakter (batas $BATAS_NASKAH_KARAKTER)"
+          test "$jumlah" -le "$BATAS_NASKAH_KARAKTER" || { echo "::error::Naskah $jumlah karakter melebihi batas $BATAS_NASKAH_KARAKTER — pecah episode atau perpendek naskah."; exit 1; }
+
+      - name: Validasi suara + unduh model
+        run: |
+          curl -sL --max-time 120 "$VOICES_JSON_URL" -o voices.json
+          python3 - <<'EOF'
+          import json, os
+          suara = os.environ["SUARA"]
+          katalog = json.load(open("voices.json"))
+          assert suara in katalog, f"suara {suara!r} tidak ada di katalog rhasspy/piper-voices"
+          info = katalog[suara]
+          assert info["language"]["code"] == "id_ID", f"suara {suara!r} bukan id_ID ({info['language']['code']})"
+          berkas = sorted(info["files"].keys())
+          onnx = [b for b in berkas if b.endswith(".onnx")]
+          cfg = [b for b in berkas if b.endswith(".onnx.json")]
+          assert len(onnx) == 1 and len(cfg) == 1, f"berkas suara tak terduga: {berkas}"
+          open("suara_onnx.txt", "w").write(onnx[0])
+          open("suara_json.txt", "w").write(cfg[0])
+          open("suara_md5.txt", "w").write(info["files"][onnx[0]]["md5_digest"])
+          print(f"suara: {suara} — {info['language']['name_native']} ({info['quality']}, {info['num_speakers']} penutur)")
+          EOF
+          echo "--- MODEL_CARD suara ${{ inputs.suara }} (bukti verifikasi lisensi, dibaca editor sebelum dispatch) ---"
+          curl -sL --max-time 60 "$MODEL_BASE_URL/$(dirname "$(cat suara_onnx.txt)")/MODEL_CARD" || echo "(MODEL_CARD tidak bisa diunduh — verifikasi manual editor tetap berlaku)"
+          echo "--- unduh model ---"
+          curl -sL --max-time 600 "$MODEL_BASE_URL/$(cat suara_onnx.txt)" -o suara.onnx
+          curl -sL --max-time 60 "$MODEL_BASE_URL/$(cat suara_json.txt)" -o suara.onnx.json
+          test "$(md5sum suara.onnx | cut -d' ' -f1)" = "$(cat suara_md5.txt)" || { echo "::error::md5 suara.onnx tidak cocok dengan voices.json — unduhan rusak/diganti."; exit 1; }
+          ls -la suara.onnx suara.onnx.json
+        env:
+          SUARA: ${{ inputs.suara }}
+
+      - name: Generate WAV lalu MP3
+        run: |
+          python -m piper --model suara.onnx --output_file episode.wav < naskah.txt
+          test -s episode.wav || { echo "::error::Piper tidak menghasilkan audio."; exit 1; }
+          ffmpeg -y -v error -i episode.wav -codec:a libmp3lame -b:a 64k -ar 22050 episode.mp3
+          test -s episode.mp3 || { echo "::error::ffmpeg tidak menghasilkan MP3."; exit 1; }
+          echo "DURASI_DETIK=$(ffprobe -v error -show_entries format=duration -of csv=p=0 episode.mp3 | cut -d. -f1)" >> "$GITHUB_ENV"
+          echo "UKURAN_BYTE=$(stat -c%s episode.mp3)" >> "$GITHUB_ENV"
+          ls -la episode.mp3
+
+      - name: Unggah MP3 ke Storage (bucket podcast-audio)
+        run: |
+          kode=$(curl -s -o unggah.json -w "%{http_code}" \
+            -X POST "$SUPABASE_URL/storage/v1/object/podcast-audio/${{ inputs.episode_slug }}.mp3" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: audio/mpeg" \
+            -H "x-upsert: true" \
+            --data-binary @episode.mp3)
+          case "$kode" in
+            200|201) echo "Unggah OK (HTTP $kode).";;
+            *) echo "::error::Unggah Storage gagal (HTTP $kode) — periksa: bucket 'podcast-audio' sudah dibuat manual & publik? Secret service-role benar?"; cat unggah.json; exit 1;;
+          esac
+
+      - name: Perbarui baris episode (audio_url, durasi, ukuran, suara)
+        run: |
+          ep_id=$(cat episode_id.txt)
+          audio_url="$SUPABASE_URL/storage/v1/object/public/podcast-audio/${{ inputs.episode_slug }}.mp3"
+          python3 - <<EOF
+          import json
+          json.dump({
+            "audio_url": "$audio_url",
+            "durasi_detik": int("$DURASI_DETIK"),
+            "audio_bytes": int("$UKURAN_BYTE"),
+            "tts_suara": "${{ inputs.suara }}",
+          }, open("patch.json", "w"))
+          EOF
+          kode=$(curl -s -o patch_res.json -w "%{http_code}" \
+            -X PATCH "$SUPABASE_URL/rest/v1/pf_podcast_episodes?id=eq.$ep_id" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data @patch.json)
+          case "$kode" in
+            200|204) echo "Episode diperbarui (HTTP $kode).";;
+            *) echo "::error::PATCH episode gagal (HTTP $kode) — migrasi v14 (audio_bytes, tts_suara) sudah diterapkan?"; cat patch_res.json; exit 1;;
+          esac
+          {
+            echo "## Podcast TTS selesai"
+            echo ""
+            echo "- Episode: \`${{ inputs.episode_slug }}\`"
+            echo "- Suara: \`${{ inputs.suara }}\`"
+            echo "- Audio: $audio_url"
+            echo "- Durasi: ${DURASI_DETIK} detik · ukuran: ${UKURAN_BYTE} byte"
+            echo "- Feed: /podcast.xml (enclosure)"
+          } >> "$GITHUB_STEP_SUMMARY"

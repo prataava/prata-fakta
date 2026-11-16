@@ -11,6 +11,7 @@ import {
   ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
+import { catatGalatAplikasi } from "@/lib/analytics/galat";
 import { adalahGalatBelumSiap } from "./types.ts";
 import type { User } from "@supabase/supabase-js";
 
@@ -123,6 +124,15 @@ export function responGalatAdmin(err: unknown): NextResponse {
       stack: err instanceof Error ? (err.stack ?? null) : null,
     }),
   );
+  // B2-D (D1): catat juga ke tabel pf_app_errors agar galat
+  // tampil di /admin/monitoring — fire-and-forget, TIDAK PERNAH
+  // menunda atau menggagalkan respons galat ini.
+  void catatGalatAplikasi({
+    sumber: "responGalatAdmin",
+    pesan: err instanceof Error ? err.message : String(err ?? ""),
+    kode,
+    stack: err instanceof Error ? (err.stack ?? null) : null,
+  });
   return NextResponse.json(
     {
       ok: false,

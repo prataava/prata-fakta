@@ -11,8 +11,12 @@ import {
 // kembalikan nilai default + ada: false (bukan 404 — preferensi
 // memang belum pernah disimpan).
 // PATCH /api/saya/preferensi { digest_harian?, notifikasi_topik?,
-// notifikasi_koreksi?, tampilkan_profil_publik? } → upsert baris
-// milik sendiri (RLS menegakkan user_id = auth.uid()).
+// notifikasi_koreksi?, tampilkan_profil_publik?,
+// notifikasi_jawaban?, notifikasi_podcast?, push_notifikasi? }
+// → upsert baris milik sendiri (RLS menegakkan user_id =
+// auth.uid()). Tiga kolom terakhir dari migrasi v14 (B2-D):
+// bila kolom v14 belum ada, GET mundur ke 4 kolom lama +
+// default baru, sedangkan PATCH menjawab 503 jujur.
 // Wajib login (401 bila tidak). Rate limit 30/menit/IP.
 // 503 jujur bila tabel belum ada (migrasi v8 belum dijalankan).
 const batasi = buatRateLimiter(30);
@@ -22,6 +26,9 @@ type Preferensi = {
   notifikasi_topik: boolean;
   notifikasi_koreksi: boolean;
   tampilkan_profil_publik: boolean;
+  notifikasi_jawaban: boolean;
+  notifikasi_podcast: boolean;
+  push_notifikasi: boolean;
 };
 
 const DEFAULT: Preferensi = {
@@ -29,12 +36,50 @@ const DEFAULT: Preferensi = {
   notifikasi_topik: true,
   notifikasi_koreksi: true,
   tampilkan_profil_publik: false,
+  notifikasi_jawaban: true,
+  notifikasi_podcast: true,
+  push_notifikasi: false,
 };
+
+const KOLOM_SELECT =
+  "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik, notifikasi_jawaban, notifikasi_podcast, push_notifikasi";
+
+const KOLOM_LAMA_SELECT =
+  "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik";
+
+function dariBaris(data: Record<string, unknown>): Preferensi {
+  return {
+    digest_harian: Boolean(data.digest_harian),
+    notifikasi_topik: Boolean(data.notifikasi_topik),
+    notifikasi_koreksi: Boolean(data.notifikasi_koreksi),
+    tampilkan_profil_publik: Boolean(data.tampilkan_profil_publik),
+    notifikasi_jawaban:
+      typeof data.notifikasi_jawaban === "boolean"
+        ? data.notifikasi_jawaban
+        : DEFAULT.notifikasi_jawaban,
+    notifikasi_podcast:
+      typeof data.notifikasi_podcast === "boolean"
+        ? data.notifikasi_podcast
+        : DEFAULT.notifikasi_podcast,
+    push_notifikasi:
+      typeof data.push_notifikasi === "boolean"
+        ? data.push_notifikasi
+        : DEFAULT.push_notifikasi,
+  };
+}
 
 function tabelBelumAda(error: { code?: string; message?: string }): boolean {
   return (
     error.code === "PGRST205" ||
     (error.message ?? "").includes("Could not find the table")
+  );
+}
+
+/** true bila kolom v14 belum ada (migrasi v14 belum dijalankan). */
+function kolomBelumAda(error: { code?: string; message?: string }): boolean {
+  return (
+    error.code === "PGRST204" ||
+    (error.message ?? "").includes("Could not find the column")
   );
 }
 
@@ -72,13 +117,19 @@ export async function GET(req: Request) {
   // T4 (Tahap 13A): akun dibatasi (nonaktif) → 403.
   const ditolak = await tolakAkunNonaktif(supabase, pengguna.id);
   if (ditolak) return ditolak;
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("pf_user_preferences")
-    .select(
-      "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik",
-    )
+    .select(KOLOM_SELECT)
     .eq("user_id", pengguna.id)
     .maybeSingle();
+  if (error && kolomBelumAda(error)) {
+    // Migrasi v14 belum dijalankan: mundur ke kolom lama.
+    ({ data, error } = await supabase
+      .from("pf_user_preferences")
+      .select(KOLOM_LAMA_SELECT)
+      .eq("user_id", pengguna.id)
+      .maybeSingle());
+  }
   if (error) {
     if (tabelBelumAda(error)) return respon503();
     return NextResponse.json(
@@ -89,14 +140,7 @@ export async function GET(req: Request) {
   if (!data) {
     return NextResponse.json({ ok: true, ada: false, preferensi: DEFAULT });
   }
-  const preferensi: Preferensi = {
-    digest_harian: Boolean((data as Preferensi).digest_harian),
-    notifikasi_topik: Boolean((data as Preferensi).notifikasi_topik),
-    notifikasi_koreksi: Boolean((data as Preferensi).notifikasi_koreksi),
-    tampilkan_profil_publik: Boolean(
-      (data as Preferensi).tampilkan_profil_publik,
-    ),
-  };
+  const preferensi = dariBaris(data as Record<string, unknown>);
   return NextResponse.json({ ok: true, ada: true, preferensi });
 }
 
@@ -147,12 +191,20 @@ export async function PATCH(req: Request) {
       { user_id: pengguna.id, ...perubahan },
       { onConflict: "user_id" },
     )
-    .select(
-      "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik",
-    )
+    .select(KOLOM_SELECT)
     .maybeSingle();
   if (error) {
     if (tabelBelumAda(error)) return respon503();
+    if (kolomBelumAda(error)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Preferensi notifikasi baru belum aktif (migrasi v14 belum dijalankan).",
+        },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan preferensi. Coba lagi." },
       { status: 500 },
@@ -164,13 +216,6 @@ export async function PATCH(req: Request) {
       { status: 500 },
     );
   }
-  const preferensi: Preferensi = {
-    digest_harian: Boolean((data as Preferensi).digest_harian),
-    notifikasi_topik: Boolean((data as Preferensi).notifikasi_topik),
-    notifikasi_koreksi: Boolean((data as Preferensi).notifikasi_koreksi),
-    tampilkan_profil_publik: Boolean(
-      (data as Preferensi).tampilkan_profil_publik,
-    ),
-  };
+  const preferensi = dariBaris(data as Record<string, unknown>);
   return NextResponse.json({ ok: true, ada: true, preferensi });
 }

@@ -255,6 +255,14 @@ export interface AiAdapter {
   // auto-terbit.
   simpanArtikel(d: SimpanArtikelInput): Promise<string>;
   perbaruiStatusItem(id: string, status_verifikasi: string): Promise<void>;
+  // Tulis metadata item mentah (B2-E, G2): dipakai pipeline
+  // menyimpan draf terjemahan MyMemory (metadata.terjemahan)
+  // TANPA menimpa teks asli item. Pemanggil mengirim metadata
+  // lengkap (lama + tambahan) — adapter hanya UPDATE kolom.
+  simpanMetadataItem(
+    id: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void>;
   ambilKlaimTanpaVerifikasi(limit: number): Promise<KlaimTanpaVerifikasi[]>;
   // Upsert per tanggal (satu brief per hari), selalu status 'draft'.
   simpanBrief(tanggal: string, isi: unknown): Promise<string>;
