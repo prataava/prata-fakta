@@ -27,7 +27,6 @@
   --ink: #101827;
   --ink-2: #334155;
   --muted: #5b6b80; /* turunan lebih gelap dari #8492A6 agar kontras di terang */
-  --header-bg: rgba(255, 255, 255, 0.92);
   --glass-bg: rgba(255, 255, 255, 0.75); /* Aurora — baru */
   --glass-border: rgba(16, 24, 39, 0.12); /* Aurora — baru */
   --accent: #0e7a5f; /* mint yang digelapkan untuk kontras di terang */
@@ -53,7 +52,6 @@
   --ink-2: #a0aec0;
   --muted: #738197;
   --border: rgba(255, 255, 255, 0.1);
-  --header-bg: rgba(8, 13, 24, 0.82);
   --glass-bg: rgba(17, 27, 42, 0.72);
   --glass-border: rgba(255, 255, 255, 0.18);
   --accent: #68e4c1;
@@ -312,14 +310,19 @@ main.konten {
 }
 
 /* ---------- Header ---------- */
+/* Aurora Fase 3: permukaan kaca mengambang (blur 22px), sticky.
+ * Struktur tidak berubah: logo + cari + aksi + strip kategori. */
 .header {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: var(--header-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)),
+    var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 8px 24px rgba(2, 6, 16, 0.08);
 }
 
 .header-atas {
@@ -367,6 +370,82 @@ main.konten {
   }
 }
 
+/* Tombol cari seluler — hanya <768px; di desktop pencarian
+ * selalu terlihat di baris atas. (Selektor .header-aksi … dipakai
+ * agar menang atas .tombol yang didefinisikan belakangan.) */
+.header-aksi .tombol-cari {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .header-aksi .tombol-cari {
+    display: inline-flex;
+  }
+
+  /* Baris pencarian terbuka di bawah baris atas (wrap). */
+  .header.cari-terbuka .header-atas {
+    flex-wrap: wrap;
+  }
+
+  .header.cari-terbuka .header-cari {
+    display: block;
+    flex-basis: 100%;
+    order: 3;
+    padding-bottom: 4px;
+  }
+}
+
+/* Perbaikan header seluler (temuan audit §11.2.5 + ukur CDP):
+ * di 390px tombol Masuk/Daftar terpotong karena logo + aksi
+ * tidak muat sebaris (diukur: isi 410px di baris 350px).
+ * ≤480px: logo mengecil, tagline disembunyikan, tombol
+ * dipadatkan, tombol aksi dibatasi lebarnya (email terpotong
+ * elipsis saat login). ≤360px: tombol cari disembunyikan
+ * (pencarian tetap ada di hero + /cari) agar baris muat. */
+@media (max-width: 480px) {
+  .header-atas {
+    gap: 8px;
+    padding: 10px 0;
+  }
+
+  .logo-nama {
+    font-size: 1rem;
+    letter-spacing: 0;
+  }
+
+  .logo-tag {
+    display: none;
+  }
+
+  .header-aksi {
+    gap: 4px;
+  }
+
+  .header-aksi .tombol {
+    padding: 7px 10px;
+    font-size: 0.8rem;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-aksi .tombol-ikon {
+    padding: 6px 7px;
+  }
+
+  .header-aksi .tombol-ikon svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 360px) {
+  .header-aksi .tombol-cari {
+    display: none;
+  }
+}
+
 .header-aksi {
   display: flex;
   align-items: center;
@@ -394,6 +473,7 @@ main.konten {
   font-weight: 600;
   color: var(--ink-2);
   border: 1px solid transparent;
+  transition: background 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
 
 .nav-kategori a:hover {
@@ -404,6 +484,7 @@ main.konten {
 .nav-kategori a.aktif {
   color: var(--accent-ink);
   background: var(--accent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* ---------- Pencarian ---------- */
@@ -419,9 +500,11 @@ main.konten {
   flex: 1;
   min-width: 0;
   padding: 10px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   outline: none;
 }
 
@@ -454,6 +537,7 @@ main.konten {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .tombol-hantu {
@@ -786,6 +870,14 @@ a.kartu:hover {
   color: #ffffff;
   font-size: 1.05rem;
   margin-bottom: 10px;
+}
+
+/* Aurora: "FAKTA" pada wordmark footer memakai aksen mint,
+ * selaras dengan logo header. Footer selalu gelap di kedua mode,
+ * jadi warna literal terangnya dipertahankan (bukan token tema). */
+.footer h4 em {
+  font-style: normal;
+  color: var(--mint);
 }
 
 .footer p,

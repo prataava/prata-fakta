@@ -8,7 +8,9 @@ export default function Footer() {
       <div className="wadah">
         <div className="footer-dalam">
           <div>
-            <h4>PRATA FAKTA</h4>
+            <h4>
+              PRATA <em>FAKTA</em>
+            </h4>
             <p>
               Pahami dunia. Berdasarkan fakta. Platform berita dan pengetahuan
               digital: berita terkini Indonesia dan dunia dengan sumber jelas,
