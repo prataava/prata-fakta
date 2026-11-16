@@ -891,6 +891,8 @@ a.kartu:hover {
 }
 
 /* ---------- Formulir ---------- */
+/* Aurora Fase 5: input kaca; panel form memakai permukaan
+ * elevated yang lebih solid (teks banyak — keterbacaan dulu). */
 .formulir {
   display: flex;
   flex-direction: column;
@@ -909,9 +911,11 @@ a.kartu:hover {
 
 .formulir input {
   padding: 11px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   outline: none;
 }
 
@@ -921,10 +925,10 @@ a.kartu:hover {
 }
 
 .kartu-form {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background: var(--elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
   padding: 28px 24px;
   margin: 32px auto;
   max-width: 520px;
@@ -1295,6 +1299,20 @@ a.kartu:hover {
   font-family: var(--font-serif);
   font-size: 1.35rem;
   margin: 28px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Tanda aksen editorial — pola yang sama dengan judul seksi. */
+.prosa h2::before,
+.artikel-seksi h2::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .prosa p,
@@ -1319,11 +1337,14 @@ a.kartu:hover {
 .chip {
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--ink-2);
+  transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
 }
 
 .chip:hover {
@@ -1334,6 +1355,7 @@ a.kartu:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1466,6 +1488,9 @@ a.kartu:hover {
   font-family: var(--font-serif);
   font-size: 1.35rem;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .artikel-isi p {
@@ -1477,7 +1502,9 @@ a.kartu:hover {
   font-size: 1.08em;
   color: var(--ink);
   border-left: 3px solid var(--accent);
-  padding-left: 14px;
+  padding: 12px 14px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--mint) 7%, transparent);
 }
 
 .artikel-daftar {
@@ -1521,9 +1548,12 @@ a.kartu:hover {
 }
 
 .artikel-ajakan {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-glass);
   padding: 18px;
   margin-top: 18px;
 }
@@ -1552,9 +1582,11 @@ a.kartu:hover {
 
 .mode-baca {
   display: inline-flex;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
   overflow: hidden;
 }
 
@@ -1570,6 +1602,7 @@ a.kartu:hover {
 .mode-baca button.aktif {
   background: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* ---------- Progress baca ---------- */
@@ -1585,40 +1618,54 @@ a.kartu:hover {
 
 .progress-baca > div {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--mint), var(--cyan));
   transition: width 0.15s ease;
 }
 
 /* ---------- Tabel data pendukung ---------- */
+/* Aurora Fase 5: panel kaca; kepala tabel memakai --elevated;
+ * baris genap redup, hover bernuansa mint. */
 .tabel-gulir {
   overflow-x: auto;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(145%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
 }
 
 .tabel-data {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.92rem;
-  background: var(--surface);
+  background: transparent;
 }
 
 .tabel-data th,
 .tabel-data td {
   text-align: left;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   vertical-align: top;
 }
 
 .tabel-data thead th {
-  background: var(--surface-2);
+  background: var(--elevated);
   font-weight: 700;
 }
 
 .tabel-data tbody tr:nth-child(even) td {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+
+.tabel-data tbody tr:hover td {
+  background: color-mix(in srgb, var(--mint) 7%, transparent);
 }
 
 /* ---------- Dialog laporan ---------- */
+/* Aurora Fase 5: modal kaca (elevated, lebih solid — teks banyak);
+ * latar belakang diburamkan. */
 .dialog-laporan-latar {
   position: fixed;
   inset: 0;
@@ -1628,6 +1675,8 @@ a.kartu:hover {
   justify-content: center;
   padding: 20px;
   background: rgba(10, 16, 26, 0.55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .dialog-laporan {
@@ -1635,10 +1684,10 @@ a.kartu:hover {
   max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background: var(--elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass);
   padding: 24px;
 }
 
@@ -1659,9 +1708,11 @@ a.kartu:hover {
 .formulir textarea,
 .formulir select {
   padding: 11px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   outline: none;
   width: 100%;
   resize: vertical;
@@ -1694,9 +1745,11 @@ a.kartu:hover {
 .arsip-filter-tanggal input,
 .arsip-filter-tanggal select {
   padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   outline: none;
 }
 
@@ -1717,6 +1770,8 @@ a.kartu:hover {
    ============================================================ */
 
 /* ---------- Navigasi admin ---------- */
+/* Aurora Fase 7: nav admin memakai chip kaca (pola yang sama
+ * dengan chip filter arsip); pil aktif beraksen + glow. */
 .admin-nav {
   display: flex;
   flex-wrap: wrap;
@@ -1727,11 +1782,14 @@ a.kartu:hover {
 .admin-nav a {
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--ink-2);
+  transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
 }
 
 .admin-nav a:hover {
@@ -1745,6 +1803,7 @@ a.kartu:hover {
   color: var(--accent-ink);
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* ---------- Kartu statistik overview ---------- */
@@ -1797,6 +1856,7 @@ a.admin-stat:hover {
   background: var(--danger);
   border-color: var(--danger);
   color: #ffffff;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 [data-theme="dark"] .tombol-bahaya {
