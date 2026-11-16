@@ -329,8 +329,7 @@ export async function verifikasiSertifikat(
  * route admin (autentikasiStaf) yang memvalidasi penilai.
  * Mengembalikan false bila baris tidak ada / bukan esai yang
  * menunggu / tabel belum ada.
- */
-export async function tandaiEsaiDinilai(
+ */export async function tandaiEsaiDinilai(
   userId: string,
   lessonId: string,
   soalId: string,
@@ -360,4 +359,143 @@ export async function tandaiEsaiDinilai(
     .maybeSingle();
   if (error || !data) return false;
   return true;
+}
+
+// ---------- Pencabutan sertifikat (Tahap C-2) ----------
+// Kolom dicabut/dicabut_pada/dicabut_alasan SUDAH ADA sejak v14
+// (yang belum ada: API + UI pencabutan). Pencabutan TIDAK
+// menghapus baris — sertifikat yang dicabut TETAP bisa
+// diverifikasi publik lewat /akademi/sertifikat/[kode] dengan
+// status DICABUT + alasan (halaman itu sudah menampilkannya
+// sejak B2; lihat page.tsx — judul "Sertifikat ini sudah
+// dicabut" + rincian Status "Dicabut — <alasan>").
+
+export type HasilCabut =
+  | { ok: true; sertifikat: PfSertifikat }
+  | {
+      ok: false;
+      kode:
+        | "tidak_ditemukan"
+        | "sudah_dicabut"
+        | "alasan_tidak_valid"
+        | "belum_tersedia"
+        | "gagal";
+    };
+
+/**
+ * Cabut sertifikat aktif menurut kode verifikasinya (server
+ * saja, service role — pemanggil WAJIB route staf + audit
+ * fail-closed 'akademi.sertifikat.cabut'). Idempotent SEBAGIAN:
+ * mencabut yang sudah dicabut mengembalikan
+ * 'sudah_dicabut' (bukan sukses) agar staf tahu tidak ada
+ * perubahan. Alasan wajib 1..500 karakter.
+ */
+export async function cabutSertifikat(
+  kodeVerifikasiMentah: string,
+  alasanMentah: string,
+): Promise<HasilCabut> {
+  const kode = kodeVerifikasiMentah.trim().toUpperCase();
+  if (!POLA_KODE.test(kode)) return { ok: false, kode: "tidak_ditemukan" };
+  const alasan = alasanMentah.trim();
+  if (alasan === "" || alasan.length > 500) {
+    return { ok: false, kode: "alasan_tidak_valid" };
+  }
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return { ok: false, kode: "belum_tersedia" };
+  }
+  const { data, error } = await service
+    .from("pf_certificates")
+    .update({
+      dicabut: true,
+      dicabut_pada: new Date().toISOString(),
+      dicabut_alasan: alasan,
+    })
+    .eq("kode_verifikasi", kode)
+    .eq("dicabut", false)
+    .select(KOLOM_SERTIFIKAT)
+    .maybeSingle();
+  if (error) {
+    if (kodeTabelBelumAda(error)) return { ok: false, kode: "belum_tersedia" };
+    return { ok: false, kode: "gagal" };
+  }
+  if (data) {
+    return {
+      ok: true,
+      sertifikat: keSertifikat(data as unknown as BarisSertifikat),
+    };
+  }
+  // Tidak ada baris aktif yang cocok: sudah dicabut, atau tidak ada.
+  const { data: lama, error: errLama } = await service
+    .from("pf_certificates")
+    .select(KOLOM_SERTIFIKAT)
+    .eq("kode_verifikasi", kode)
+    .maybeSingle();
+  if (errLama) {
+    if (kodeTabelBelumAda(errLama)) return { ok: false, kode: "belum_tersedia" };
+    return { ok: false, kode: "gagal" };
+  }
+  if (!lama) return { ok: false, kode: "tidak_ditemukan" };
+  return { ok: false, kode: "sudah_dicabut" };
+}
+
+/**
+ * Kembalikan sertifikat yang dicabut menjadi aktif (dipakai
+ * HANYA sebagai compensating restore bila audit pencabutan
+ * gagal dicatat — pola fail-closed audit.ts). Mengembalikan
+ * false bila baris tidak ada / bukan dicabut / tabel belum ada.
+ */
+export async function pulihkanSertifikat(
+  kodeVerifikasiMentah: string,
+): Promise<boolean> {
+  const kode = kodeVerifikasiMentah.trim().toUpperCase();
+  if (!POLA_KODE.test(kode)) return false;
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return false;
+  }
+  const { data, error } = await service
+    .from("pf_certificates")
+    .update({ dicabut: false, dicabut_pada: null, dicabut_alasan: null })
+    .eq("kode_verifikasi", kode)
+    .eq("dicabut", true)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) return false;
+  return true;
+}
+
+export type HasilDaftarSertifikat =
+  | { ok: true; sertifikat: PfSertifikat[] }
+  | { ok: false; kode: "belum_tersedia" | "gagal" };
+
+/** Daftar sertifikat terbaru untuk admin (staf saja). */
+export async function daftarSertifikat(
+  batas = 50,
+): Promise<HasilDaftarSertifikat> {
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return { ok: false, kode: "belum_tersedia" };
+  }
+  const { data, error } = await service
+    .from("pf_certificates")
+    .select(KOLOM_SERTIFIKAT)
+    .order("diterbitkan_pada", { ascending: false })
+    .limit(Math.max(1, Math.min(100, batas)));
+  if (error) {
+    if (kodeTabelBelumAda(error)) return { ok: false, kode: "belum_tersedia" };
+    return { ok: false, kode: "gagal" };
+  }
+  return {
+    ok: true,
+    sertifikat: (data ?? []).map((r) =>
+      keSertifikat(r as unknown as BarisSertifikat),
+    ),
+  };
 }

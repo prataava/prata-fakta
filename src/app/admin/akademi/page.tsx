@@ -14,6 +14,217 @@ import Link from "next/link";
 import FormKursus, { type KursusAdmin } from "@/components/admin/FormKursus";
 import FormStrukturAkademi from "@/components/admin/FormStrukturAkademi";
 
+type SertifikatAdmin = {
+  id: string;
+  kode_verifikasi: string;
+  nama_kursus: string;
+  nama_peserta: string | null;
+  diterbitkan_pada: string;
+  dicabut: boolean;
+  dicabut_pada: string | null;
+  dicabut_alasan: string | null;
+};
+
+// Seksi pencabutan sertifikat (Tahap C-2): staf mencabut
+// sertifikat menurut kode verifikasi + alasan wajib.
+// Pencabutan TIDAK menghapus baris — halaman verifikasi publik
+// tetap menampilkan sertifikat dengan status DICABUT.
+function SeksiCabutSertifikat() {
+  const [daftar, setDaftar] = useState<SertifikatAdmin[]>([]);
+  const [memuat, setMemuat] = useState(true);
+  const [tersedia, setTersedia] = useState(true);
+  const [kode, setKode] = useState("");
+  const [alasan, setAlasan] = useState("");
+  const [pesan, setPesan] = useState("");
+  const [gagal, setGagal] = useState(false);
+  const [mengirim, setMengirim] = useState(false);
+
+  const muat = useCallback(async () => {
+    setMemuat(true);
+    try {
+      const res = await fetch("/api/akademi/sertifikat");
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        sertifikat?: SertifikatAdmin[];
+      };
+      if (!res.ok || !data.ok) {
+        setTersedia(false);
+        setPesan(data.error ?? `Gagal memuat daftar (${res.status}).`);
+        return;
+      }
+      setTersedia(true);
+      setDaftar(data.sertifikat ?? []);
+    } catch {
+      setTersedia(false);
+      setPesan("Gagal memuat daftar (jaringan).");
+    } finally {
+      setMemuat(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void muat();
+  }, [muat]);
+
+  async function cabut(kodeVerifikasi: string, alasanCabut: string) {
+    if (
+      !window.confirm(
+        `Cabut sertifikat ${kodeVerifikasi}? Sertifikat tetap bisa diverifikasi publik dengan status DICABUT.`,
+      )
+    ) {
+      return;
+    }
+    setMengirim(true);
+    setPesan("");
+    setGagal(false);
+    try {
+      const res = await fetch("/api/akademi/sertifikat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kode_verifikasi: kodeVerifikasi,
+          alasan: alasanCabut,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setGagal(true);
+        setPesan(data.error ?? `Gagal mencabut (${res.status}).`);
+        return;
+      }
+      setPesan(`Sertifikat ${kodeVerifikasi} sudah dicabut.`);
+      setKode("");
+      setAlasan("");
+      void muat();
+    } catch {
+      setGagal(true);
+      setPesan("Gagal mencabut (jaringan).");
+    } finally {
+      setMengirim(false);
+    }
+  }
+
+  return (
+    <section className="seksi" aria-labelledby="judul-cabut-sertifikat">
+      <div className="seksi-kepala">
+        <h2 id="judul-cabut-sertifikat">Cabut Sertifikat</h2>
+        <p>
+          Sertifikat yang dicabut tidak dihapus — halaman verifikasi
+          publik tetap menampilkannya dengan status DICABUT beserta
+          alasan. Pencabutan dicatat di audit log.
+        </p>
+      </div>
+      <article className="kartu">
+        <form
+          className="formulir"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void cabut(kode.trim().toUpperCase(), alasan.trim());
+          }}
+        >
+          <div>
+            <label htmlFor="kode-cabut">Kode verifikasi sertifikat</label>
+            <input
+              id="kode-cabut"
+              type="text"
+              value={kode}
+              onChange={(e) => setKode(e.target.value.toUpperCase())}
+              placeholder="Contoh: AB12CD34EF56"
+              maxLength={12}
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="alasan-cabut">Alasan pencabutan</label>
+            <textarea
+              id="alasan-cabut"
+              value={alasan}
+              onChange={(e) => setAlasan(e.target.value)}
+              rows={2}
+              maxLength={500}
+              required
+              placeholder="Contoh: kelulusan dibatalkan karena jawaban esai dinilai ulang"
+            />
+          </div>
+          {pesan && (
+            <p role={gagal ? "alert" : "status"}>{pesan}</p>
+          )}
+          <button
+            className="tombol tombol-bahaya"
+            type="submit"
+            disabled={mengirim || kode.trim() === "" || alasan.trim() === ""}
+          >
+            {mengirim ? "Mencabut…" : "Cabut sertifikat"}
+          </button>
+        </form>
+      </article>
+      <div style={{ marginTop: 16 }}>
+        {memuat ? (
+          <div className="kerangka" role="status" aria-label="Memuat daftar sertifikat…" />
+        ) : !tersedia ? (
+          <div className="kosong" role="status">
+            <h3>Daftar sertifikat belum tersedia</h3>
+            <p>{pesan}</p>
+            <button className="tombol" type="button" onClick={() => void muat()}>
+              Coba lagi
+            </button>
+          </div>
+        ) : daftar.length === 0 ? (
+          <div className="kosong" role="status">
+            <h3>Belum ada sertifikat</h3>
+            <p>Sertifikat terbit sesudah pengguna lulus kursus.</p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {daftar.map((s) => (
+              <article className="kartu" key={s.id}>
+                <span className="kartu-kategori">
+                  {s.dicabut ? "DICABUT" : "Aktif"}
+                </span>
+                <span className="kartu-judul">
+                  <Link href={`/akademi/sertifikat/${s.kode_verifikasi}`}>
+                    {s.kode_verifikasi}
+                  </Link>
+                </span>
+                <span className="kartu-teks">
+                  {s.nama_kursus}
+                  {s.nama_peserta ? ` — ${s.nama_peserta}` : ""}
+                </span>
+                <span className="kartu-meta">
+                  {s.dicabut
+                    ? `Dicabut${s.dicabut_alasan ? ` — ${s.dicabut_alasan}` : ""}`
+                    : `Diterbitkan ${s.diterbitkan_pada ? new Date(s.diterbitkan_pada).toLocaleDateString("id-ID") : "—"}`}
+                </span>
+                {!s.dicabut && (
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      className="tombol tombol-hantu"
+                      type="button"
+                      onClick={() => {
+                        setKode(s.kode_verifikasi);
+                        setPesan(
+                          "Kode sudah diisi dari daftar — tulis alasan lalu tekan Cabut sertifikat.",
+                        );
+                        setGagal(false);
+                        document
+                          .getElementById("alasan-cabut")
+                          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                    >
+                      Cabut…
+                    </button>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function AdminAkademi() {
   const [daftar, setDaftar] = useState<KursusAdmin[]>([]);
   const [tersedia, setTersedia] = useState(true);
@@ -148,6 +359,7 @@ export default function AdminAkademi() {
 
   return (
     <>
+      <SeksiCabutSertifikat />
       <section className="seksi" aria-labelledby="judul-form-kursus">
         <div className="seksi-kepala">
           <h2 id="judul-form-kursus">Buat Kursus Pertama</h2>
