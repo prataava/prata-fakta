@@ -1033,6 +1033,53 @@ where pengetahuan_id is not null;
 | Tabel baru | **0** |
 | Kolom baru | **`pf_bookmarks.pengetahuan_id`** |
 
+### 3.18 v17 — Perbaikan /peta: kolom artikel_id di pf_events
+
+- Berkas: `supabase/migrations/20261116_pf_v17_event_artikel_id.sql`
+- Disetujui pengguna 16 Nov 2026 ±22.55 WIB (di luar daftar bernama
+  v1–v16; persetujuan eksplisit di chat).
+- Akar masalah: `src/lib/lanjutan.ts` (KOLOM_EVENT) sudah lama memilih
+  kolom `pf_events.artikel_id`, tetapi kolom itu TIDAK PERNAH dibuat
+  migrasi mana pun (v6 membuat `pf_events` tanpa `artikel_id`; v8
+  hanya check constraint lintang/bujur; v10 menambah
+  era/penting/negara_kode) → `/peta` selalu error di produksi
+  (PostgREST 42703 → GalatBaca → error boundary) sejak fitur event
+  dibangun. Bukan regresi redesign.
+- Isi: SATU statement aditif — `alter table public.pf_events add
+  column if not exists artikel_id uuid references public.pf_articles
+  (id) on delete set null;` + komentar kolom. Idempoten
+  (`if not exists`). Tabel `pf_events` kosong (0 baris) saat
+  dijalankan, jadi penambahan FK aman. RLS/policy/GRANT TIDAK
+  BERUBAH (0 tabel baru, 0 policy baru).
+- Urutan: tidak bergantung pada deploy kode (kode sudah lama
+  mengharapkan kolom ini; deploy sudah live sejak lama).
+
+Verifikasi tambahan:
+
+```sql
+select column_name, data_type, is_nullable
+from information_schema.columns
+where table_schema = 'public' and table_name = 'pf_events'
+  and column_name = 'artikel_id';
+-- ekspektasi: 1 baris; uuid, YES
+
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 62 (v17 tanpa tabel baru)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 120 (v17 tanpa policy baru)
+```
+
+| Pemeriksaan | Ekspektasi sesudah v17 |
+|---|---|
+| Jumlah tabel `pf_*` | **62** |
+| Tabel ber-RLS | **62/62** |
+| Jumlah policy `pf_*` | **120** |
+| Tabel baru | **0** |
+| Kolom baru | **`pf_events.artikel_id`** |
+
 ### 3.15 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
