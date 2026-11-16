@@ -157,17 +157,28 @@ const tautanArea = {
   "Explain the World (pengetahuan)": "/pengetahuan",
   "Reality Check (data)": "/data",
   "Ask the World (tanya)": "/tanya",
-  "My PRATA (saya)": "/saya",
   "Academy (akademi)": "/akademi",
   "Podcast (podcast)": "/podcast",
   "Research (riset)": "/riset",
   "Country Profile (negara)": "/negara",
   "Historical Archive (sejarah)": "/sejarah",
-  "Public Report (laporkan)": "/laporkan",
 };
 for (const [nama, href] of Object.entries(tautanArea)) {
   cek(`nav Header menautkan ${nama}`, header.includes(href), href);
 }
+// V3 Fase 3 (17 Nov 2026): baris nav hanya 8 pintu inti — /saya dan
+// /laporkan PINDAH, bukan hilang: /saya ada di AuthArea (profil,
+// baris atas header), /laporkan ada di /jelajahi (indeks situs).
+cek(
+  "AuthArea menautkan My PRATA (saya)",
+  fs.readFileSync(path.join(DIR_SRC, "components/AuthArea.tsx"), "utf8").includes('"/saya"'),
+  "/saya",
+);
+cek(
+  "Jelajahi menautkan Public Report (laporkan)",
+  fs.readFileSync(path.join(DIR_SRC, "app/jelajahi/page.tsx"), "utf8").includes('"/laporkan"'),
+  "/laporkan",
+);
 const halamanArtikel = fs.readFileSync(
   path.join(DIR_SRC, "app/artikel/[slug]/page.tsx"),
   "utf8",
