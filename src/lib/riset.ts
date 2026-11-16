@@ -5,14 +5,16 @@
 // yang berstatus 'terbit' (draf tersembunyi). Pembacaan ADMIN
 // memakai service role (cobaServiceClient) agar draf terlihat;
 // tersedia=false bila service key belum diatur.
-// Konvensi tautan dataset (tanpa kolom baru — migrasi v10 tidak
-// punya kolom penghubung): laporan riset menautkan dataset CSV
-// indikator yang SLUG-nya sama dengan slug laporan
+// Konvensi tautan dataset (v13, P2-16): laporan riset menautkan
+// dataset CSV lewat kolom FK pf_research_reports.indikator_id
+// bila terisi (backfill dari slug di v13); bila kosong, fallback
+// ke indikator yang SLUG-nya sama dengan slug laporan
 // (lihat getIndikatorTerkaitRiset + /api/riset/[slug]/dataset).
 // Dokumen terkait laporan ditandai lewat metadata jsonb
 // { "riset_slug": "<slug laporan>" }.
 import { createClient } from "@/lib/supabase/server";
 import { cobaServiceClient } from "@/lib/supabase/service";
+import { catatGalatBaca, GalatBaca } from "@/lib/galat";
 
 export type PfRiset = {
   id: string;
@@ -119,10 +121,16 @@ export async function getDaftarRiset(
       query = query.or(`judul.ilike.${pola},ringkasan.ilike.${pola}`);
     }
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getDaftarRiset", error)) return [];
+      throw new GalatBaca("getDaftarRiset", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(barisRiset);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDaftarRiset", err)) return [];
+    throw new GalatBaca("getDaftarRiset", err);
   }
 }
 
@@ -136,10 +144,16 @@ export async function getRiset(slug: string): Promise<PfRiset | null> {
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getRiset", error)) return null;
+      throw new GalatBaca("getRiset", error);
+    }
+    if (!data) return null;
     return barisRiset(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRiset", err)) return null;
+    throw new GalatBaca("getRiset", err);
   }
 }
 
@@ -168,10 +182,16 @@ export async function cariDokumen(
     if (jenis) query = query.eq("jenis", jenis);
     if (kategori) query = query.eq("kategori", kategori);
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("cariDokumen", error)) return [];
+      throw new GalatBaca("cariDokumen", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(barisDokumen);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("cariDokumen", err)) return [];
+    throw new GalatBaca("cariDokumen", err);
   }
 }
 
@@ -191,41 +211,86 @@ export async function getDokumenTerkait(
       .eq("status", "terbit")
       .order("tanggal", { ascending: false, nullsFirst: false })
       .limit(100);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getDokumenTerkait", error)) return [];
+      throw new GalatBaca("getDokumenTerkait", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[])
       .map(barisDokumen)
       .filter((d) => d.metadata["riset_slug"] === risetSlug)
       .slice(0, Math.max(1, limit));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDokumenTerkait", err)) return [];
+    throw new GalatBaca("getDokumenTerkait", err);
   }
 }
 
 /**
- * Indikator yang slug-nya SAMA dengan slug laporan (konvensi
- * tautan dataset — lihat kepala berkas). null bila tidak ada
+ * Indikator terkait laporan riset (v13, P2-16): FK indikator_id
+ * dulu, fallback slug sama (konvensi lama). null bila tidak ada
  * indikator terkait. Dipakai halaman detail riset untuk
  * menampilkan tautan unduh CSV.
  */
 export async function getIndikatorTerkaitRiset(
   risetSlug: string,
 ): Promise<{ id: string; slug: string; nama: string } | null> {
+  // P2-16 (v13): FK indikator_id dulu, fallback slug sama.
   try {
     const supabase = await createClient();
+    const { data: riset, error: errRiset } = await supabase
+      .from("pf_research_reports")
+      .select("indikator_id")
+      .eq("slug", risetSlug)
+      .eq("status", "terbit")
+      .maybeSingle();
+    if (errRiset) {
+      if (catatGalatBaca("getIndikatorTerkaitRiset", errRiset)) return null;
+      throw new GalatBaca("getIndikatorTerkaitRiset", errRiset);
+    }
+    const indikatorId = (riset as { indikator_id?: string | null } | null)?.indikator_id;
+    if (indikatorId) {
+      const { data, error } = await supabase
+        .from("pf_data_indicators")
+        .select("id, slug, nama")
+        .eq("id", indikatorId)
+        .maybeSingle();
+      if (error) {
+        if (catatGalatBaca("getIndikatorTerkaitRiset", error)) return null;
+        throw new GalatBaca("getIndikatorTerkaitRiset", error);
+      }
+      if (data) {
+        const r = data as unknown as Record<string, unknown>;
+        return {
+          id: String(r.id),
+          slug: String(r.slug ?? ""),
+          nama: String(r.nama ?? ""),
+        };
+      }
+      // FK menunjuk indikator yang sudah dihapus — lanjut ke
+      // fallback slug di bawah.
+    }
     const { data, error } = await supabase
       .from("pf_data_indicators")
       .select("id, slug, nama")
       .eq("slug", risetSlug)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getIndikatorTerkaitRiset", error)) return null;
+      throw new GalatBaca("getIndikatorTerkaitRiset", error);
+    }
+    if (!data) return null;
     const r = data as unknown as Record<string, unknown>;
     return {
       id: String(r.id),
       slug: String(r.slug ?? ""),
       nama: String(r.nama ?? ""),
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getIndikatorTerkaitRiset", err)) return null;
+    throw new GalatBaca("getIndikatorTerkaitRiset", err);
   }
 }
 
@@ -238,14 +303,20 @@ export async function daftarKategoriDokumen(): Promise<string[]> {
       .select("kategori")
       .eq("status", "terbit")
       .limit(500);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("daftarKategoriDokumen", error)) return [];
+      throw new GalatBaca("daftarKategoriDokumen", error);
+    }
+    if (!data) return [];
     const kategori = new Set<string>();
     for (const r of data as { kategori: string | null }[]) {
       if (r.kategori && r.kategori.trim()) kategori.add(r.kategori.trim());
     }
     return [...kategori].sort((a, b) => a.localeCompare(b, "id"));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("daftarKategoriDokumen", err)) return [];
+    throw new GalatBaca("daftarKategoriDokumen", err);
   }
 }
 
@@ -260,19 +331,34 @@ export async function getRisetAdmin(): Promise<{
 }> {
   try {
     const service = cobaServiceClient();
-    if (!service) return { riset: [], tersedia: false };
+    if (!service) {
+      console.error(
+        "[baca] getRisetAdmin: SUPABASE_SERVICE_ROLE_KEY belum diatur — tersedia=false.",
+      );
+      return { riset: [], tersedia: false };
+    }
     const { data, error } = await service
       .from("pf_research_reports")
       .select(KOLOM_RISET)
       .order("dibuat_pada", { ascending: false })
       .limit(200);
-    if (error || !data) return { riset: [], tersedia: false };
+    if (error) {
+      if (catatGalatBaca("getRisetAdmin", error)) {
+        return { riset: [], tersedia: false };
+      }
+      throw new GalatBaca("getRisetAdmin", error);
+    }
+    if (!data) return { riset: [], tersedia: false };
     return {
       riset: (data as unknown as Record<string, unknown>[]).map(barisRiset),
       tersedia: true,
     };
-  } catch {
-    return { riset: [], tersedia: false };
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRisetAdmin", err)) {
+      return { riset: [], tersedia: false };
+    }
+    throw new GalatBaca("getRisetAdmin", err);
   }
 }
 
@@ -283,20 +369,35 @@ export async function getDokumenAdmin(): Promise<{
 }> {
   try {
     const service = cobaServiceClient();
-    if (!service) return { dokumen: [], tersedia: false };
+    if (!service) {
+      console.error(
+        "[baca] getDokumenAdmin: SUPABASE_SERVICE_ROLE_KEY belum diatur — tersedia=false.",
+      );
+      return { dokumen: [], tersedia: false };
+    }
     const { data, error } = await service
       .from("pf_documents")
       .select(KOLOM_DOKUMEN)
       .order("dibuat_pada", { ascending: false })
       .limit(200);
-    if (error || !data) return { dokumen: [], tersedia: false };
+    if (error) {
+      if (catatGalatBaca("getDokumenAdmin", error)) {
+        return { dokumen: [], tersedia: false };
+      }
+      throw new GalatBaca("getDokumenAdmin", error);
+    }
+    if (!data) return { dokumen: [], tersedia: false };
     return {
       dokumen: (data as unknown as Record<string, unknown>[]).map(
         barisDokumen,
       ),
       tersedia: true,
     };
-  } catch {
-    return { dokumen: [], tersedia: false };
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDokumenAdmin", err)) {
+      return { dokumen: [], tersedia: false };
+    }
+    throw new GalatBaca("getDokumenAdmin", err);
   }
 }

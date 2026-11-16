@@ -46,12 +46,46 @@
 //   d. Fail-open bila DNS gagal dipertahankan (tolakHostPrivat
 //      mengembalikan null): host yang tak ter-resolve tidak bisa
 //      dinilai; fetch-nya akan gagal secara alami.
-//   e. fetchAman dengan fetch pengganti (mock uji / curl fallback)
-//      TIDAK bisa di-pinning — curl/mock melakukan DNS sendiri.
-//      Jalur itu hanya dilindungi lapisan 1 (+ 2 untuk feed).
+//   f. DNS lookup TANPA batas waktu (diperbaiki integrasi B1):
+//      lookup() berjalan SEBELUM signal dibuat di fetchTerpin dan
+//      resolusiHost tidak menerima signal sama sekali — resolver
+//      yang menggantung (mis. middlebox egress VM) menahan
+//      ingestion/scheduler selamanya meski pemanggil memberi
+//      AbortSignal.timeout(). SEMUA resolve DNS di berkas ini kini
+//      dibatasi BATAS_DNS_MS (di bawah); timeout = gagal resolve
+//      (fail-open di tolakHostPrivat/resolusiHost, fallback di
+//      fetchTerpin), BUKAN gantung.
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
+
+/** Batas waktu SATU resolve DNS (ms). Longgar untuk DNS sehat,
+ *  cukup untuk fail-fast bila resolver menggantung — tanpa ini,
+ *  fetchAman bisa tertahan selamanya sebelum signal pemanggil
+ *  sempat bekerja (temuan integrasi B1: tahap13b §E menggantung
+ *  >10 menit di VM karena lookup example.com tak kembali). */
+export const BATAS_DNS_MS = 5000;
+
+/** Balapkan satu promise melawan timer; tolak bila timer menang.
+ *  Dipakai untuk SEMUA resolve DNS di berkas ini (lookup bawaan
+ *  maupun resolver kustom yang disuntik pemanggil). */
+async function denganBatasWaktu<T>(
+  janji: Promise<T>,
+  batasMs: number,
+  pesan: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      janji,
+      new Promise<never>((_selesai, tolak) => {
+        timer = setTimeout(() => tolak(new Error(pesan)), batasMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /** True bila alamat IP termasuk rentang privat/loopback/link-local. */
 export function ipPrivat(ip: string): boolean {
@@ -129,7 +163,13 @@ export async function resolusiHost(url: string): Promise<HasilResolusi | null> {
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return { host, alamat: [host] };
   if (host.includes(":")) return { host, alamat: [host] };
   try {
-    const hasil = await lookup(host, { all: true });
+    // Lookup dibatasi BATAS_DNS_MS (lihat atas): resolver yang
+    // menggantung melempar timeout → null (fail-open), bukan gantung.
+    const hasil = await denganBatasWaktu(
+      lookup(host, { all: true }),
+      BATAS_DNS_MS,
+      `DNS ${host} kehabisan waktu (${BATAS_DNS_MS} ms).`,
+    );
     return { host, alamat: hasil.map((a) => a.address) };
   } catch {
     return null;
@@ -185,7 +225,13 @@ export async function periksaUlangResolusi(
   }
   let alamatBaru: string[];
   try {
-    alamatBaru = await selesaikan(host);
+    // Resolver dibatasi BATAS_DNS_MS: yang menggantung → null
+    // (fail-open, sama seperti DNS gagal — didokumentasikan).
+    alamatBaru = await denganBatasWaktu(
+      selesaikan(host),
+      BATAS_DNS_MS,
+      `DNS ${host} kehabisan waktu (${BATAS_DNS_MS} ms).`,
+    );
   } catch {
     return null; // DNS gagal sesudah fetch → tidak bisa membuktikan; fail-open.
   }
@@ -278,15 +324,28 @@ export async function fetchTerpin(
   const selesaikan =
     opsi.penyelesaian ??
     (async (h: string) => {
-      const hasil = await lookup(h, { all: true });
+      const hasil = await denganBatasWaktu(
+        lookup(h, { all: true }),
+        BATAS_DNS_MS,
+        `DNS ${h} kehabisan waktu (${BATAS_DNS_MS} ms).`,
+      );
       return hasil.map((a) => a.address);
     });
   let alamat: string[];
   try {
     alamat = ipPrivat(host) || /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(":")
       ? [host]
-      : await selesaikan(host);
-  } catch {
+      : await denganBatasWaktu(
+          selesaikan(host),
+          BATAS_DNS_MS,
+          `DNS ${host} kehabisan waktu (${BATAS_DNS_MS} ms).`,
+        );
+  } catch (err) {
+    // Timeout resolve adalah kegagalan JARINGAN (boleh di-fallback
+    // pemanggil), BUKAN penolakan validasi "URL ditolak:".
+    if (err instanceof Error && err.message.includes("kehabisan waktu")) {
+      throw err;
+    }
     throw new Error(`URL ditolak: DNS ${host} gagal di-resolve.`);
   }
   if (alamat.length === 0) {

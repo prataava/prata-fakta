@@ -155,3 +155,122 @@ export function tentukanStatusDuplikat(input: {
     alasan: "Judul sama dari sumber yang sama dalam rentang waktu dekat",
   };
 }
+
+// ---------- Dedup lunak tahap-2 (Gelombang B1, P1-7 / N-T5) ----------
+// Dedup hash di atas hanya menangkap judul IDENTIK persis — parafrase
+// lolos sebagai "baru". Tahap-2 membandingkan token judul (Jaccard)
+// terhadap item 48 jam terakhir. Hasilnya HANYA kandidat untuk review:
+// item tetap disimpan sebagai 'baru' dengan penanda di metadata —
+// TIDAK PERNAH dihapus atau ditolak otomatis.
+
+/** Ambang kesamaan token judul untuk kandidat duplikat lunak. */
+export const AMBANG_DUPLIKAT_LUNAK = 0.8;
+/** Jendela waktu kandidat duplikat lunak (48 jam, sama dengan batas terbit-ulang). */
+export const JENDELA_DUPLIKAT_LUNAK_MS = 48 * 60 * 60 * 1000;
+
+// Kata henti bahasa Indonesia yang tidak membedakan judul berita.
+// Token 1 huruf juga dibuang (terlalu umum). Token 2 huruf dipertahankan
+// ("AI", "UU", "RI") karena bisa bermakna.
+const KATA_HENTI_JUDUL = new Set([
+  "yang", "dan", "atau", "di", "ke", "dari", "untuk", "pada", "dengan",
+  "adalah", "akan", "telah", "sudah", "saat", "kini", "juga", "dalam",
+  "oleh", "sebagai", "bahwa", "ini", "itu", "para", "kian", "kembali",
+  "usai", "soal", "tentang", "atas", "bagi", "hingga", "antara", "demi",
+  "the", "and", "for", "with", "from", "that", "this",
+]);
+
+/** Token bermakna dari sebuah judul (ternormalisasi, unik, berurutan). */
+export function tokenJudul(judul: string): string[] {
+  const token = normalisasiJudul(judul)
+    .split(" ")
+    .filter((t) => t.length >= 2 && !KATA_HENTI_JUDUL.has(t));
+  return [...new Set(token)];
+}
+
+/**
+ * Kesamaan Jaccard dua judul (0..1). Mengembalikan 0 bila salah satu
+ * judul punya < 3 token bermakna — judul sependek itu terlalu lemah
+ * untuk dinilai mirip (risiko positif palsu, mis. "Gempa Aceh" vs
+ * "Gempa Banten"). Judul identik persis sudah ditangkap hash tahap-1,
+ * jadi tahap-2 hanya menilai yang lolos dari sana.
+ */
+export function kemiripanJudul(judulA: string, judulB: string): number {
+  const a = new Set(tokenJudul(judulA));
+  const b = new Set(tokenJudul(judulB));
+  if (a.size < 3 || b.size < 3) return 0;
+  let irisan = 0;
+  for (const t of a) if (b.has(t)) irisan += 1;
+  const gabungan = a.size + b.size - irisan;
+  return gabungan === 0 ? 0 : irisan / gabungan;
+}
+
+export interface KandidatJudulMirip {
+  id: string;
+  judul: string;
+  sumber_id: string | null;
+  waktu_terbit_asli: string | null;
+  waktu_diambil: string;
+}
+
+export interface KeputusanDuplikatLunak {
+  kandidat: boolean;
+  /** 'disalin_dari' bila judul mirip dari penerbit lain, 'duplikat' bila sumber sama. */
+  tipe: "duplikat" | "disalin_dari" | null;
+  miripDengan: {
+    id: string;
+    judul: string;
+    kemiripan: number;
+  } | null;
+  alasan: string | null;
+}
+
+/**
+ * Cari kandidat duplikat lunak untuk satu judul di antara item 48 jam
+ * terakhir. Fungsi murni. Hanya kandidat dengan kemiripan >= 0,8 yang
+ * dikembalikan (yang paling mirip bila ada beberapa). Item di luar
+ * jendela 48 jam dari waktu_diambil tidak dinilai.
+ */
+export function cariKandidatDuplikatLunak(input: {
+  judul: string;
+  sumberId: string;
+  waktuDiambil: Date;
+  kandidat: KandidatJudulMirip[];
+}): KeputusanDuplikatLunak {
+  const { judul, sumberId, waktuDiambil, kandidat } = input;
+  let terbaik: { baris: KandidatJudulMirip; kemiripan: number } | null = null;
+  for (const baris of kandidat) {
+    const diambil = new Date(baris.waktu_diambil).getTime();
+    if (Number.isNaN(diambil)) continue;
+    if (
+      Math.abs(waktuDiambil.getTime() - diambil) > JENDELA_DUPLIKAT_LUNAK_MS
+    ) {
+      continue;
+    }
+    const kemiripan = kemiripanJudul(judul, baris.judul);
+    if (kemiripan >= AMBANG_DUPLIKAT_LUNAK) {
+      if (!terbaik || kemiripan > terbaik.kemiripan) {
+        terbaik = { baris, kemiripan };
+      }
+    }
+  }
+  if (!terbaik) {
+    return { kandidat: false, tipe: null, miripDengan: null, alasan: null };
+  }
+  const tipe =
+    terbaik.baris.sumber_id !== null && terbaik.baris.sumber_id !== sumberId
+      ? "disalin_dari"
+      : "duplikat";
+  const persen = Math.round(terbaik.kemiripan * 100);
+  return {
+    kandidat: true,
+    tipe,
+    miripDengan: {
+      id: terbaik.baris.id,
+      judul: terbaik.baris.judul,
+      kemiripan: terbaik.kemiripan,
+    },
+    alasan:
+      `Kandidat duplikat lunak (${tipe}, kemiripan judul ${persen}% ` +
+      `dengan "${terbaik.baris.judul}") — perlu review manusia, bukan penghapusan otomatis`,
+  };
+}

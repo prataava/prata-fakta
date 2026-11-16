@@ -8,7 +8,14 @@
 import { fetchRss } from "./rss.ts";
 import type { ItemMentah } from "./rss.ts";
 import { fetchGdelt } from "./gdelt.ts";
-import { hashJudul, hashUrl, tentukanStatusDuplikat } from "./dedup.ts";
+import {
+  cariKandidatDuplikatLunak,
+  hashJudul,
+  hashUrl,
+  JENDELA_DUPLIKAT_LUNAK_MS,
+  tentukanStatusDuplikat,
+} from "./dedup.ts";
+import { cobaUlang, percobaanGalat, type OpsiCobaUlang } from "./retry.ts";
 
 // ---------- Adapter database (injeksi dependensi) ----------
 // Engine tidak tahu Supabase/PGlite — semua akses DB lewat adapter ini.
@@ -69,6 +76,26 @@ export interface IngestionAdapter {
       tambah_item: number;
     },
   ): Promise<void>;
+  // --- Metode opsional Gelombang B1 (adapter lama tetap jalan:
+  // engine memeriksa keberadaannya sebelum memakai). ---
+  /** Judul item 48 jam terakhir (untuk dedup lunak tahap-2). */
+  daftarJudulBaruSejak?(sejak: Date, batas?: number): Promise<
+    Array<{
+      id: string;
+      judul: string;
+      sumber_id: string | null;
+      waktu_terbit_asli: string | null;
+      waktu_diambil: string;
+    }>
+  >;
+  /** Jumlah item sumber ini sejak tanggal tertentu (deteksi basi). */
+  jumlahItemBaruSejak?(sumberId: string, sejak: Date): Promise<number>;
+  /** Waktu item terbaru sumber ini (pemeriksaan basi harian). */
+  waktuItemTerbaru?(sumberId: string): Promise<Date | null>;
+  /** Tandai item UNCONFIRMED kedaluwarsa (lihat pemeliharaan.ts). */
+  tandaiItemKedaluarsa?(batas: Date, alasan: string): Promise<number>;
+  /** Tulis peringatan basi ke status_terakhir sumber (dashboard admin). */
+  tandaiSumberBasi?(sumberId: string, pesan: string): Promise<void>;
 }
 
 // ---------- Tipe input / output engine ----------
@@ -80,6 +107,10 @@ export interface SumberIngestion {
   url: string;
   prioritas: number;
   aktif: boolean;
+  // Topik GDELT khusus sumber ini (kolom pf_sources.topik_gdelt,
+  // migrasi v13 — bila belum ada, diisi dari opsi/topik bawaan).
+  // Hanya dipakai bila jenis === "api".
+  topik_gdelt?: string | null;
 }
 
 export interface HasilPerSumber {
@@ -91,6 +122,20 @@ export interface HasilPerSumber {
   ditolak: number;
   gagal: number;
   error: string | null;
+  // Peringatan basi (P1-6): 0 item dari sumber yang biasanya produktif.
+  peringatan_basi?: string | null;
+  // Kandidat duplikat lunak tahap-2 (P1-7): item tetap disimpan,
+  // hanya ditandai untuk review — daftar dibatasi 10 entri pertama.
+  kandidat_duplikat_lunak?: Array<{
+    judul: string;
+    judul_mirip: string;
+    kemiripan: number;
+    tipe: "duplikat" | "disalin_dari";
+    item_id_mirip: string;
+  }>;
+  duplikat_lunak?: number;
+  // Jumlah percobaan fetch yang dipakai (1 bila tanpa retry, P2-3).
+  percobaan_fetch?: number;
 }
 
 export interface HasilIngestion {
@@ -114,6 +159,13 @@ export interface OpsiIngestion {
   // hardcoded "Indonesia" di bawah — utang audit §5.11).
   // Default tetap "Indonesia" agar perilaku lama tidak berubah.
   topikGdelt?: string;
+  // Topik GDELT per sumber (P3-3): kunci = id ATAU nama sumber.
+  // Mengalahkan topikGdelt; sumber.topik_gdelt (dari DB) mengalahkan
+  // keduanya. Bila tidak ada satu pun, topik bawaan "Indonesia".
+  topikGdeltPerSumber?: Record<string, string>;
+  // Opsi retry per-sumber (P2-3): percobaanMaks bawaan 3, jeda awal
+  // 1000 ms (backoff x2). Uji mengisi jedaAwalMs kecil agar cepat.
+  retry?: OpsiCobaUlang;
   // Lewati allowlist host feed — HANYA untuk uji dengan fetch mock
   // (sumber sintetis contoh.test di scripts/uji-ingestion.mjs).
   // JANGAN PERNAH diisi di jalur produksi.
@@ -121,6 +173,10 @@ export interface OpsiIngestion {
 }
 
 const PANJANG_JUDUL_MINIMAL = 5;
+
+// Jendela "biasanya produktif" (P1-6): sumber dianggap produktif bila
+// ada item baru dalam 7 hari terakhir.
+const JENDELA_PRODUKTIF_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ---------- Validasi item ----------
 
@@ -168,35 +224,63 @@ async function prosesSatuSumber(
     return hasil;
   }
 
-  // 1. Ambil feed. Bila fetch gagal total -> run 'gagal', lanjut sumber lain.
+  // 1. Ambil feed — DENGAN retry per-sumber (P2-3 / N-S5): satu sumber
+  // yang gagal sementara (GDELT 429, 5xx, gangguan jaringan) dicoba
+  // ulang sendiri (maks 3x, backoff eksponensial, hormati Retry-After)
+  // tanpa mengulang seluruh job. Bila fetch gagal total -> run 'gagal',
+  // lanjut sumber lain.
   let items: ItemMentah[] = [];
   let httpStatus = 0;
   try {
-    if (sumber.jenis === "api") {
-      // Satu-satunya sumber API saat ini: GDELT DOC API.
-      // Topik dari opsi (default "Indonesia" — perilaku lama).
-      const gdelt = await fetchGdelt(opsi.topikGdelt ?? "Indonesia", {
-        maxRecords: 25,
-        timeoutMs: 30000,
-        fetchFn: opsi.fetchFn,
-      });
-      items = gdelt.items;
-      httpStatus = gdelt.httpStatus;
-    } else if (sumber.jenis === "rss") {
-      const rss = await fetchRss(sumber.url, {
-        timeoutMs,
-        fetchFn: opsi.fetchFn,
-        lewatiAllowlist: opsi.lewatiAllowlistFeed,
-      });
-      items = rss.items;
-      httpStatus = rss.httpStatus;
-    } else {
+    const ambilSekali = async (): Promise<{
+      items: ItemMentah[];
+      httpStatus: number;
+    }> => {
+      if (sumber.jenis === "api") {
+        // Satu-satunya sumber API saat ini: GDELT DOC API.
+        // Topik per sumber (P3-3): kolom DB sumber.topik_gdelt dulu,
+        // lalu peta opsi.topikGdeltPerSumber (id/nama), lalu opsi
+        // topikGdelt, terakhir bawaan "Indonesia".
+        const topik =
+          (sumber.topik_gdelt ?? "").trim() ||
+          opsi.topikGdeltPerSumber?.[sumber.id]?.trim() ||
+          opsi.topikGdeltPerSumber?.[sumber.nama]?.trim() ||
+          opsi.topikGdelt?.trim() ||
+          "Indonesia";
+        const gdelt = await fetchGdelt(topik, {
+          maxRecords: 25,
+          timeoutMs: 30000,
+          fetchFn: opsi.fetchFn,
+        });
+        return { items: gdelt.items, httpStatus: gdelt.httpStatus };
+      } else if (sumber.jenis === "rss") {
+        const rss = await fetchRss(sumber.url, {
+          timeoutMs,
+          fetchFn: opsi.fetchFn,
+          lewatiAllowlist: opsi.lewatiAllowlistFeed,
+        });
+        return { items: rss.items, httpStatus: rss.httpStatus };
+      }
       throw new Error(`Jenis sumber tidak didukung: ${sumber.jenis}`);
-    }
+    };
+    const { nilai, percobaan } = await cobaUlang(ambilSekali, {
+      percobaanMaks: 3,
+      jedaAwalMs: 1000,
+      ...(opsi.retry ?? {}),
+    });
+    items = nilai.items;
+    httpStatus = nilai.httpStatus;
+    hasil.percobaan_fetch = percobaan;
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);
-    hasil.error = pesan;
+    const percobaan = percobaanGalat(err);
+    const pesanAkhir =
+      percobaan !== null && percobaan > 1
+        ? `${pesan} (gagal sesudah ${percobaan} percobaan)`
+        : pesan;
+    hasil.error = pesanAkhir;
     hasil.gagal = 1;
+    hasil.percobaan_fetch = percobaan ?? 1;
     try {
       await adapter.tutupRun(runId, {
         selesai_pada: new Date(),
@@ -206,7 +290,7 @@ async function prosesSatuSumber(
         duplikat: 0,
         ditolak: 0,
         gagal: 1,
-        error: pesan,
+        error: pesanAkhir,
       });
       await adapter.perbaruiSumber(sumber.id, {
         terakhir_diambil: new Date(),
@@ -221,6 +305,51 @@ async function prosesSatuSumber(
 
   hasil.ditemukan = items.length;
   const waktuDiambil = new Date();
+
+  // Deteksi sumber basi (P1-6 / N-T4): feed 0 item dari sumber yang
+  // biasanya produktif = anomali (feed berubah format / sumber mati),
+  // bukan sukses penuh. "Biasanya produktif" = ada item baru dalam
+  // 7 hari terakhir. Run ditandai 'sebagian' + peringatan di bawah.
+  if (items.length === 0 && adapter.jumlahItemBaruSejak) {
+    try {
+      const tujuhHariLalu = new Date(
+        waktuDiambil.getTime() - JENDELA_PRODUKTIF_MS,
+      );
+      const jumlahBaru = await adapter.jumlahItemBaruSejak(
+        sumber.id,
+        tujuhHariLalu,
+      );
+      if (jumlahBaru > 0) {
+        hasil.peringatan_basi =
+          `0 item — sumber biasanya produktif (${jumlahBaru} item baru ` +
+          `7 hari terakhir); kemungkinan feed berubah format atau sumber mati`;
+      }
+    } catch {
+      // Gagal memeriksa riwayat: jangan mengubah status run.
+    }
+  }
+
+  // Kandidat dedup lunak tahap-2 (P1-7): muat SEKALI per run (bukan
+  // per item) — judul 48 jam terakhir. Gagal memuat = dedup lunak
+  // dilewati, dedup hash tetap jalan.
+  let kandidatJudul: Array<{
+    id: string;
+    judul: string;
+    sumber_id: string | null;
+    waktu_terbit_asli: string | null;
+    waktu_diambil: string;
+  }> = [];
+  if (adapter.daftarJudulBaruSejak) {
+    try {
+      kandidatJudul = await adapter.daftarJudulBaruSejak(
+        new Date(waktuDiambil.getTime() - JENDELA_DUPLIKAT_LUNAK_MS),
+        500,
+      );
+    } catch {
+      kandidatJudul = [];
+    }
+  }
+
   // Jumlah baris yang benar-benar tersimpan untuk sumber ini
   // (baru + disalin_dari + diterbitkan_ulang) — dipakai untuk
   // pf_sources.jumlah_item, agar tidak hanya menghitung 'baru'.
@@ -325,7 +454,46 @@ async function prosesSatuSumber(
         continue;
       }
 
-      // Aturan 5: selain itu -> item baru.
+      // Aturan 5: selain itu -> item baru. Sebelum disimpan, jalankan
+      // dedup lunak tahap-2 (P1-7): bila judulnya mirip (>= 0,8) dengan
+      // item 48 jam terakhir, item TETAP disimpan sebagai 'baru' —
+      // hanya ditandai kandidat di metadata + alasan + log run, untuk
+      // review manusia. Tidak ada penghapusan otomatis di sini.
+      let lunak: ReturnType<typeof cariKandidatDuplikatLunak> | null = null;
+      if (kandidatJudul.length > 0) {
+        lunak = cariKandidatDuplikatLunak({
+          judul,
+          sumberId: sumber.id,
+          waktuDiambil,
+          kandidat: kandidatJudul,
+        });
+      }
+      const metadataBaru: Record<string, unknown> = {
+        ...(item.metadata ?? {}),
+        guid: item.guid,
+        gambar_url: item.gambarUrl,
+        kategori_feed: item.kategoriFeed,
+      };
+      let alasanBaru: string | null = null;
+      if (lunak && lunak.kandidat && lunak.miripDengan && lunak.tipe) {
+        metadataBaru.kandidat_duplikat_lunak = {
+          item_id: lunak.miripDengan.id,
+          judul_mirip: lunak.miripDengan.judul,
+          kemiripan: Math.round(lunak.miripDengan.kemiripan * 1000) / 1000,
+          tipe: lunak.tipe,
+        };
+        alasanBaru = lunak.alasan;
+        hasil.duplikat_lunak = (hasil.duplikat_lunak ?? 0) + 1;
+        if ((hasil.kandidat_duplikat_lunak ?? []).length < 10) {
+          (hasil.kandidat_duplikat_lunak ??= []).push({
+            judul,
+            judul_mirip: lunak.miripDengan.judul,
+            kemiripan: Math.round(lunak.miripDengan.kemiripan * 1000) / 1000,
+            tipe: lunak.tipe,
+            item_id_mirip: lunak.miripDengan.id,
+          });
+        }
+      }
       await adapter.simpanItem({
         sumber_id: sumber.id,
         run_id: runId,
@@ -342,13 +510,8 @@ async function prosesSatuSumber(
         status_verifikasi: "UNCONFIRMED",
         disalin_dari_id: null,
         diterbitkan_ulang: false,
-        alasan: null,
-        metadata: {
-          ...(item.metadata ?? {}),
-          guid: item.guid,
-          gambar_url: item.gambarUrl,
-          kategori_feed: item.kategoriFeed,
-        },
+        alasan: alasanBaru,
+        metadata: metadataBaru,
       });
       disimpan += 1;
       hasil.baru += 1;
@@ -363,16 +526,23 @@ async function prosesSatuSumber(
   }
 
   // 3. Tutup run dengan hitungan nyata + perbarui pf_sources.
+  // 'sebagian' bila ada kegagalan item ATAU peringatan basi (P1-6:
+  // 0 item dari sumber yang biasanya produktif bukan sukses penuh).
   const statusRun =
     hasil.gagal > 0 && hasil.baru + hasil.duplikat === 0
       ? "gagal"
-      : hasil.gagal > 0
+      : hasil.gagal > 0 || hasil.peringatan_basi
         ? "sebagian"
         : "selesai";
+  // Peringatan basi dicatat ke kolom error run agar terlihat di
+  // pf_ingestion_runs / dashboard (bukan hanya di respons JSON).
+  const errorRun = hasil.error ?? hasil.peringatan_basi ?? null;
   const statusSumber =
     statusRun === "selesai"
       ? `ok HTTP ${httpStatus}, ${items.length} item`
-      : `sebagian: HTTP ${httpStatus}, ${items.length} item, ${hasil.gagal} gagal`;
+      : hasil.peringatan_basi && hasil.gagal === 0
+        ? `basi: HTTP ${httpStatus} — ${hasil.peringatan_basi}`
+        : `sebagian: HTTP ${httpStatus}, ${items.length} item, ${hasil.gagal} gagal`;
   try {
     await adapter.tutupRun(runId, {
       selesai_pada: new Date(),
@@ -382,7 +552,7 @@ async function prosesSatuSumber(
       duplikat: hasil.duplikat,
       ditolak: hasil.ditolak,
       gagal: hasil.gagal,
-      error: hasil.error,
+      error: errorRun,
     });
   } catch {
     // Pencatatan run gagal: hasil hitungan tetap dilaporkan ke pemanggil.

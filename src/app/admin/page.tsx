@@ -6,7 +6,7 @@ import { formatWaktu } from "@/lib/admin/format";
 
 export const metadata: Metadata = {
   title: "Overview Admin",
-  description: "Ringkasan operasional PRATA FAKTA: artikel, sumber, agen AI, dan scheduler.",
+  description: "Ringkasan operasional PRATA FAKTA: artikel, sumber, pipeline AI, dan scheduler.",
 };
 
 export const instant = false;
@@ -152,11 +152,11 @@ export default async function AdminOverview() {
 
       <section className="seksi" aria-labelledby="seksi-ai">
         <div className="seksi-kepala">
-          <h2 id="seksi-ai">Status Agen AI</h2>
+          <h2 id="seksi-ai">Status Pipeline AI</h2>
           <Link href="/admin/audit">Lihat audit</Link>
         </div>
         {ringkasan.ai.run_gagal_terakhir.length === 0 ? (
-          <p>Tidak ada run agen AI yang gagal dalam 10 run terakhir.</p>
+          <p>Tidak ada run pipeline AI yang gagal dalam 10 run terakhir.</p>
         ) : (
           <div className="tabel-gulir">
             <table className="tabel-data">
@@ -215,7 +215,7 @@ export default async function AdminOverview() {
           <h2 id="seksi-error">Log Error Terakhir</h2>
         </div>
         {ringkasan.error_logs.length === 0 ? (
-          <p>Tidak ada error tercatat dari run ingestion maupun agen AI.</p>
+          <p>Tidak ada error tercatat dari run ingestion maupun pipeline AI.</p>
         ) : (
           <ul className="artikel-daftar">
             {ringkasan.error_logs.map((e, i) => (

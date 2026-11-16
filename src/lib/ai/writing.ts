@@ -8,7 +8,9 @@
 //   - Bagian "Yang belum diketahui" JUJUR: menyatakan apa yang tidak
 //     dikatakan sumber, bukan mengarang.
 //   - status='draft' (TIDAK PERNAH auto-terbit), penulis
-//     'Redaksi PRATA FAKTA (draf AI)'.
+//     'Redaksi PRATA FAKTA (draf pipeline)' — label jujur (N-T1):
+//     draf ini hasil 10 langkah pipeline deterministik, bukan
+//     tulisan agen LLM.
 //   - kategori_slug via klasifikasi kata kunci deterministik ke
 //     kategori utama v1; fallback terdokumentasi (lihat
 //     klasifikasikanKategori).
@@ -20,7 +22,7 @@ import type {
   SimpanArtikelInput,
 } from "./types.ts";
 
-export const PENULIS_DRAF_AI = "Redaksi PRATA FAKTA (draf AI)";
+export const PENULIS_DRAF_AI = "Redaksi PRATA FAKTA (draf pipeline)";
 
 // ---------- Klasifikasi kategori (deterministik, kata kunci) ----------
 

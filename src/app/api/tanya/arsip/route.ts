@@ -1,29 +1,31 @@
 // GET /api/tanya/arsip — arsip Q&A terjawab PUBLIK.
 // Hanya pertanyaan publik=true + status 'terjawab'.
-// Dibaca via SERVICE ROLE: policy RLS pf_questions hanya
-// mengizinkan pemilik + staf, jadi session client tidak bisa
-// membaca arsip publik. Service role di sini AMAN karena filter
-// publik+terjawab ditegakkan di kueri dan respons tidak memuat
-// identitas penanya (tanpa user_id). 503 jujur bila service key
-// belum diatur atau tabel v10 belum ada.
+// P1-15 (B-S10, L-F2, v13): dibaca via SESSION CLIENT —
+// policy RLS baru "pf_questions arsip publik" (publik=true
+// AND status='terjawab') menegakkan filter di DATABASE, bukan
+// lagi di kode route lewat service role. Respons TIDAK PERNAH
+// memuat user_id/email penanya: select hanya kolom aman.
+// 503 jujur bila tabel v6/v10 belum ada.
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET() {
-  let service;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
-    service = createServiceClient();
+    supabase = await createClient();
   } catch {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Arsip tanya belum aktif (kunci layanan belum diatur). Coba lagi nanti.",
+          "Arsip tanya belum aktif (layanan belum tersedia). Coba lagi nanti.",
       },
       { status: 503 },
     );
   }
-  const { data, error } = await service
+  // Kolom aman saja — TANPA user_id (identitas penanya tidak
+  // boleh bocor lewat arsip publik).
+  const { data, error } = await supabase
     .from("pf_questions")
     .select(
       "id, pertanyaan, jawaban, referensi, status, kategori, membantu, dibuat_pada, dijawab_pada",

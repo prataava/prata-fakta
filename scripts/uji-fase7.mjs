@@ -81,8 +81,11 @@ await db.exec(
 );
 // Role Supabase (wajib ada sebelum v8: REVOKE/GRANT FROM anon,
 // authenticated di §4 T1-sisa). Pola sama seperti uji-fase8-gel1.
+// service_role ditambah Gelombang B1: v13 §10 memberi GRANT
+// eksplisit ke service_role atas semua tabel.
 await db.exec(`create role anon nologin;`);
 await db.exec(`create role authenticated nologin;`);
+await db.exec(`create role service_role bypassrls nologin;`);
 
 let ok = await jalankan("v1", baca("20261116_pf_v1_foundation.sql"));
 if (ok) ok = await jalankan("v2", baca("20261116_pf_v2_articles.sql"));
@@ -92,12 +95,19 @@ if (ok) ok = await jalankan("v5", baca("20261116_pf_v5_editorial.sql"));
 if (ok) ok = await jalankan("v6", baca("20261116_pf_v6_advanced.sql"));
 if (ok) ok = await jalankan("v7 putaran 1", baca("20261116_pf_v7_quiz_scores.sql"));
 if (ok) ok = await jalankan("v7 putaran 2 (idempotensi)", baca("20261116_pf_v7_quiz_scores.sql"));
-// v8 (Fase 8 Gelombang 1) diterapkan di sini agar baterai ini
-// menguji skrip backup terhadap skema repo saat ini (37 tabel):
-// backup-pf.mjs mendaftar 37 tabel pasca-v8, jadi DB uji harus
-// v1–v8 — bukan v1–v7 — supaya perbandingan daftar = DB jujur.
+// v8 (Fase 8 Gelombang 1) + v9–v13 diterapkan di sini agar baterai
+// ini menguji skrip backup terhadap skema repo saat ini (55 tabel):
+// backup-pf.mjs mendaftar 55 tabel pasca-v13, jadi DB uji harus
+// v1–v13 — bukan v1–v8 — supaya perbandingan daftar = DB jujur.
+// (Diperbarui Gelombang B1: v9 GRANT, v10 16 tabel, v11 limiter,
+//  v12 seed 5 job, v13 pf_quiz_answers + GRANT service_role.)
 if (ok) ok = await jalankan("v8 putaran 1", baca("20261116_pf_v8_expansion.sql"));
 if (ok) ok = await jalankan("v8 putaran 2 (idempotensi)", baca("20261116_pf_v8_expansion.sql"));
+if (ok) ok = await jalankan("v9", baca("20261116_pf_v9_grants.sql"));
+if (ok) ok = await jalankan("v10", baca("20261116_pf_v10_wave2.sql"));
+if (ok) ok = await jalankan("v11", baca("20261116_pf_v11_rate_limit_audit.sql"));
+if (ok) ok = await jalankan("v12", baca("20261116_pf_v12_seed_jobs.sql"));
+if (ok) ok = await jalankan("v13", baca("20261116_pf_v13_ultimate.sql"));
 if (!ok) {
   console.log("HASIL: MIGRASI GAGAL");
   process.exit(1);
@@ -107,24 +117,24 @@ const hitung = async (sql, params = []) =>
   Number((await db.query(sql, params)).rows[0].n);
 
 cek(
-  "tabel pf_* = 37",
+  "tabel pf_* = 55",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%'`,
-  )) === 37,
-  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences)",
+  )) === 55,
+  "35 (v1-v6) + 1 (v7) + 1 (v8: pf_user_preferences) + 16 (v10) + 1 (v11: pf_rate_limits) + 1 (v13: pf_quiz_answers)",
 );
 cek(
-  "RLS 37/37",
+  "RLS 55/55",
   (await hitung(
     `select count(*) n from pg_tables where schemaname='public' and tablename like 'pf_%' and rowsecurity`,
-  )) === 37,
+  )) === 55,
 );
 cek(
-  "policy total = 79",
+  "policy total = 107",
   (await hitung(
     `select count(*) n from pg_policies where schemaname='public' and tablename like 'pf_%'`,
-  )) === 79,
-  "76 (v1-v6) + 3 (v7) + 0 bersih (v8: -3 insert anonim T5 + 3 pf_user_preferences; penggantian T8 net 0)",
+  )) === 107,
+  "79 (v1-v8) + 27 (v10) + 1 (v13: arsip Q&A publik)",
 );
 cek(
   "policy pf_quiz_scores = 3",
@@ -313,11 +323,11 @@ cek(
   bacaRepo("src/components/peta/PetaDuniaLazy.tsx").includes("leaflet/dist/leaflet.css"),
 );
 
-// Skrip backup mencakup semua 37 tabel.
+// Skrip backup mencakup semua 55 tabel (pasca-v13).
 const backup = bacaRepo("scripts/backup-pf.mjs");
 const daftarTabel = [...backup.matchAll(/"(pf_[a-z_]+)"/g)].map((m) => m[1]);
 const unikTabel = [...new Set(daftarTabel)];
-cek("backup: 37 tabel unik", unikTabel.length === 37, `${unikTabel.length} ditemukan`);
+cek("backup: 55 tabel unik", unikTabel.length === 55, `${unikTabel.length} ditemukan`);
 const tabelDb = (
   await db.query(
     `select tablename from pg_tables where schemaname='public' and tablename like 'pf_%'`,

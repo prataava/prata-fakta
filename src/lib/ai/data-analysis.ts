@@ -1,4 +1,5 @@
-// Agen Data Analysis PRATA FAKTA (ke-10) — DETERMINISTIK, tanpa LLM.
+// Langkah Data Analysis PRATA FAKTA (ke-10 dari 10 langkah
+// pipeline deterministik) — DETERMINISTIK, tanpa LLM.
 // Untuk tiap indikator di pf_data_indicators yang punya >= 2 titik
 // data di pf_data_points, hitung dari angka NYATA: nilai terakhir,
 // nilai sebelumnya, selisih + persen perubahan, min, maks, lalu tulis

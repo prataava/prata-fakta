@@ -1,13 +1,16 @@
 // Lapisan akses data Historical Archive PRATA FAKTA (Fase 8 Gel. 2).
-// Prinsip sama seperti src/lib/data.ts: gagal-aman (try/catch → []
-// / null), Bahasa Indonesia, tanpa data palsu. Arsip sejarah
-// membaca pf_events (kolom era/penting/negara_kode dari migrasi
-// v10) — event yang tampil adalah event yang benar-benar tercatat
-// di database; tidak ada peristiwa karangan.
+// Prinsip (diperbarui Gelombang B1, P2-14): galat SELALU dicatat
+// dengan konteks fungsi (lib/galat.ts); "tabel belum ada" →
+// empty state jujur; galat lain → dilempar (bukan ditelan
+// menjadi [] diam-diam). Bahasa Indonesia, tanpa data palsu.
+// Arsip sejarah membaca pf_events (kolom era/penting/negara_kode
+// dari migrasi v10) — event yang tampil adalah event yang
+// benar-benar tercatat di database; tidak ada peristiwa karangan.
 //
 // "Hari ini dalam sejarah" memakai hari-bulan WIB (Asia/Jakarta)
 // dari dimulai_pada, tahun berapa pun.
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import type { PfEvent } from "@/lib/lanjutan";
 
 export type PfEventSejarah = PfEvent & {
@@ -151,14 +154,21 @@ async function petaNamaNegara(
       .from("pf_countries")
       .select("kode, nama")
       .limit(300);
-    if (error || !data) return peta;
+    if (error) {
+      // Pengayaan opsional: galat dicatat, event tetap tampil
+      // dengan kode negara saja (bukan dilempar).
+      catatGalatBaca("petaNamaNegara", error);
+      return peta;
+    }
+    if (!data) return peta;
     for (const r of data as unknown as Record<string, unknown>[]) {
       if (typeof r.kode === "string" && typeof r.nama === "string") {
         peta.set(r.kode, r.nama);
       }
     }
-  } catch {
+  } catch (err) {
     // Tanpa peta negara, event tetap tampil dengan kode saja.
+    catatGalatBaca("petaNamaNegara", err);
   }
   return peta;
 }
@@ -189,14 +199,20 @@ export async function getHariIniDalamSejarah(
       .select(KOLOM_EVENT_SEJARAH)
       .order("dimulai_pada", { ascending: false })
       .limit(500);
-    if (error || !data) return kosong;
+    if (error) {
+      if (catatGalatBaca("getHariIniDalamSejarah", error)) return kosong;
+      throw new GalatBaca("getHariIniDalamSejarah", error);
+    }
+    if (!data) return kosong;
     const namaNegara = await petaNamaNegara(supabase);
     const events = (data as unknown as Record<string, unknown>[])
       .map((r) => barisSejarah(r, namaNegara))
       .filter((e) => cocokHariBulan(e.dimulai_pada, bulan, hari));
     return { tanggal: hariIni, events, tersedia: true };
-  } catch {
-    return kosong;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getHariIniDalamSejarah", err)) return kosong;
+    throw new GalatBaca("getHariIniDalamSejarah", err);
   }
 }
 
@@ -232,7 +248,11 @@ export async function getArsipSejarah(
     if (filter.era) query = query.eq("era", filter.era);
     if (filter.hanyaPenting) query = query.eq("penting", true);
     const { data, error } = await query;
-    if (error || !data) return kosong;
+    if (error) {
+      if (catatGalatBaca("getArsipSejarah", error)) return kosong;
+      throw new GalatBaca("getArsipSejarah", error);
+    }
+    if (!data) return kosong;
 
     // Daftar navigasi dari seluruh event yang tercatat (bukan
     // hanya halaman yang difilter): tahun + era nyata.
@@ -257,9 +277,13 @@ export async function getArsipSejarah(
         }
         tahun = [...himpunanTahun].sort((a, b) => b - a);
         era = [...himpunanEra].sort((a, b) => a.localeCompare(b, "id"));
+      } else if (errSemua) {
+        // Navigasi opsional: dicatat, daftar event tetap tampil.
+        catatGalatBaca("getArsipSejarah.navigasi", errSemua);
       }
-    } catch {
+    } catch (err) {
       // Navigasi kosong; daftar event tetap tampil.
+      catatGalatBaca("getArsipSejarah.navigasi", err);
     }
 
     const namaNegara = await petaNamaNegara(supabase);
@@ -271,29 +295,9 @@ export async function getArsipSejarah(
       era,
       tersedia: true,
     };
-  } catch {
-    return kosong;
-  }
-}
-
-/** Daftar era yang tercatat di pf_events (urut abjad). */
-export async function getEra(): Promise<string[]> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_events")
-      .select("era")
-      .not("era", "is", null)
-      .limit(1000);
-    if (error || !data) return [];
-    const himpunan = new Set<string>();
-    for (const r of data as unknown as Record<string, unknown>[]) {
-      if (typeof r.era === "string" && r.era.trim() !== "") {
-        himpunan.add(r.era);
-      }
-    }
-    return [...himpunan].sort((a, b) => a.localeCompare(b, "id"));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArsipSejarah", err)) return kosong;
+    throw new GalatBaca("getArsipSejarah", err);
   }
 }

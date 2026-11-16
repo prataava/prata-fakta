@@ -455,9 +455,10 @@ cek("halaman /admin/event: memanggil API admin event + cerita",
   adminPageSrc.includes("/api/admin/event") &&
   adminPageSrc.includes("/api/admin/cerita"));
 cek("halaman /admin/event: formulir era + penting + negara_kode",
-  adminPageSrc.includes("Era") &&
-  adminPageSrc.includes("penting") &&
-  adminPageSrc.includes("Kode negara"));
+  bacaRepo("src/components/admin/FormEvent.tsx").includes("Era") &&
+    bacaRepo("src/components/admin/FormEvent.tsx").includes("penting") &&
+    bacaRepo("src/components/admin/FormEvent.tsx").includes("Kode negara") &&
+    adminPageSrc.includes("FormEvent"));
 const timelineSrc = bacaRepo("src/app/timeline/page.tsx");
 cek("timeline: filter ?cerita= + tautan kembali ke cerita",
   timelineSrc.includes("cerita") &&

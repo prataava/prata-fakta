@@ -17,6 +17,7 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { ROLES } from "@/lib/auth/roles";
 import {
   normalisasiKode,
   validasiFaktaInput,
@@ -63,7 +64,14 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
-  const auth = await autentikasiAdmin(req);
+  // P0-5 (B-T1, Audit Ultimate): mutasi profil negara + fakta
+  // HANYA editor (GET tetap semua staf). Alasan: negara/fakta
+  // adalah data referensi PUBLIK yang langsung tampil (bukan
+  // draf) — writer/fact_checker tidak boleh mengubah/menghapus
+  // data publik; pola yang sama dipakai terbitkan/batalkan
+  // artikel (EDITOR saja). Keputusan didokumentasikan di
+  // AUDIT-EXPANSION.md §10.
+  const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const body = await bacaBody(req);
   if (!body) return responBodyTakValid();

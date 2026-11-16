@@ -6,11 +6,14 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles } from "@/lib/auth/roles";
 import {
-  buatRateLimiterAdmin,
+  buatRateLimiter,
   responRateLimit,
-} from "@/lib/admin/guard";
+} from "@/lib/ai/route-auth";
 
-const lolosRateLimit = buatRateLimiterAdmin();
+// P3-9 (B-R10): limiter umum 30/menit — sebelumnya memakai
+// buatRateLimiterAdmin (penamaan menyesatkan: route ini bukan
+// route admin, melainkan status akun pengguna biasa).
+const lolosRateLimit = buatRateLimiter(30);
 
 export async function GET(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
@@ -34,9 +37,10 @@ export async function GET(req: Request) {
       .eq("id", user.id)
       .maybeSingle();
     nonaktif = !!(profil as { nonaktif?: boolean } | null)?.nonaktif;
-  } catch {
+  } catch (err) {
     // Bila tabel profil belum ada, anggap tidak dibatasi (bukan 503:
-    // endpoint ini hanya membaca status akun).
+    // endpoint ini hanya membaca status akun). Galat lain tetap dicatat.
+    console.error("[baca] /api/akun/status: gagal membaca pf_profiles.", err);
     nonaktif = false;
   }
   const roles = await getUserRoles(user.id);

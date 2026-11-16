@@ -18,6 +18,8 @@ export interface EntriBrief {
   ringkasan: string;
   // ISO 8601 atau null bila waktu tidak diketahui.
   waktu: string | null;
+  // Label jujur bila waktu tidak diketahui (P2-4 / N-S7).
+  label_waktu?: string | null;
   // Dari metadata bila ada; null bila tidak ada — jangan ditebak.
   lokasi: string | null;
   kategori: string;
@@ -78,9 +80,13 @@ export function susunBrief(input: {
   };
 }
 
-// Ubah satu draf artikel menjadi entri brief. Sumber ditampilkan
-// sebagai hostname URL sumber (atribusi); lokasi tetap null —
-// jangan ditebak dari judul.
+// Ubah satu draf artikel menjadi entri brief. Waktu entri adalah
+// WAKTU TERBIT ASLI berita (dari raw item), BUKAN waktu draf dibuat
+// (P2-4 / N-S7) — berita lama yang baru dibuat drafnya tidak boleh
+// tampil sebagai berita hari ini. Bila waktu terbit tidak diketahui
+// -> waktu null + label "tanggal tidak diketahui".
+// Sumber ditampilkan sebagai hostname URL sumber (atribusi); lokasi
+// tetap null — jangan ditebak dari judul.
 export function entriBriefDariDraf(d: {
   judul: string;
   ringkasan: string;
@@ -88,6 +94,10 @@ export function entriBriefDariDraf(d: {
   status_verifikasi: string;
   sumber_url: string;
   dibuat_pada: string;
+  // Diisi adapter ambilDrafArtikel (raw item asal draf); tidak ada
+  // untuk draf lama/buatan manual -> fallback null + label.
+  waktu_terbit_asli?: string | null;
+  raw_item_id?: string | null;
 }): EntriBrief {
   let sumber = "Redaksi PRATA FAKTA";
   try {
@@ -95,10 +105,15 @@ export function entriBriefDariDraf(d: {
   } catch {
     // Pakai fallback di atas.
   }
+  const waktu =
+    typeof d.waktu_terbit_asli === "string" && d.waktu_terbit_asli
+      ? d.waktu_terbit_asli
+      : null;
   return {
     judul: d.judul,
     ringkasan: d.ringkasan,
-    waktu: d.dibuat_pada,
+    waktu,
+    label_waktu: waktu ? null : "tanggal tidak diketahui",
     lokasi: null,
     kategori: d.kategori_slug,
     sumber,

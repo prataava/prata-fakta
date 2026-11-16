@@ -197,12 +197,34 @@ export async function hapusArtikel(
 
 // ---------- Penerbitan (gate verifikasi) ----------
 
-/** Gate terbit: verifikasi terakhir artikel harus ADA dan keputusannya
- *  BUKAN UNCONFIRMED/DISPUTED. Melempar GalatGateTerbit bila tidak lolos. */
+/** Gate terbit (P0-2 / N-K2, diperketat Gelombang B1):
+ *  1. Verifikasi terakhir artikel harus ADA dan keputusannya
+ *     BUKAN UNCONFIRMED/DISPUTED — dan BUKAN DEVELOPING: artikel
+ *     yang masih berkembang (1 sumber independen) TIDAK BOLEH
+ *     terbit. Dipilih penolakan penuh (bukan "boleh dengan label
+ *     Berkembang"), karena label itu belum ada di UI publik dan
+ *     pengecualian diam-diam adalah jalan pintas yang sama dengan
+ *     yang ditutup di sini.
+ *  2. Review editorial terakhir harus ADA dan keputusannya
+ *     'setuju' — tanpa review (atau ditolak/dikembalikan) artikel
+ *     tidak boleh terbit.
+ *  3. Review dianggap KEDALUWARSA bila artikel diubah (versi baru)
+ *     atau diverifikasi ulang SESUDAH review disetujui — persetujuan
+ *     berlaku untuk isi yang ditinjau, bukan isi yang sudah berubah.
+ *  Melempar GalatGateTerbit bila tidak lolos. */
 export async function periksaGateTerbit(
   adapter: AdminAdapter,
   artikelId: string,
 ): Promise<void> {
+  const artikel = await adapter.getArtikel({ id: artikelId });
+  if (!artikel) {
+    throw new GalatGateTerbit("artikel tidak ditemukan.");
+  }
+  if (artikel.status_verifikasi === "DEVELOPING") {
+    throw new GalatGateTerbit(
+      "status verifikasi artikel DEVELOPING (masih berkembang, 1 sumber independen) — artikel yang masih berkembang tidak boleh terbit.",
+    );
+  }
   const verifikasi = await adapter.getVerifikasiTerakhir({
     artikel_id: artikelId,
   });
@@ -221,6 +243,98 @@ export async function periksaGateTerbit(
       "status verifikasi terakhir DISPUTED (diperdebatkan) — selesaikan sengketa dulu.",
     );
   }
+  if (verifikasi.keputusan === "DEVELOPING") {
+    throw new GalatGateTerbit(
+      "status verifikasi terakhir DEVELOPING (masih berkembang) — artikel yang masih berkembang tidak boleh terbit.",
+    );
+  }
+  const review = await adapter.getReviewTerakhir({
+    artikel_id: artikelId,
+  });
+  if (!review) {
+    throw new GalatGateTerbit(
+      "belum ada review editorial — artikel hanya boleh terbit sesudah editor menyetujui (review 'setuju').",
+    );
+  }
+  if (review.keputusan !== "setuju") {
+    throw new GalatGateTerbit(
+      `review editorial terakhir '${review.keputusan}' — hanya review 'setuju' yang membolehkan terbit.`,
+    );
+  }
+  // Kedaluwarsa: persetujuan tidak berlaku lagi bila artikel diubah
+  // atau diverifikasi ulang sesudah review disetujui.
+  const waktuReview = new Date(review.dibuat_pada).getTime();
+  const versiTerakhir = await adapter.getVersiTerakhir({
+    artikel_id: artikelId,
+  });
+  if (
+    versiTerakhir &&
+    !Number.isNaN(waktuReview) &&
+    new Date(versiTerakhir.dibuat_pada).getTime() > waktuReview
+  ) {
+    throw new GalatGateTerbit(
+      "review editorial kedaluwarsa: artikel diubah sesudah review disetujui — minta review ulang atas isi terbaru.",
+    );
+  }
+  if (
+    verifikasi.dibuat_pada &&
+    !Number.isNaN(waktuReview) &&
+    new Date(verifikasi.dibuat_pada).getTime() > waktuReview
+  ) {
+    throw new GalatGateTerbit(
+      "review editorial kedaluwarsa: verifikasi berubah sesudah review disetujui — minta review ulang.",
+    );
+  }
+}
+
+/** Hasil pemeriksaan kualitas terakhir satu artikel (P2-2 / N-S3):
+ *  dibaca dari pf_ai_runs (agen editorial_quality, input_ref =
+ *  artikel_id) — tempat pipeline mencatat siap_review + kegagalan.
+ *  null bila belum pernah ada pemeriksaan kualitas (mis. artikel
+ *  buatan manual) — penjadwalan tidak diblokir oleh ketiadaan
+ *  sinyal. (Kolom siap_review di pf_articles adalah follow-up
+ *  migrasi v13; sampai saat itu pf_ai_runs adalah sumbernya.) */
+export interface KualitasTerakhir {
+  lolos: boolean;
+  kegagalan: string[];
+  dimulai_pada: string;
+}
+
+export async function periksaKualitasTerakhir(
+  adapter: AdminAdapter,
+  artikelId: string,
+): Promise<KualitasTerakhir | null> {
+  let runs: Awaited<ReturnType<AdminAdapter["listAiRuns"]>>;
+  try {
+    runs = await adapter.listAiRuns({ limit: 500 });
+  } catch {
+    // Riwayat run tidak terbaca -> tidak ada sinyal kualitas yang
+    // bisa ditegakkan; penjadwalan diputuskan gate lain.
+    return null;
+  }
+  const cocok = runs
+    .filter((r) => r.agen === "editorial_quality" && r.input_ref === artikelId)
+    .sort(
+      (a, b) =>
+        new Date(b.dimulai_pada).getTime() -
+        new Date(a.dimulai_pada).getTime(),
+    );
+  if (cocok.length === 0) return null;
+  const terbaru = cocok[0];
+  const detail =
+    terbaru.detail !== null &&
+    typeof terbaru.detail === "object" &&
+    !Array.isArray(terbaru.detail)
+      ? (terbaru.detail as Record<string, unknown>)
+      : {};
+  if (typeof detail.lolos !== "boolean") return null;
+  return {
+    lolos: detail.lolos,
+    kegagalan: Array.isArray(detail.kegagalan)
+      ? detail.kegagalan.filter((k): k is string => typeof k === "string")
+      : [],
+    dimulai_pada: terbaru.dimulai_pada,
+  };
 }
 
 export async function terbitkanArtikel(
@@ -235,6 +349,9 @@ export async function terbitkanArtikel(
   }
   await periksaGateTerbit(adapter, id);
   const sekarang = new Date().toISOString();
+  // P2-9 (integrasi B1): update bersyarat status — bila proses
+  // lain sudah menerbitkan artikel ini di antara baca dan tulis,
+  // update memengaruhi 0 baris (bukan terbit ganda + versi ganda).
   const baru = await adapter.perbaruiArtikel({
     id,
     patch: {
@@ -243,8 +360,12 @@ export async function terbitkanArtikel(
       diterbitkan_pada: sekarang,
       diterbitkan_oleh: aktor.id,
     },
+    harapkanStatus: artikel.status,
   });
-  if (!baru) throw new Error("Artikel tidak ditemukan.");
+  if (!baru)
+    throw new Error(
+      "Artikel berubah status sesudah dibaca (kemungkinan diterbitkan proses lain) — muat ulang dan coba lagi.",
+    );
   await simpanVersiBaru(adapter, baru, aktor, "Terbit");
   await catat(adapter, aktor, "artikel.terbit", "pf_articles", id, {
     status: artikel.status,
@@ -281,12 +402,38 @@ export async function jadwalkanArtikel(
   id: string,
   dijadwalkanPada: string,
   aktor: Aktor,
+  opsi?: { overrideKualitas?: boolean; alasanOverride?: string },
 ): Promise<Artikel> {
   const artikel = await adapter.getArtikel({ id });
   if (!artikel) throw new Error("Artikel tidak ditemukan.");
   const waktu = new Date(dijadwalkanPada);
   if (Number.isNaN(waktu.getTime())) {
     throw new Error("dijadwalkan_pada tidak valid (harus tanggal ISO).");
+  }
+  // P0-2 / N-S4: penjadwalan memeriksa gate yang SAMA dengan
+  // penerbitan (verifikasi + review setuju + bukan DEVELOPING) —
+  // kegagalan tidak boleh baru ketahuan saat jam terbit tiba.
+  await periksaGateTerbit(adapter, id);
+  // P2-2 / N-S3: blokir penjadwalan bila pemeriksaan kualitas
+  // terakhir GAGAL, kecuali override eksplisit editor yang
+  // tercatat di audit (dengan alasan wajib).
+  const kualitas = await periksaKualitasTerakhir(adapter, id);
+  let overrideKualitas = false;
+  let alasanOverride: string | null = null;
+  if (kualitas && !kualitas.lolos) {
+    if (!opsi?.overrideKualitas) {
+      throw new GalatGateTerbit(
+        `pemeriksaan kualitas draf gagal (${kualitas.kegagalan.join("; ")}) — ` +
+          "perbaiki draf dulu, atau jadwalkan dengan override editor yang tercatat (alasan wajib).",
+      );
+    }
+    alasanOverride = (opsi.alasanOverride ?? "").trim();
+    if (!alasanOverride) {
+      throw new Error(
+        "Alasan override kualitas wajib diisi bila menjadwalkan draf yang gagal pemeriksaan kualitas.",
+      );
+    }
+    overrideKualitas = true;
   }
   const baru = await adapter.perbaruiArtikel({
     id,
@@ -298,7 +445,17 @@ export async function jadwalkanArtikel(
   if (!baru) throw new Error("Artikel tidak ditemukan.");
   await catat(adapter, aktor, "artikel.jadwalkan", "pf_articles", id, {
     status: artikel.status,
-  }, { status: "terjadwal", dijadwalkan_pada: waktu.toISOString() });
+  }, {
+    status: "terjadwal",
+    dijadwalkan_pada: waktu.toISOString(),
+    ...(overrideKualitas
+      ? {
+          override_kualitas: true,
+          alasan_override: alasanOverride,
+          kegagalan_kualitas: kualitas?.kegagalan ?? [],
+        }
+      : {}),
+  });
   return baru;
 }
 
@@ -359,6 +516,35 @@ async function periksaBackoffGate(
     if (!penanda || !penanda.dibuat_pada) return null;
     const terakhir = new Date(penanda.dibuat_pada).getTime();
     if (Number.isNaN(terakhir)) return null;
+    // P2-3 (N-S4): backoff DIRESET bila artikel diperbarui sesudah
+    // gagal gate — editor sudah memperbaiki penyebabnya, jadi tidak
+    // perlu menunggu 6 jam. Sinyal pembaruan: diperbarui_pada
+    // artikel, versi baru, atau review 'setuju' yang baru (review
+    // memperbaiki penyebab umum gagal gate: belum ada persetujuan).
+    try {
+      const artikel = await adapter.getArtikel({ id: artikelId });
+      const versi = await adapter.getVersiTerakhir({
+        artikel_id: artikelId,
+      });
+      const review = await adapter.getReviewTerakhir({
+        artikel_id: artikelId,
+      });
+      const pembaruan = [
+        artikel?.diperbarui_pada,
+        versi?.dibuat_pada,
+        review && review.keputusan === "setuju"
+          ? review.dibuat_pada
+          : undefined,
+      ];
+      for (const waktu of pembaruan) {
+        if (!waktu) continue;
+        const ms = new Date(waktu).getTime();
+        if (!Number.isNaN(ms) && ms > terakhir) return null;
+      }
+    } catch {
+      // Sinyal reset tidak terbaca -> lanjut ke pemeriksaan backoff
+      // normal (gagal aman: backoff tetap berlaku).
+    }
     const cobaLagi = terakhir + BACKOFF_GATE_JAM * 3_600_000;
     if (Date.now() < cobaLagi) {
       const alasanSebelumnya =

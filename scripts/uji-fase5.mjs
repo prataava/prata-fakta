@@ -803,10 +803,17 @@ if (ok) {
       cSesudah.status === "draft",
   );
 
-  // (g) Fact checker ubah status B -> CROSS-CHECKED -> B bisa terbit.
+  // (g) Fact checker ubah status B -> CROSS-CHECKED + review setuju
+  // -> B bisa terbit. Gate B1 (P0-2): CROSS-CHECKED saja tidak cukup;
+  // terbit wajib review editorial 'setuju' sesudah verifikasi terakhir.
   await ubahStatusVerifikasi(
     adapter,
     { artikel_id: B.id, keputusan: "CROSS-CHECKED", catatan: "Dua sumber independen cocok." },
+    aktorFact,
+  );
+  await putuskanReview(
+    adapter,
+    { artikel_id: B.id, keputusan: "setuju", catatan: "Dua sumber independen cocok.", reviewer_id: FACT },
     aktorFact,
   );
   const terbitB = await terbitkanArtikel(adapter, B.id, aktorEditor);
@@ -857,7 +864,15 @@ if (ok) {
   cek("koreksi B ditolak", lapBSesudah.status === "ditolak");
 
   // (j) Jadwalkan D (waktu lampau) + terbitkan terjadwal -> terbit.
+  // Gate B1 (P0-2): penjadwalan memeriksa gate yang sama — D butuh
+  // review 'setuju' sebelum dijadwalkan (jadwalkanArtikel tidak
+  // membuat versi baru, jadi review tetap segar sampai terbit).
   const D = await draf("Draf Uji Terjadwal", "VERIFIED");
+  await putuskanReview(
+    adapter,
+    { artikel_id: D.id, keputusan: "setuju", catatan: "Siap dijadwalkan.", reviewer_id: FACT },
+    aktorFact,
+  );
   const lampau = new Date(Date.now() - 60_000).toISOString();
   await jadwalkanArtikel(adapter, D.id, lampau, aktorEditor);
   const dTerjadwal = await adapter.getArtikel({ id: D.id });
@@ -1006,7 +1021,7 @@ if (ok) {
     "artikel.jadwalkan": 1,
     "artikel.ubah": 1,
     "artikel.hapus": 1,
-    "review.setuju": 1,
+    "review.setuju": 3, // A (§e) + B (§g) + D (§j) — gate B1 wajib review sebelum terbit/jadwal
     "review.tolak": 1,
     "verifikasi.ubah": 1,
     "koreksi.terima": 1,

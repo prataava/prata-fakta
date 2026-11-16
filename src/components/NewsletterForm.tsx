@@ -42,7 +42,7 @@ export default function NewsletterForm() {
   return (
     <form onSubmit={kirim} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
       <div className="cari" style={{ margin: 0, maxWidth: "100%" }}>
-        <label htmlFor="newsletter-email" className="sr-only" style={{ position: "absolute", left: -9999 }}>
+        <label htmlFor="newsletter-email" className="sr-only">
           Alamat email
         </label>
         <input

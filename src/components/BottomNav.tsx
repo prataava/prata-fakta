@@ -42,12 +42,32 @@ const ITEMS = [
     ),
   },
   {
-    href: "/profil",
-    label: "Akun",
+    // F-T2: satu permukaan akun — "Saya" (/saya), sama seperti Header.
+    href: "/saya",
+    label: "Saya",
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <circle cx="12" cy="8" r="4" />
         <path d="M4 21a8 8 0 0 1 16 0" />
+      </svg>
+    ),
+  },
+  {
+    // F-S6: "Lainnya" membuka indeks /jelajahi agar semua rute
+    // terjangkau dari mobile (nav bawah hanya memuat 6 pintu).
+    href: "/jelajahi",
+    label: "Lainnya",
+    ikon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <circle cx="5" cy="5" r="1.6" />
+        <circle cx="12" cy="5" r="1.6" />
+        <circle cx="19" cy="5" r="1.6" />
+        <circle cx="5" cy="12" r="1.6" />
+        <circle cx="12" cy="12" r="1.6" />
+        <circle cx="19" cy="12" r="1.6" />
+        <circle cx="5" cy="19" r="1.6" />
+        <circle cx="12" cy="19" r="1.6" />
+        <circle cx="19" cy="19" r="1.6" />
       </svg>
     ),
   },

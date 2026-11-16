@@ -1,14 +1,19 @@
-// Orkestrator pipeline editorial AI PRATA FAKTA.
+// Orkestrator pipeline editorial PRATA FAKTA — 10 LANGKAH PIPELINE
+// DETERMINISTIK (aturan tetap + ekstraksi pola), BUKAN 10 agen LLM:
+// draf yang dihasilkan adalah draf awal yang disempurnakan Muse
+// lewat cron/chat di luar repo dan disetujui editor sebelum terbit.
+// Tidak ada pemanggilan model/AI eksternal di dalam kode ini.
 // Alur DUA FASE per batch (berurutan, sesuai urutan adapter):
 //   Fase 1 (riset): semua item -> research -> source-analysis ->
 //     simpan klaim. Klaim SEMUA item harus tersimpan dulu agar fase 2
 //     bisa membandingkan klaim antar item.
 //   Fase 2 (verifikasi): per item -> verification (sinyal judul
 //     identik + sinyal koroborasi klaim) -> simpan evidence +
-//     verification record -> perbarui status item ->
-//     (bila VERIFIED/CROSS-CHECKED: summarization -> translation-check
-//     -> writing -> quality) -> draf artikel.
-// SETIAP langkah agen dibungkus try/catch dan menulis pf_ai_runs
+//     verification record -> (bila VERIFIED/CROSS-CHECKED:
+//     summarization -> translation-check -> writing -> quality ->
+//     draf artikel -> tautan verification record ke artikel) ->
+//     perbarui status item (draf DULU, baru status — P1-2).
+// SETIAP langkah pipeline dibungkus try/catch dan menulis pf_ai_runs
 // (berhasil/gagal/dilewati + durasi_ms + error/alasan). Satu langkah
 // gagal tidak menggagalkan item lain; satu item gagal tidak
 // menggagalkan antrean.
@@ -24,7 +29,7 @@ import type {
   InputJenisAi,
   RawItemAntrean,
 } from "./types.ts";
-import { intiKlaim, telitiItem } from "./research.ts";
+import { intiKlaim, telitiItem, cariKalimatKutipan, formatKlaimUntukMuse } from "./research.ts";
 import type { KlaimTerekstrak } from "./research.ts";
 import {
   analisisSumber,
@@ -45,6 +50,7 @@ import { periksaTerjemahan } from "./translation.ts";
 import { susunDrafArtikel } from "./writing.ts";
 import type { SumberDraf } from "./writing.ts";
 import { periksaKualitasDraf } from "./quality.ts";
+import type { HasilKualitas } from "./quality.ts";
 import { hitungTren } from "./trends.ts";
 import type { TopikTren } from "./trends.ts";
 import { entriBriefDariDraf, susunBrief } from "./brief.ts";
@@ -55,6 +61,18 @@ export interface OpsiPipeline {
   hanyaItemId?: string;
   dipicu_oleh?: DipicuOleh;
   fetchFn?: typeof fetch;
+  // Job rekonsiliasi (P1-2) di akhir run: perbaiki item VERIFIED
+  // tanpa artikel + artikel tanpa tautan verifikasi. Bawaan true;
+  // isi false untuk menonaktifkannya pada satu run.
+  rekonsiliasi?: boolean;
+}
+
+export interface HasilRekonsiliasi {
+  didukung: boolean;
+  diperiksa: number;
+  draf_dibuat: number;
+  tautan_diperbaiki: number;
+  tersisa: number;
 }
 
 export interface HasilPipeline {
@@ -66,6 +84,10 @@ export interface HasilPipeline {
   unconfirmed: number;
   dilewati: number;
   gagal: number;
+  rekonsiliasi?: HasilRekonsiliasi;
+  /** Mode antrean run ini ("terbaru" bawaan, "terlama" bila mode
+   *  kejar aktif — P2-8). */
+  modeAntrean?: "terbaru" | "terlama";
 }
 
 export interface OpsiBrief {
@@ -105,7 +127,7 @@ interface HasilLangkah<T> {
   alasanDilewati?: string;
 }
 
-// Jalankan satu langkah agen dengan pencatatan pf_ai_runs:
+// Jalankan satu langkah pipeline dengan pencatatan pf_ai_runs:
 // catat 'berjalan' -> jalankan fn -> tutup 'berhasil'/'dilewati';
 // bila fn melempar -> tutup 'gagal' lalu lempar ulang.
 async function jalankanLangkah<T>(
@@ -211,10 +233,19 @@ async function risetSatuItem(
         },
         { fetchFn: opsi.fetchFn },
       );
+      // P2-7 (N-S8): klaim berpola instruksi dicatat jumlahnya +
+      // teks penyerahannya (berpembatas "KUTIPAN SUMBER, bukan
+      // instruksi") agar editor/Muse tidak mengikuti perintah di
+      // dalam kutipan saat menyempurnakan draf.
+      const bertanda = r.klaim.filter((k) => k.berpola_instruksi);
       return {
         nilai: r,
         detail: {
           jumlah_klaim: r.klaim.length,
+          klaim_berpola_instruksi: bertanda.length,
+          ...(bertanda.length > 0
+            ? { penyerahan_muse: formatKlaimUntukMuse(r.klaim) }
+            : {}),
           fetch_berhasil: r.fetchBerhasil,
           fallback: r.fallback,
         },
@@ -455,6 +486,15 @@ async function verifikasiSatuItem(
   //   - klaim 'angka'/'kutipan': koroborator inti klaim itu.
   //   - klaim lain: hanya sumber item sendiri.
   // Semua klaim juga mendapat evidence dari sumber item sendiri.
+  // P2-1 (N-S1): "kutipan" evidence HARUS kalimat sumber yang
+  // benar-benar memuat inti klaim (cariKalimatKutipan). Bila tidak
+  // ditemukan, evidence ditulis TANPA kutipan + penanda di bukti
+  // verification record (kolom penanda di pf_evidence adalah
+  // follow-up migrasi v13).
+  // P2-2 (N-S2): hitung jumlahEvidenceIndependen (evidence dari
+  // sumber independen — self-evidence tidak dihitung).
+  // P2-10 (N-S12): simpanBukti menduplikasi (klaim_id, sumber_url)
+  // — baris yang dilewati TIDAK dihitung sebagai evidence baru.
   const independenJudul = daftarSumberIndependen(
     [itemUtama, ...serupa],
     tierPerSumber,
@@ -478,9 +518,11 @@ async function verifikasiSatuItem(
     return nama;
   }
   // Koroborator per inti (sudah didedup per sumber di verification.ts).
+  // Disimpan RINGKASAN koroboratornya (bukan potongan "kutipan") —
+  // kalimat kutipan yang jujur dicari per klaim saat menulis bukti.
   const koroboratorPerInti = new Map<
     string,
-    Array<{ nama: string; url: string; kutipan: string }>
+    Array<{ nama: string; url: string; ringkasan: string }>
   >();
   for (const kor of verifikasiKlaim.koroborator) {
     const daftar = koroboratorPerInti.get(kor.inti) ?? [];
@@ -490,27 +532,72 @@ async function verifikasiSatuItem(
     daftar.push({
       nama: await namaUntuk(kor.sumberId),
       url: kor.url,
-      kutipan: entri?.ringkasan ? entri.ringkasan.slice(0, 300) : "",
+      ringkasan: entri?.ringkasan ?? "",
     });
     koroboratorPerInti.set(kor.inti, daftar);
   }
 
   let jumlahEvidence = 0;
+  let jumlahEvidenceIndependen = 0;
+  const kutipanTidakDitemukan: Array<{
+    klaim_id: string;
+    sumber_url: string;
+  }> = [];
   async function tulisBukti(
     klaimId: string,
     sumberUrl: string,
     sumberNama: string,
-    kutipan?: string,
+    teksSumber: string,
+    klaim: KlaimTerekstrak,
+    independen: boolean,
   ): Promise<void> {
+    // P2-1: kutipan = kalimat sumber yang memuat inti klaim, atau
+    // null (tanpa kutipan) bila tidak ditemukan.
+    const kutipan = cariKalimatKutipan(teksSumber, klaim);
     try {
+      // P2-10: lewati pasangan (klaim_id, sumber_url) yang sudah
+      // ada (cek dulu — simpanBukti sendiri juga mendup, tapi
+      // bertipe void sehingga hitungan jujur butuh cek ini).
+      // Adapter tanpa cariBuktiSama -> cek dilewati, hitung apa adanya.
+      const adapterLuas = adapter as AiAdapter & {
+        cariBuktiSama?: (
+          klaimId: string,
+          sumberUrl: string,
+        ) => Promise<boolean>;
+      };
+      let sudahAda = false;
+      try {
+        sudahAda =
+          typeof adapterLuas.cariBuktiSama === "function"
+            ? await adapterLuas.cariBuktiSama(klaimId, sumberUrl)
+            : false;
+      } catch {
+        sudahAda = false;
+      }
+      if (sudahAda) {
+        // P2-10: evidence ini sudah tercatat dari run sebelumnya —
+        // hitung sebagai evidence yang ADA (bukan baru), tanpa
+        // menulis ulang barisnya. (Tanpa ini, run ulang akan
+        // melaporkan jumlahEvidence=0 dan quality gagal palsu.)
+        jumlahEvidence += 1;
+        if (independen) jumlahEvidenceIndependen += 1;
+        return;
+      }
       await adapter.simpanBukti({
         klaim_id: klaimId,
         sumber_url: sumberUrl,
         sumber_nama: sumberNama,
-        kutipan,
+        kutipan: kutipan ?? undefined,
         arah: "mendukung",
       });
       jumlahEvidence += 1;
+      if (independen) jumlahEvidenceIndependen += 1;
+      if (!kutipan) {
+        kutipanTidakDitemukan.push({
+          klaim_id: klaimId,
+          sumber_url: sumberUrl,
+        });
+      }
     } catch {
       // Satu evidence gagal: lanjut ke sumber berikut.
     }
@@ -521,11 +608,16 @@ async function verifikasiSatuItem(
     if (!klaimId) continue;
     const sudahTulis = new Set<string>();
     // (a) Sumber item sendiri — selalu.
+    const teksSendiri = [item.ringkasan, item.isi_ringkas]
+      .filter(Boolean)
+      .join(" ");
     await tulisBukti(
       klaimId,
       item.url,
       item.sumber_nama,
-      item.ringkasan ? item.ringkasan.slice(0, 300) : undefined,
+      teksSendiri,
+      klaim,
+      false,
     );
     sudahTulis.add(item.url);
     // (b) Klaim 'fakta': sumber independen kelompok judul.
@@ -537,9 +629,9 @@ async function verifikasiSatuItem(
           klaimId,
           s.itemAkar.url,
           await namaUntuk(s.sumberId),
-          s.itemAkar.ringkasan
-            ? s.itemAkar.ringkasan.slice(0, 300)
-            : undefined,
+          s.itemAkar.ringkasan,
+          klaim,
+          true,
         );
       }
     }
@@ -549,12 +641,41 @@ async function verifikasiSatuItem(
       for (const kor of koroboratorPerInti.get(inti) ?? []) {
         if (sudahTulis.has(kor.url)) continue;
         sudahTulis.add(kor.url);
-        await tulisBukti(klaimId, kor.url, kor.nama, kor.kutipan || undefined);
+        await tulisBukti(klaimId, kor.url, kor.nama, kor.ringkasan, klaim, true);
       }
     }
   }
 
-  // Simpan verification record + perbarui status item.
+  // Bukti verification record (dipakai record item-level di bawah
+  // DAN record artikel P0-1): termasuk jumlah evidence independen,
+  // penanda kutipan tak ditemukan, dan klaim berpola instruksi.
+  const buktiVerifikasi: Record<string, unknown> = {
+    sumber_independen: Math.max(
+      verifikasiJudul.sumberIndependen,
+      verifikasiKlaim.sumberIndependen,
+    ),
+    jumlah_item: verifikasiJudul.jumlahItem,
+    tier1: Math.max(
+      verifikasiJudul.jumlahTier1,
+      verifikasiKlaim.jumlahTier1,
+    ),
+    jumlah_klaim: idKlaim.length,
+    jumlah_evidence: jumlahEvidence,
+    jumlah_evidence_independen: jumlahEvidenceIndependen,
+    kutipan_tidak_ditemukan: kutipanTidakDitemukan,
+    klaim_berpola_instruksi: klaimTersimpan
+      .filter((k) => k.berpola_instruksi)
+      .map((k) => k.teks),
+    koroborasi_klaim: {
+      inti_cocok: verifikasiKlaim.intiCocok,
+      sumber_independen: verifikasiKlaim.sumberIndependen,
+    },
+  };
+
+  // Simpan verification record (item-level) + perbarui status item
+  // — untuk item UNCONFIRMED/DEVELOPING, status diubah DI SINI
+  // (tidak ada draf). Untuk VERIFIED/CROSS-CHECKED, status diubah
+  // SESUDAH draf tersimpan (P1-2, lihat di bawah).
   try {
     await adapter.simpanVerification({
       raw_item_id: item.id,
@@ -563,42 +684,23 @@ async function verifikasiSatuItem(
         `${alasanAkhir} Keputusan dihitung dari judul identik ` +
         `(hash_judul), koroborasi inti klaim (angka/kutipan), dan ` +
         `rantai disalin_dari; bukan penilaian isi oleh manusia.`,
-      bukti: {
-        sumber_independen: Math.max(
-          verifikasiJudul.sumberIndependen,
-          verifikasiKlaim.sumberIndependen,
-        ),
-        jumlah_item: verifikasiJudul.jumlahItem,
-        tier1: Math.max(
-          verifikasiJudul.jumlahTier1,
-          verifikasiKlaim.jumlahTier1,
-        ),
-        jumlah_klaim: idKlaim.length,
-        jumlah_evidence: jumlahEvidence,
-        koroborasi_klaim: {
-          inti_cocok: verifikasiKlaim.intiCocok,
-          sumber_independen: verifikasiKlaim.sumberIndependen,
-        },
-      },
+      bukti: buktiVerifikasi,
     });
   } catch {
     // Verification record gagal disimpan: status item tetap diperbarui
     // agar antrean tidak macet; kegagalan tercatat di bawah lewat hasil.
   }
-  try {
-    await adapter.perbaruiStatusItem(item.id, keputusanAkhir);
-  } catch {
-    hasil.gagal += 1;
-    return;
-  }
-
-  if (keputusanAkhir === "VERIFIED") hasil.terverifikasi += 1;
-  else if (keputusanAkhir === "CROSS-CHECKED") hasil.cross_checked += 1;
-  else if (keputusanAkhir === "DEVELOPING") hasil.developing += 1;
-  else hasil.unconfirmed += 1;
 
   // Item UNCONFIRMED/DEVELOPING TIDAK dibuatkan draf (log dilewati).
   if (keputusanAkhir !== "VERIFIED" && keputusanAkhir !== "CROSS-CHECKED") {
+    try {
+      await adapter.perbaruiStatusItem(item.id, keputusanAkhir);
+    } catch {
+      hasil.gagal += 1;
+      return;
+    }
+    if (keputusanAkhir === "DEVELOPING") hasil.developing += 1;
+    else hasil.unconfirmed += 1;
     await catatDilewati(
       adapter,
       "article_writing",
@@ -658,6 +760,10 @@ async function verifikasiSatuItem(
   );
 
   // 6. Writing — draf artikel dari klaim terverifikasi saja.
+  // Draf dibuat DAHULU (P1-2): status item baru diubah sesudah
+  // draf tersimpan (lihat langkah 8). Bila draf sudah ada dari run
+  // sebelumnya (mis. status gagal diperbarui), id-nya dipakai
+  // ulang — jangan buat draf duplikat (bentrok slug).
   // Sumber draf = gabungan sumber independen kedua sinyal (judul +
   // koroborasi klaim), didedup per URL.
   const sumberDrafMap = new Map<string, SumberDraf>();
@@ -677,6 +783,7 @@ async function verifikasiSatuItem(
   }
   const sumberDraf: SumberDraf[] = [...sumberDrafMap.values()];
   let artikelId: string;
+  let drafDipakaiUlang = false;
   try {
     artikelId = await jalankanLangkah(
       adapter,
@@ -692,6 +799,30 @@ async function verifikasiSatuItem(
           keputusan: keputusanAkhir,
           sumber: sumberDraf,
         });
+        const adapterLuas = adapter as AiAdapter & {
+          cariArtikelUntukItem?: (rawItemId: string) => Promise<string | null>;
+        };
+        let idAda: string | null = null;
+        try {
+          idAda =
+            typeof adapterLuas.cariArtikelUntukItem === "function"
+              ? await adapterLuas.cariArtikelUntukItem(item.id)
+              : null;
+        } catch {
+          idAda = null;
+        }
+        if (idAda) {
+          drafDipakaiUlang = true;
+          return {
+            nilai: idAda,
+            outputRef: idAda,
+            detail: {
+              slug: draf.slug,
+              dipakai_ulang: true,
+              jumlah_klaim: klaimTersimpan.length,
+            },
+          };
+        }
         const id = await adapter.simpanArtikel(draf);
         return {
           nilai: id,
@@ -706,14 +837,21 @@ async function verifikasiSatuItem(
     );
     hasil.draf += 1;
   } catch {
+    // P1-2: draf GAGAL dibuat -> status item TIDAK diubah (tetap
+    // UNCONFIRMED di antrean, dicoba lagi run berikutnya) — item
+    // tidak hilang diam-diam.
     hasil.gagal += 1;
     return;
   }
 
-  // 7. Editorial quality — cek deterministik draf. Draf tetap tersimpan
-  // bila gagal, tapi TIDAK ditandai siap-review (dicatat di detail run).
+  // 7. Editorial quality — cek deterministik draf (dijalankan
+  // SEBELUM tautan verifikasi ditulis, agar hasilnya ikut
+  // tersimpan di bukti record artikel). Draf tetap tersimpan bila
+  // gagal, tapi TIDAK ditandai siap-review (dicatat di detail run
+  // + bukti record; penjadwalan menegakkannya, lihat editorial.ts).
+  let kualitas: HasilKualitas | null = null;
   try {
-    await jalankanLangkah(
+    kualitas = await jalankanLangkah(
       adapter,
       "editorial_quality",
       artikelId,
@@ -727,7 +865,7 @@ async function verifikasiSatuItem(
           keputusan: keputusanAkhir,
           sumber: sumberDraf,
         });
-        const kualitas = periksaKualitasDraf({
+        const hasilKualitas = periksaKualitasDraf({
           judul: draf.judul,
           ringkasan: draf.ringkasan,
           isi: draf.isi,
@@ -735,20 +873,206 @@ async function verifikasiSatuItem(
           sumber_url: draf.sumber_url,
           jumlahKlaimTerverifikasi: klaimTersimpan.length,
           jumlahEvidence,
+          jumlahEvidenceIndependen,
+          keputusan: keputusanAkhir,
         });
         return {
-          nilai: kualitas,
+          nilai: hasilKualitas,
           detail: {
-            lolos: kualitas.lolos,
-            kegagalan: kualitas.kegagalan,
-            siap_review: kualitas.lolos,
+            lolos: hasilKualitas.lolos,
+            kegagalan: hasilKualitas.kegagalan,
+            siap_review: hasilKualitas.siap_review,
+            jumlah_evidence_independen: jumlahEvidenceIndependen,
           },
         };
       },
     );
   } catch {
-    // Kegagalan cek kualitas tidak membatalkan draf yang tersimpan.
+    // Kegagalan cek kualitas tidak membatalkan draf yang tersimpan;
+    // kualitas=null -> siap_review tercatat null di bukti record.
+    kualitas = null;
   }
+
+  // 8. Ubah status item — HANYA sesudah draf tersimpan (P1-2).
+  try {
+    await adapter.perbaruiStatusItem(item.id, keputusanAkhir);
+  } catch {
+    hasil.gagal += 1;
+    return;
+  }
+  if (keputusanAkhir === "VERIFIED") hasil.terverifikasi += 1;
+  else hasil.cross_checked += 1;
+
+  // 9. P0-1: tautkan verification record ke artikel. Gate terbit
+  // membaca pf_verification_records per artikel_id, jadi record
+  // item-level saja tidak cukup. Pendekatan yang dipilih: SALIN
+  // record verifikasi dengan artikel_id terisi (bukan mengubah
+  // gate agar menerima raw_item_id), karena (a) gate tetap punya
+  // satu sumber kebenaran per artikel, (b) record item-level
+  // tetap ada sebagai riwayat per item mentah, (c) tidak butuh
+  // kolom/join baru. Kegagalan penulisan tautan TIDAK menggagalkan
+  // item (draf + status sudah benar) — job rekonsiliasi di akhir
+  // run menulis ulang tautan yang hilang (Tipe B).
+  try {
+    await adapter.simpanVerification({
+      artikel_id: artikelId,
+      raw_item_id: item.id,
+      keputusan: keputusanAkhir,
+      catatan:
+        `${alasanAkhir} Keputusan dihitung dari judul identik ` +
+        `(hash_judul), koroborasi inti klaim (angka/kutipan), dan ` +
+        `rantai disalin_dari; bukan penilaian isi oleh manusia.`,
+      bukti: {
+        ...buktiVerifikasi,
+        siap_review: kualitas ? kualitas.siap_review : null,
+        kegagalan_kualitas: kualitas
+          ? kualitas.kegagalan
+          : ["pemeriksaan kualitas tidak dapat dicatat"],
+        draf_dipakai_ulang: drafDipakaiUlang,
+      },
+    });
+  } catch {
+    // Tautan gagal ditulis — rekonsiliasi (Tipe B) memperbaikinya.
+  }
+}
+
+// ---------- Rekonsiliasi (P1-2 / N-T3) ----------
+// Metode adapter di bawah ini opsional (diimplementasikan
+// SupabaseAiAdapter; adapter lain/uji lama boleh tidak punya).
+// Bila adapter tidak menyediakannya, job melaporkan
+// didukung:false dan TIDAK gagal — deteksi tetap bisa dilakukan
+// lewat SQL langsung (lihat laporan gelombang).
+interface AdapterRekonsiliasi {
+  cariItemTerverifikasiTanpaArtikel?: (
+    limit: number,
+  ) => Promise<RawItemAntrean[]>;
+  cariArtikelTanpaVerifikasiTerkait?: (
+    limit: number,
+  ) => Promise<
+    Array<{ artikel_id: string; raw_item_id: string; keputusan: string }>
+  >;
+}
+
+/** Job rekonsiliasi "item VERIFIED tanpa artikel" (P1-2).
+ *  Dua tipe yatim yang diperbaiki:
+ *  - Tipe A: item VERIFIED/CROSS-CHECKED tanpa artikel sama sekali
+ *    -> jalankan ulang alur riset + verifikasi + draf untuk item itu
+ *    (draf dibuat dulu, baru status — urutan P1-2 yang sama).
+ *  - Tipe B: draf ada tetapi verification record ber-artikel_id
+ *    belum ada (tautan P0-1 putus) -> tulis ulang record tautannya.
+ *  Dibatasi `limit` per tipe per run; satu item gagal tidak
+ *  menggagalkan yang lain. Dipanggil otomatis di akhir
+ *  jalankanPipelineEditorial dan dipakai route /api/ai/antrean
+ *  (deteksi) + /api/ai/jalankan (perbaikan). */
+export async function rekonsiliasiItemTerverifikasiTanpaArtikel(
+  adapter: AiAdapter,
+  opsi: OpsiPipeline = {},
+  hasil: HasilPipeline | null = null,
+): Promise<HasilRekonsiliasi> {
+  const kosong: HasilRekonsiliasi = {
+    didukung: false,
+    diperiksa: 0,
+    draf_dibuat: 0,
+    tautan_diperbaiki: 0,
+    tersisa: 0,
+  };
+  const luas = adapter as AiAdapter & AdapterRekonsiliasi;
+  const punyaA =
+    typeof luas.cariItemTerverifikasiTanpaArtikel === "function";
+  const punyaB =
+    typeof luas.cariArtikelTanpaVerifikasiTerkait === "function";
+  if (!punyaA && !punyaB) return kosong;
+  const hitung: HasilPipeline =
+    hasil ?? {
+      diproses: 0,
+      draf: 0,
+      terverifikasi: 0,
+      cross_checked: 0,
+      developing: 0,
+      unconfirmed: 0,
+      dilewati: 0,
+      gagal: 0,
+    };
+  const drafSebelum = hitung.draf;
+  const out: HasilRekonsiliasi = {
+    didukung: true,
+    diperiksa: 0,
+    draf_dibuat: 0,
+    tautan_diperbaiki: 0,
+    tersisa: 0,
+  };
+
+  // Tipe A: item VERIFIED tanpa artikel -> buat drafnya.
+  // DUA FASE seperti pipeline utama (riset SEMUA yatim dulu, baru
+  // verifikasi): koroborasi klaim antar-yatim hanya jalan bila
+  // klaim pasangannya sudah tersimpan — perbaikan satu-per-satu
+  // akan membuat item pertama gagal terverifikasi ulang.
+  if (punyaA) {
+    let yatim: RawItemAntrean[] = [];
+    try {
+      yatim = await luas.cariItemTerverifikasiTanpaArtikel!(opsi.limit ?? 5);
+    } catch {
+      yatim = [];
+    }
+    out.diperiksa += yatim.length;
+    const konteks: KonteksItem[] = [];
+    for (const item of yatim) {
+      try {
+        const ctx = await risetSatuItem(adapter, item, opsi, hitung);
+        if (ctx) konteks.push(ctx);
+        else out.tersisa += 1;
+      } catch {
+        out.tersisa += 1;
+      }
+    }
+    for (const ctx of konteks) {
+      try {
+        await verifikasiSatuItem(adapter, ctx, opsi, hitung);
+        out.draf_dibuat = hitung.draf - drafSebelum;
+      } catch {
+        out.tersisa += 1;
+      }
+    }
+  }
+
+  // Tipe B: draf ada, tautan verifikasi hilang -> tulis ulang.
+  if (punyaB) {
+    let tanpaTautan: Array<{
+      artikel_id: string;
+      raw_item_id: string;
+      keputusan: string;
+    }> = [];
+    try {
+      tanpaTautan = await luas.cariArtikelTanpaVerifikasiTerkait!(
+        opsi.limit ?? 5,
+      );
+    } catch {
+      tanpaTautan = [];
+    }
+    out.diperiksa += tanpaTautan.length;
+    for (const baris of tanpaTautan) {
+      try {
+        await adapter.simpanVerification({
+          artikel_id: baris.artikel_id,
+          raw_item_id: baris.raw_item_id,
+          keputusan: baris.keputusan as
+            | "VERIFIED"
+            | "CROSS-CHECKED"
+            | "DEVELOPING"
+            | "UNCONFIRMED",
+          catatan:
+            "Tautan verifikasi ditulis ulang oleh job rekonsiliasi " +
+            "(record item-level sudah ada; record artikel-level hilang).",
+          bukti: { rekonsiliasi: true },
+        });
+        out.tautan_diperbaiki += 1;
+      } catch {
+        out.tersisa += 1;
+      }
+    }
+  }
+
+  return out;
 }
 
 // ---------- Titik masuk utama ----------
@@ -768,8 +1092,31 @@ export async function jalankanPipelineEditorial(
     gagal: 0,
   };
 
+  // P2-8 (integrasi B1): mode kejar — bila item UNCONFIRMED
+  // tertua sudah berumur > 7 hari, run ini memproses yang TERTUA
+  // dulu (bukan terbaru), agar item lama tidak kelaparan selamanya
+  // (kapasitas pipeline ~40/hari vs ingestion tiap 30 menit).
+  // Ambang 7 hari dipilih agar antrean sempat dikuras sebelum
+  // kedaluwarsa 14 hari (lib/ingestion/pemeliharaan.ts). Gagal
+  // membaca umur antrean -> tetap mode terbaru (fail-open untuk
+  // pemilihan urutan; bukan jalur keamanan).
+  let modeAntrean: "terbaru" | "terlama" = "terbaru";
+  try {
+    const tertua = await adapter.ambilWaktuAntreanTertua();
+    if (
+      tertua &&
+      Date.now() - new Date(tertua).getTime() > 7 * 24 * 3600 * 1000
+    ) {
+      modeAntrean = "terlama";
+    }
+  } catch {
+    modeAntrean = "terbaru";
+  }
+  hasil.modeAntrean = modeAntrean;
+
   const antrean = await adapter.ambilAntrean(
     opsi.hanyaItemId ? 500 : (opsi.limit ?? 10),
+    modeAntrean,
   );
   let daftar = antrean;
   if (opsi.hanyaItemId) {
@@ -803,6 +1150,19 @@ export async function jalankanPipelineEditorial(
       await verifikasiSatuItem(adapter, ctx, opsi, hasil);
     } catch {
       hasil.gagal += 1;
+    }
+  }
+
+  // Job rekonsiliasi (P1-2, best-effort): item VERIFIED tanpa
+  // artikel + artikel tanpa tautan verifikasi. Kegagalannya tidak
+  // boleh menggagalkan run utama. Nonaktifkan per run dengan
+  // opsi.rekonsiliasi === false.
+  if (opsi.rekonsiliasi !== false) {
+    try {
+      hasil.rekonsiliasi =
+        await rekonsiliasiItemTerverifikasiTanpaArtikel(adapter, opsi, hasil);
+    } catch {
+      // Rekonsiliasi best-effort: diam-diam dilewati bila gagal.
     }
   }
   return hasil;
@@ -848,6 +1208,9 @@ export async function jalankanBriefHarian(
           judul: item.judul,
           ringkasan: item.ringkasan || item.isi_ringkas || item.judul,
           waktu: item.waktu_terbit_asli,
+          label_waktu: item.waktu_terbit_asli
+            ? null
+            : "tanggal tidak diketahui",
           lokasi:
             typeof item.metadata?.lokasi === "string"
               ? (item.metadata.lokasi as string)
@@ -917,12 +1280,14 @@ export async function analisisTren(
   try {
     const antrean = await adapter.ambilAntrean(200);
     const batas = Date.now() - jam * 60 * 60 * 1000;
+    // P1-1 (N-T2): item tanpa tanggal terbit tidak masuk jendela
+    // tren (umurnya tidak diketahui, bukan baru).
     const items = antrean
-      .filter(
-        (i) =>
-          !i.waktu_terbit_asli ||
-          new Date(i.waktu_terbit_asli).getTime() >= batas,
-      )
+      .filter((i) => {
+        if (!i.waktu_terbit_asli) return false;
+        const ms = new Date(i.waktu_terbit_asli).getTime();
+        return !Number.isNaN(ms) && ms >= batas;
+      })
       .map((i) => ({
         id: i.id,
         judul: i.judul,

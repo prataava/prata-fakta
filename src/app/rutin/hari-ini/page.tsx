@@ -11,7 +11,7 @@ import {
 } from "@/lib/rutin";
 
 export const metadata: Metadata = {
-  title: "What Happened Today",
+  title: "Hari Ini",
   description:
     "Peristiwa yang dimulai hari ini dan artikel yang terbit hari ini di PRATA FAKTA (waktu Indonesia Barat).",
 };
@@ -46,7 +46,7 @@ export default async function RutinHariIni() {
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-hari-ini">
         <span className="hero-label">Konten rutin · Harian</span>
-        <h1 id="judul-hari-ini">What Happened Today</h1>
+        <h1 id="judul-hari-ini">Hari Ini</h1>
         <p>
           Peristiwa yang dimulai hari ini dan artikel yang terbit hari ini
           (waktu Indonesia Barat).

@@ -111,13 +111,16 @@ export function hitungTren(
 
   const hasil: TopikTren[] = [];
   for (const [topik, daftar] of perTopik) {
-    // Tanpa tanggal terbit, item dianggap baru (baru saja diambil).
-    const dalam24 = daftar.filter(
-      (i) => (waktuMs(i.waktu_terbit_asli) ?? sekarang) >= batas24,
-    );
-    const dalam7 = daftar.filter(
-      (i) => (waktuMs(i.waktu_terbit_asli) ?? sekarang) >= batas7,
-    );
+    // P1-1 (N-T2): item tanpa tanggal terbit TIDAK dihitung dalam
+    // jendela 24 jam / 7 hari (umurnya tidak diketahui, bukan baru).
+    const dalam24 = daftar.filter((i) => {
+      const ms = waktuMs(i.waktu_terbit_asli);
+      return ms !== null && ms >= batas24;
+    });
+    const dalam7 = daftar.filter((i) => {
+      const ms = waktuMs(i.waktu_terbit_asli);
+      return ms !== null && ms >= batas7;
+    });
     if (dalam7.length === 0) continue;
 
     // Sumber independen dalam 24 jam: akar rantai salinan yang unik.

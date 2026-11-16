@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { KATEGORI_UTAMA } from "@/lib/categories";
 import SearchBar from "@/components/SearchBar";
 import AuthArea from "@/components/AuthArea";
+import HeaderNav from "@/components/HeaderNav";
 import ThemeToggle from "@/components/ThemeToggle";
 import { bacaPemeliharaan } from "@/lib/scheduler/flags";
 
@@ -38,32 +38,7 @@ export default async function Header() {
             <AuthArea />
           </div>
         </div>
-        <nav className="nav-kategori" aria-label="Kategori berita">
-          <Link href="/">Beranda</Link>
-          {KATEGORI_UTAMA.map((k) => (
-            <Link key={k.slug} href={`/kategori/${k.slug}`}>
-              {k.nama}
-            </Link>
-          ))}
-          <Link href="/arsip">Arsip</Link>
-          <Link href="/brief">Daily Brief</Link>
-          <Link href="/peta">Peta</Link>
-          <Link href="/data">Data</Link>
-          <Link href="/riset">Riset</Link>
-          <Link href="/timeline">Timeline</Link>
-          <Link href="/cerita">Cerita</Link>
-          <Link href="/sejarah">Sejarah</Link>
-          <Link href="/pengetahuan">Pengetahuan</Link>
-          <Link href="/akademi">Akademi</Link>
-          <Link href="/negara">Negara</Link>
-          <Link href="/kuis">Kuis</Link>
-          <Link href="/tanya">Tanya</Link>
-          <Link href="/podcast">Podcast</Link>
-          <Link href="/rutin">Rutin</Link>
-          <Link href="/feed-saya">Feed Saya</Link>
-          <Link href="/saya">Saya</Link>
-          <Link href="/laporkan">Laporkan</Link>
-        </nav>
+        <HeaderNav />
       </div>
     </header>
     </>

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 
 // POST /api/langganan — pendaftaran newsletter (email saja).
@@ -13,12 +14,15 @@ import {
 // anonim "pf_newsletter daftar publik" DICABUT di migrasi v8, jadi
 // session client tidak bisa lagi insert. 503 jujur bila service key
 // belum diatur.
-const batasi = buatRateLimiter(5);
+const batasi = buatRateLimiterKeras(5);
 
 const POLA_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   let email = "";
   try {

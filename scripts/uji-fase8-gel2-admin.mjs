@@ -548,7 +548,14 @@ for (const relatif of [
   cek(`berkas ada: ${relatif}`, fs.existsSync(`${DIR_REPO}/${relatif}`));
 }
 
-const layout = bacaRepo("src/app/admin/layout.tsx");
+// Nav admin tinggal di NavAdmin.tsx (F-S6, Gelombang B1): layout
+// hanya me-render <NavAdmin />. Periksa sumber kebenaran nav di
+// sana, plus layout benar-benar memakainya.
+const layout = bacaRepo("src/components/admin/NavAdmin.tsx");
+cek(
+  "layout: admin/layout.tsx me-render <NavAdmin />",
+  bacaRepo("src/app/admin/layout.tsx").includes("<NavAdmin />"),
+);
 const TAUTAN_GEL2 = [
   "/admin/event", "/admin/pengetahuan", "/admin/akademi", "/admin/riset",
   "/admin/data", "/admin/negara", "/admin/tanya", "/admin/podcast",

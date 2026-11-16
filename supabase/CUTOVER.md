@@ -41,6 +41,7 @@ Urutan ini TIDAK boleh dibalik. Alasannya ada di tiap tahap.
 | 3D | Migrasi **v10** (Gelombang 2, 16 tabel baru + GRANT) + verifikasi (§3) | SQL Editor |
 | 3E | Migrasi **v11** (Tahap 13A: rate limiter DB + audit T10) + verifikasi (§3) | SQL Editor |
 | 3F | Migrasi **v12** (Tahap 13C: seed 5 job scheduler) + verifikasi (§3) | SQL Editor |
+| 3G | Migrasi **v13** (Gelombang B1: kunci kuis terpisah, RPC PATCH kursus atomik, policy arsip/profil) + verifikasi (§3) | SQL Editor |
 | 5 | Validasi fungsi database (§4) | SQL Editor |
 | 6 | Smoke test produksi (§6) | Browser + curl |
 | 7 | Aktifkan scheduler GitHub Actions (§7) | GitHub repo |
@@ -285,6 +286,14 @@ Jalankan skrip yang sama secara berkala dari mesin tepercaya
 paket gratis tidak menyediakan PITR; ekspor berkala ini adalah
 strategi backup redaksi. Simpan hasil di luar repo dan jangan
 pernah meng-commit berkas backup.
+
+**Otomatis (sesudah v13):** workflow
+`.github/workflows/backup.yml` menjalankan skrip ini SETIAP
+HARI 03.00 UTC + manual dispatch, artefak retensi 7 hari.
+Secret yang dibutuhkan: `PF_SUPABASE_URL` +
+`PF_SERVICE_ROLE_KEY` (repo Settings → Secrets and variables
+→ Actions). Uji restore berkala: PROSEDUR di
+`supabase/README.md` §v13 — BUKAN klaim sudah diuji.
 
 ---
 
@@ -722,7 +731,79 @@ where schemaname = 'public' and tablename like 'pf_%';
 | Jumlah policy `pf_*` | **106** |
 | Baris `pf_scheduled_jobs` | **5** |
 
-### 3.13 Bila satu berkas gagal
+### 3.13 v13 — Gelombang B1 (Audit Ultimate backend & database)
+
+- Berkas: `supabase/migrations/20261116_pf_v13_ultimate.sql`
+- Bergantung pada v1–v12. **Jalankan TEPAT SESUDAH v12.**
+  v13 sebagian besar ADITIF, kecuali §1 yang MENGHAPUS kolom
+  `kunci` dari `pf_quiz_questions` (sesudah datanya dipindah
+  ke `pf_quiz_answers` — baca rollback di
+  `supabase/README.md` §v13 sebelum menjalankan).
+- **PRASYARAT DEPLOY (seperti jendela v8):** kode yang membaca
+  kunci dari tabel baru (`getKuisHarian`, kedua route
+  `kuis/jawab` + `akademi/kuis/jawab`) WAJIB sudah deploy
+  sebelum/saat v13 dijalankan — bila tidak, kuis mati sampai
+  deploy selesai. Kebalikannya juga berlaku: kode baru yang
+  sudah deploy TETAP jalan terhadap skema lama (route membaca
+  `pf_quiz_answers` yang belum ada → `KuisBelumTersediaError`
+  + empty state jujur), jadi urutan aman bila ragu: deploy
+  kode dulu, baru v13.
+- Isi: §1 tabel baru `pf_quiz_answers` (0 policy, GRANT hanya
+  service_role) + migrasi data kunci + drop kolom `kunci`;
+  §2 RPC `pf_patch_kursus_atomik` (atomik, hanya service_role);
+  §3 policy arsip Q&A publik (`publik = true AND status =
+  'terjawab'`); §4 kolom `pf_research_reports.indikator_id`
+  + backfill + fungsi `pf_topik_yatim()`; §5 tegaskan
+  `search_path = public` pada `pf_has_role` /
+  `pf_is_super_admin`; §6 policy `pf_profiles` (pemilik atau
+  staf); §7 policy `pf_system_settings` tanpa peran `admin`;
+  §8 RPC `pf_ai_status_agregat()`; §9 kolom
+  `pf_sources.topik_gdelt` + unique index
+  `pf_evidence(klaim_id, sumber_url)` (dedup evidence);
+  §10 GRANT `SELECT, INSERT, UPDATE, DELETE` ke service_role
+  atas SEMUA 55 tabel (wajib — tanpa ini backend mati 42501
+  di produksi pasca-default Supabase 30 Okt 2026).
+- Tervalidasi lokal (PGlite,
+  `scripts/uji-ultimate-backend.mjs`): v1–v13 dijalankan 2×
+  idempoten TANPA blanket grant; seed disisipkan sesudah
+  v1–v12 dan sebelum v13 agar migrasi kunci + backfill teruji.
+
+Verifikasi tambahan:
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 55 (tambah pf_quiz_answers)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 107 (+1 arsip Q&A; pf_quiz_answers = 0 policy)
+
+select column_name from information_schema.columns
+where table_schema = 'public' and table_name = 'pf_quiz_questions'
+  and column_name = 'kunci';
+-- ekspektasi: 0 baris (kolom kunci SUDAH TIDAK ADA)
+
+select count(*) from public.pf_quiz_answers;
+-- ekspektasi: sama dengan jumlah baris pf_quiz_questions
+-- (satu jawaban per soal yang punya kunci)
+
+select proname, prosecdef, proconfig from pg_proc
+where proname in ('pf_patch_kursus_atomik', 'pf_topik_yatim', 'pf_ai_status_agregat')
+order by proname;
+-- ekspektasi: 3 baris; prosecdef = true (SECURITY DEFINER);
+-- proconfig memuat search_path=public
+```
+
+| Pemeriksaan | Ekspektasi sesudah v13 |
+|---|---|
+| Jumlah tabel `pf_*` | **55** |
+| Tabel ber-RLS | **55/55** |
+| Jumlah policy `pf_*` | **107** |
+| Kolom `pf_quiz_questions.kunci` | **tidak ada** |
+| Baris `pf_quiz_answers` | **= jumlah soal** |
+
+### 3.14 Bila satu berkas gagal
 
 1. **BERHENTI.** Jangan lanjut ke berkas berikutnya.
 2. Baca pesan error SQL Editor sampai habis. Penyebab paling
@@ -1041,7 +1122,7 @@ yang sama, mengganti `super_admin` dengan nama peran itu.
 
 ### 9.1 Gagal di satu berkas migrasi — TIDAK perlu rollback
 
-Semua migrasi idempoten. Prosedur baku (§3.13): berhenti,
+Semua migrasi idempoten. Prosedur baku (§3.14): berhenti,
 baca error, perbaiki penyebab, ulangi berkas yang sama.
 Jangan pernah "melompat" ke berkas berikutnya untuk
 menutupi kegagalan.
@@ -1053,7 +1134,7 @@ gagal karena data:
 
 1. Identifikasi tahap yang salah dari angka verifikasi
    (tabel §3.1–§3.8 menunjukkan tahap terakhir yang lolos).
-2. Ulangi berkas migrasi tahap itu (§3.13).
+2. Ulangi berkas migrasi tahap itu (§3.14).
 3. Bila pengulangan tidak memperbaiki: kumpulkan bukti
    (pesan error persis + hasil kueri verifikasi) dan
    hentikan cutover — jangan menebak-nebak perbaikan
@@ -1165,12 +1246,13 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §3D: v10 + verifikasi (53 tabel, 53/53 RLS, 106 policy, 16 tabel baru 0 baris)
 - [ ] §3E: v11 + verifikasi (54 tabel, 54/54 RLS, 106 policy, RPC limiter true/true/false, CHECK audit 53 aksi)
 - [ ] §3F: v12 + verifikasi (54 tabel, 106 policy, seed 5 job dengan cron benar)
+- [ ] §3G: v13 + verifikasi (55 tabel, 55/55 RLS, 107 policy, kolom kunci hilang, `pf_quiz_answers` = jumlah soal, 3 fungsi SECURITY DEFINER + search_path)
 - [ ] §4: fungsi + trigger tervalidasi
 - [ ] §6: smoke test halaman + API lolos
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik
 - [ ] §7: secret GitHub Actions terisi, workflow terpantau
 - [ ] §8: super_admin pertama ditetapkan
-- [ ] §2: backup pasca-migrasi (54/54 tabel) disimpan di luar repo
+- [ ] §2: backup pasca-migrasi (55/55 tabel) disimpan di luar repo
 
 Bila semua kotak tercentang, situs dinyatakan **LIVE** dan URL
 produksi dicatat di `LAPORAN-AKHIR.md` §12. Sebelum itu, status
@@ -1186,7 +1268,8 @@ tetap **BELUM LIVE** — apa pun hasil tes lokalnya.
 - `ARSITEKTUR.md` §2–§3 — audit Supabase proyek `prata` +
   audit deploy Vercel.
 - `AUDIT-EXPANSION.md` §8 — blokir Fase 8.
-- `scripts/backup-pf.mjs` — skrip backup (37 tabel sesudah v8).
+- `scripts/backup-pf.mjs` — skrip backup (55 tabel sesudah v13;
+  dijalankan harian otomatis oleh `.github/workflows/backup.yml`).
 - `DEPLOY.md` (root repo) — ringkasan deploy untuk pemilik.
 
 *Dokumen cutover Fase 8 — 16 November 2026. Repo commit

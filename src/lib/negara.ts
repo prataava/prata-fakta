@@ -10,6 +10,7 @@
 // (migrasi v10 belum dijalankan) atau query gagal, kembalikan
 // [] / null — pemanggil menampilkan empty state jujur.
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import type { PfArtikelRingkas } from "@/lib/data";
 
 export type PfNegara = {
@@ -235,10 +236,10 @@ export function kelompokkanFakta(
   return hasil;
 }
 
-/** Format angka gaya Indonesia (275.000.000). */
-export function formatAngka(n: number): string {
-  return new Intl.NumberFormat("id-ID").format(n);
-}
+/** Format angka gaya Indonesia (275.000.000) — definisi kanonis
+ *  kini di src/lib/format.ts; ekspor ulang di sini agar importer
+ *  lama (halaman negara, admin negara, FaktaNegara) tetap jalan. */
+export { formatAngka } from "@/lib/format";
 
 function barisNegara(r: Record<string, unknown>): PfNegara {
   return {
@@ -277,12 +278,21 @@ export async function getDaftarNegara(): Promise<PfNegara[]> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("pf_countries")
+      // P3-5 (B-R5): daftar dibatasi 500 (negara dunia < 250;
+      // batas ini pagar pengaman bila daftar tumbuh).
       .select(KOLOM_NEGARA)
-      .order("nama", { ascending: true });
-    if (error || !data) return [];
+      .order("nama", { ascending: true })
+      .limit(500);
+    if (error) {
+      if (catatGalatBaca("getDaftarNegara", error)) return [];
+      throw new GalatBaca("getDaftarNegara", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(barisNegara);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDaftarNegara", err)) return [];
+    throw new GalatBaca("getDaftarNegara", err);
   }
 }
 
@@ -300,7 +310,11 @@ export async function getNegaraDenganBerita(): Promise<PfNegara[]> {
       .eq("status", "terbit")
       .not("negara_kode", "is", null)
       .limit(500);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getNegaraDenganBerita", error)) return [];
+      throw new GalatBaca("getNegaraDenganBerita", error);
+    }
+    if (!data) return [];
     const kode = [
       ...new Set(
         (data as { negara_kode: string | null }[])
@@ -312,8 +326,10 @@ export async function getNegaraDenganBerita(): Promise<PfNegara[]> {
     const daftar = await getDaftarNegara();
     const punya = new Set(kode);
     return daftar.filter((n) => punya.has(n.kode));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getNegaraDenganBerita", err)) return [];
+    throw new GalatBaca("getNegaraDenganBerita", err);
   }
 }
 
@@ -332,7 +348,11 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
       .select(KOLOM_NEGARA)
       .eq("kode", kodeNormal)
       .maybeSingle();
-    if (errNegara || !baris) return null;
+    if (errNegara) {
+      if (catatGalatBaca("getNegara", errNegara)) return null;
+      throw new GalatBaca("getNegara", errNegara);
+    }
+    if (!baris) return null;
     const negara = barisNegara(baris as unknown as Record<string, unknown>);
 
     const [faktaRes, beritaRes, eventRes, indRes] = await Promise.all([
@@ -361,6 +381,18 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
         .order("nama", { ascending: true }),
     ]);
 
+    // Galat sub-kueri dicatat (bukan ditelan): seksi yang gagal
+    // tampil kosong, seksi lain tetap tampil.
+    for (const [nama, res] of [
+      ["fakta", faktaRes],
+      ["berita", beritaRes],
+      ["event", eventRes],
+      ["indikator", indRes],
+    ] as const) {
+      if (res.error) {
+        catatGalatBaca(`getNegara.${nama}`, res.error);
+      }
+    }
     const fakta = (
       !faktaRes.error && faktaRes.data ? faktaRes.data : []
     ) as unknown as Record<string, unknown>[];
@@ -391,28 +423,43 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
     const daftarIndikator = (
       !indRes.error && indRes.data ? indRes.data : []
     ) as unknown as Record<string, unknown>[];
-    for (const r of daftarIndikator) {
-      let nilai_terakhir: number | null = null;
-      let tanggal_nilai_terakhir: string | null = null;
+    // Nilai terakhir SEMUA indikator dalam SATU query (bukan
+    // N+1 per indikator) — terbaru per indikator di memori.
+    const nilaiTerakhir = new Map<
+      string,
+      { nilai: number | null; tanggal: string | null }
+    >();
+    if (daftarIndikator.length > 0) {
       try {
-        const { data: poin, error: errPoin } = await supabase
+        const { data: semuaPoin, error: errPoin } = await supabase
           .from("pf_data_points")
-          .select("tanggal, nilai")
-          .eq("indikator_id", String(r.id))
+          .select("indikator_id, tanggal, nilai")
+          .in(
+            "indikator_id",
+            daftarIndikator.map((r) => String(r.id)),
+          )
           .order("tanggal", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (!errPoin && poin) {
-          nilai_terakhir = keAngka(
-            (poin as Record<string, unknown>).nilai,
-          );
-          tanggal_nilai_terakhir =
-            ((poin as Record<string, unknown>).tanggal as string | null) ??
-            null;
+          .limit(500);
+        if (errPoin) {
+          catatGalatBaca("getNegara.nilai_indikator", errPoin);
+        } else if (semuaPoin) {
+          for (const p of semuaPoin as unknown as Record<string, unknown>[]) {
+            const idInd = String(p.indikator_id ?? "");
+            if (!idInd || nilaiTerakhir.has(idInd)) continue;
+            nilaiTerakhir.set(idInd, {
+              nilai: keAngka(p.nilai),
+              tanggal:
+                typeof p.tanggal === "string" ? p.tanggal : null,
+            });
+          }
         }
-      } catch {
+      } catch (err) {
         // Poin gagal dibaca: indikator tetap tampil tanpa nilai.
+        catatGalatBaca("getNegara.nilai_indikator", err);
       }
+    }
+    for (const r of daftarIndikator) {
+      const poin = nilaiTerakhir.get(String(r.id));
       indikator.push({
         id: String(r.id),
         nama: String(r.nama ?? ""),
@@ -422,8 +469,8 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
         sumber_nama: (r.sumber_nama as string | null) ?? null,
         sumber_url: (r.sumber_url as string | null) ?? null,
         tanggal_pembaruan: (r.tanggal_pembaruan as string | null) ?? null,
-        nilai_terakhir,
-        tanggal_nilai_terakhir,
+        nilai_terakhir: poin?.nilai ?? null,
+        tanggal_nilai_terakhir: poin?.tanggal ?? null,
       });
     }
 
@@ -436,8 +483,10 @@ export async function getNegara(kode: string): Promise<ProfilNegara | null> {
       events,
       indikator,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getNegara", err)) return null;
+    throw new GalatBaca("getNegara", err);
   }
 }
 
@@ -453,8 +502,15 @@ export async function getNegaraAdmin(): Promise<{
     const { data, error } = await supabase
       .from("pf_countries")
       .select(KOLOM_NEGARA)
-      .order("nama", { ascending: true });
-    if (error || !data) return { negara: [], fakta: {}, tersedia: false };
+      .order("nama", { ascending: true })
+      .limit(500);
+    if (error) {
+      if (catatGalatBaca("getNegaraAdmin", error)) {
+        return { negara: [], fakta: {}, tersedia: false };
+      }
+      throw new GalatBaca("getNegaraAdmin", error);
+    }
+    if (!data) return { negara: [], fakta: {}, tersedia: false };
     const daftar = (data as unknown as Record<string, unknown>[]).map(
       barisNegara,
     );
@@ -468,7 +524,9 @@ export async function getNegaraAdmin(): Promise<{
           daftar.map((n) => n.id),
         )
         .order("kunci", { ascending: true });
-      if (!errFakta && faktaData) {
+      if (errFakta) {
+        catatGalatBaca("getNegaraAdmin.fakta", errFakta);
+      } else if (faktaData) {
         for (const r of faktaData as unknown as Record<string, unknown>[]) {
           const f = barisFakta(r);
           (fakta[f.country_id] ??= []).push(f);
@@ -476,8 +534,12 @@ export async function getNegaraAdmin(): Promise<{
       }
     }
     return { negara: daftar, fakta, tersedia: true };
-  } catch {
-    return { negara: [], fakta: {}, tersedia: false };
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getNegaraAdmin", err)) {
+      return { negara: [], fakta: {}, tersedia: false };
+    }
+    throw new GalatBaca("getNegaraAdmin", err);
   }
 }
 

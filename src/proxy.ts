@@ -6,6 +6,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { cariKategori } from "@/lib/categories";
 import { buatHeaderCsp, buatNonce } from "@/lib/csp";
+import { apakahAsalDiizinkan } from "@/lib/asal";
 
 // Pemeriksaan keberadaan slug di tabel Supabase lewat REST publik.
 // Mengembalikan true bila slug PASTI tidak ada (hasil kosong, atau
@@ -111,6 +112,30 @@ export default async function proxy(request: NextRequest) {
       }),
     );
 
+  // Cek CSRF terpusat (integrasi B1, P0-8/S-9): SEMUA mutasi API
+  // (POST/PATCH/PUT/DELETE /api/*) wajib berasal dari origin
+  // aplikasi. Menutup 51 route yang belum dipasangi cekOrigin
+  // per-route — cek per-route tetap dipertahankan sebagai lapis
+  // kedua (bila matcher proxy berubah, route tetap terlindung).
+  // Klien non-browser (tanpa Origin/Referer: curl, workflow
+  // GitHub Actions, fetch server-ke-server) tetap diizinkan
+  // karena tidak punya konteks CSRF (lihat lib/asal.ts).
+  // Ditempatkan SEBELUM refresh sesi agar permintaan jahat
+  // ditolak cepat tanpa membebani Supabase.
+  const METODE_MUTASI = ["POST", "PATCH", "PUT", "DELETE"];
+  if (
+    request.nextUrl.pathname.startsWith("/api/") &&
+    METODE_MUTASI.includes(request.method) &&
+    !apakahAsalDiizinkan(request.headers, process.env.PF_SITE_URL)
+  ) {
+    return denganCsp(
+      NextResponse.json(
+        { ok: false, error: "Permintaan lintas situs ditolak." },
+        { status: 403 },
+      ),
+    );
+  }
+
   // Negara tidak ada → 404 SEBELUM halaman dirender (Fase 8
   // Gelombang 2, Area 11 — pola yang sama dengan
   // /pengetahuan/[slug] Fase 7). pf_countries tidak punya
@@ -202,6 +227,19 @@ export default async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // Opsi cookie sesi (Gelombang B1, P0-6): `secure: true` di
+      // produksi; `httpOnly` SENGAJA tidak diaktifkan — klien
+      // browser membaca sesi dari document.cookie dan cookie
+      // httpOnly dari refresh di sini akan membuatnya buta sesi
+      // (lihat lib/supabase/server.ts + baterai
+      // scripts/uji-ultimate-security.mjs §P0-6).
+      cookieOptions: {
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        // httpOnly: false SENGAJA — lihat lib/supabase/server.ts.
+        httpOnly: false,
+      },
       cookies: {
         getAll() {
           return request.cookies.getAll();

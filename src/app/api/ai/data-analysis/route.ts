@@ -3,42 +3,39 @@ import { buatSupabaseAiAdapter } from "@/lib/ai/supabase-adapter";
 import { jalankanDataAnalysis } from "@/lib/ai/data-analysis";
 import {
   autentikasiPemicuAi,
-  buatRateLimiter,
-  normalisasiDipicuOleh,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 
-// POST /api/ai/data-analysis — memicu agen Data Analysis (ke-10).
+// POST /api/ai/data-analysis — memicu langkah Data Analysis
+// (ke-10 dari 10 langkah pipeline deterministik).
 // Autentikasi DUA jalur (pola /api/ai/jalankan):
 //   (a) header x-pf-ai-secret == PF_AI_SECRET (pemicu jadwal);
 //   (b) sesi login super_admin/editor.
 // Bila PF_AI_SECRET belum diatur DAN tidak ada sesi -> 503 jujur.
-// Agen DETERMINISTIK: menghitung tren dari pf_data_points nyata dan
+// Langkah DETERMINISTIK: menghitung tren dari pf_data_points nyata dan
 // menulis ringkasan_tren ke pf_data_indicators; tanpa LLM, tanpa
 // karangan. Indikator dengan < 2 titik data dilewati dengan alasan.
 // Mengembalikan { dipicu_oleh, diproses, berhasil, dilewati, gagal }.
 // Rate limiting: 30 req/menit/IP.
-const lolosRateLimit = buatRateLimiter(30);
+const lolosRateLimit = buatRateLimiterKeras(30);
 
 export async function POST(req: Request) {
-  if (!(await lolosRateLimit(req))) return responRateLimit();
+  const hasilRateLimit = await lolosRateLimit(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;
 
-  let body: { dipicu_oleh?: unknown } = {};
-  try {
-    const teks = await req.text();
-    if (teks.trim()) body = JSON.parse(teks) as typeof body;
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Permintaan tidak valid." },
-      { status: 400 },
-    );
-  }
-  const dipicuOleh = normalisasiDipicuOleh(body.dipicu_oleh, auth.dipicuOleh);
+  // P3-4 (N-R1): dipicu_oleh HANYA dari jalur autentikasi server.
+  // Body tidak dibaca sama sekali (route ini tidak punya parameter
+  // body) — nilai dari body (bila dikirim) sengaja diabaikan.
+  const dipicuOleh = auth.dipicuOleh;
 
   let adapter: ReturnType<typeof buatSupabaseAiAdapter>;
   try {

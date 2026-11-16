@@ -10,7 +10,7 @@ import {
 } from "@/lib/rutin";
 
 export const metadata: Metadata = {
-  title: "Monthly Review",
+  title: "Rekap Bulanan",
   description:
     "Artikel terbit dan Daily Brief dalam 30 hari terakhir di PRATA FAKTA.",
 };
@@ -34,7 +34,7 @@ export default async function RutinBulanan() {
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-bulanan">
         <span className="hero-label">Konten rutin · Bulanan</span>
-        <h1 id="judul-bulanan">Monthly Review</h1>
+        <h1 id="judul-bulanan">Rekap Bulanan</h1>
         <p>
           Artikel terbit dan Daily Brief dalam 30 hari terakhir — rekap
           sebulan dalam satu halaman, daftar dan tautan saja, tanpa

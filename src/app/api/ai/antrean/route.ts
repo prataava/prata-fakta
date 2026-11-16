@@ -10,13 +10,18 @@ import {
 // GET /api/ai/antrean — antrean review editorial AI.
 // HANYA super_admin/editor/fact_checker.
 // Mengembalikan { tersedia, total_unconfirmed, item,
-// klaim_tanpa_verifikasi } dengan data NYATA: total item mentah
-// berstatus UNCONFIRMED (hitungan persis, bukan potongan), 20 item
-// teratas (urut prioritas sumber lalu terbaru), dan 20 klaim yang
-// belum punya verification record. Total klaim tanpa verifikasi
-// TIDAK dihitung persis (anti-join tidak didukung PostgREST; adapter
-// memindai klaim tertua) — jadi hanya jumlah yang ditampilkan yang
-// dilaporkan, bukan total yang pura-pura persis.
+// klaim_tanpa_verifikasi, item_terverifikasi_tanpa_artikel } dengan
+// data NYATA: total item mentah berstatus UNCONFIRMED (hitungan
+// persis, bukan potongan), 20 item teratas (urut prioritas sumber
+// lalu terbaru, tanggal tidak diketahui PALING BELAKANG), dan 20
+// klaim yang belum punya verification record. Total klaim tanpa
+// verifikasi TIDAK dihitung persis (anti-join tidak didukung
+// PostgREST; adapter memindai klaim tertua) — jadi hanya jumlah
+// yang ditampilkan yang dilaporkan, bukan total yang pura-pura
+// persis. item_terverifikasi_tanpa_artikel = item VERIFIED/
+// CROSS-CHECKED tanpa draf (job rekonsiliasi P1-2); item tanpa
+// waktu_terbit_asli membawa label_tanggal "tanggal tidak
+// diketahui" (P1-1).
 // Bila tabel belum ada -> 200 dengan tersedia:false + pesan jujur.
 // Rate limiting: 30 req/menit/IP (pola /api/langganan).
 const lolosRateLimit = buatRateLimiter(30);
@@ -68,13 +73,29 @@ export async function GET(req: Request) {
     }
     const item = await adapter.ambilAntrean(20);
     const klaim = await adapter.ambilKlaimTanpaVerifikasi(20);
+    // P1-2: deteksi item VERIFIED tanpa artikel (best-effort —
+    // adapter lama tanpa metodenya mengembalikan daftar kosong).
+    let yatim: Awaited<
+      ReturnType<typeof adapter.cariItemTerverifikasiTanpaArtikel>
+    > = [];
+    try {
+      yatim = await adapter.cariItemTerverifikasiTanpaArtikel(20);
+    } catch {
+      yatim = [];
+    }
+    // P1-1: label jujur untuk item tanpa tanggal terbit.
+    const itemBerlabel = item.map((i) => ({
+      ...i,
+      label_tanggal: i.waktu_terbit_asli ? null : "tanggal tidak diketahui",
+    }));
     return NextResponse.json({
       ok: true,
       tersedia: true,
       total_unconfirmed: count ?? 0,
-      item,
+      item: itemBerlabel,
       klaim_ditampilkan: klaim.length,
       klaim_tanpa_verifikasi: klaim,
+      item_terverifikasi_tanpa_artikel: yatim,
     });
   } catch (err) {
     const pesan = err instanceof Error ? err.message : "kesalahan tidak diketahui";

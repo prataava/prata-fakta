@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 
 // POST /api/laporan — laporan kesalahan artikel (boleh anonim).
@@ -16,7 +17,7 @@ import {
 // Cek artikel + identitas pelapor tetap via session client; hanya
 // INSERT yang memakai service role. 503 jujur bila service key
 // belum diatur.
-const batasi = buatRateLimiter(5);
+const batasi = buatRateLimiterKeras(5);
 
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,7 +25,10 @@ const POLA_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const JENIS_VALID = ["fakta_salah", "sumber", "typo", "lainnya"] as const;
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   let body: {
     artikel_id?: unknown;

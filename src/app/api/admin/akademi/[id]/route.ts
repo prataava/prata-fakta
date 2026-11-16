@@ -1,13 +1,17 @@
 // GET / PATCH / DELETE /api/admin/akademi/[id] (staf).
 // PATCH mengubah field kursus dan/atau struktur isi:
-//   { ..., modul: [{id?, judul, deskripsi?, urutan?, hapus?}],
-//     pelajaran: [{id?, module_id, judul, isi?, jenis?,
+//   { ..., modul: [{id?, kunci?, judul, deskripsi?, urutan?, hapus?}],
+//     pelajaran: [{id?, module_id?, modul_kunci?, judul, isi?, jenis?,
 //       referensi?, artikel_id?, kuis_tanggal?, urutan?, hapus?}] }
 // Entri tanpa id = tambah baru; dengan id = ubah; hapus:true =
-// hapus. Pelajaran baru hanya bisa ditambahkan ke modul yang
-// sudah ada (tambah modul dulu lewat PATCH yang sama, lalu
-// pelajaran di panggilan berikutnya). Semua id diverifikasi
-// milik kursus ini sebelum ditulis. Aksi audit: 'akademi.kursus'
+// hapus. `kunci` (modul baru) + `modul_kunci` (pelajaran baru)
+// memungkinkan modul baru + pelajarannya dikirim dalam SATU
+// panggilan — RPC memetakan kunci sementara ke id baru.
+// P1-4 (B-T4, v13): SELURUH struktur ditulis oleh SATU RPC
+// pf_patch_kursus_atomik dalam satu transaksi (validasi penuh
+// dulu, baru tulis) — bukan lagi loop per baris tanpa rollback.
+// Semua id diverifikasi milik kursus ini DI DALAM RPC sebelum
+// menulis. Aksi audit: 'akademi.kursus'
 // (field kursus) dan 'akademi.modul' (struktur isi) — CHECK v11 §3.
 // Audit FAIL-CLOSED (Tahap 13A, T10): gagal audit → operasi ditolak.
 import { NextResponse } from "next/server";
@@ -134,6 +138,9 @@ export function validasiPatchKursus(
 
 export type EntriModul = {
   id?: string;
+  /** Kunci sementara pilihan klien (modul BARU saja) — dirujuk
+   *  pelajaran baru lewat `modul_kunci` dalam PATCH yang sama. */
+  kunci?: string;
   judul?: string;
   deskripsi?: string | null;
   urutan?: number;
@@ -143,6 +150,9 @@ export type EntriModul = {
 export type EntriPelajaran = {
   id?: string;
   module_id?: string;
+  /** Rujuk modul BARU di PATCH yang sama via kunci sementaranya
+   *  (alternatif module_id; salah satu wajib untuk pelajaran baru). */
+  modul_kunci?: string;
   judul?: string;
   isi?: string | null;
   jenis?: string;
@@ -185,6 +195,17 @@ export function validasiStruktur(
         entri.hapus = true;
         modul.push(entri);
         continue;
+      }
+      // Kunci sementara (modul baru): dirujuk pelajaran baru
+      // lewat modul_kunci. Hanya huruf/angka/-/_ , maks 40.
+      if (o.kunci !== undefined) {
+        if (
+          typeof o.kunci !== "string" ||
+          !/^[A-Za-z0-9_-]{1,40}$/.test(o.kunci)
+        ) {
+          return { ok: false, error: "Kunci modul tidak valid." };
+        }
+        entri.kunci = o.kunci;
       }
       if (entri.id === undefined) {
         if (typeof o.judul !== "string" || o.judul.trim() === "") {
@@ -242,9 +263,19 @@ export function validasiStruktur(
         }
         entri.module_id = o.module_id;
       }
+      // Modul_kunci: rujuk modul BARU di PATCH yang sama.
+      if (o.modul_kunci !== undefined) {
+        if (
+          typeof o.modul_kunci !== "string" ||
+          !/^[A-Za-z0-9_-]{1,40}$/.test(o.modul_kunci)
+        ) {
+          return { ok: false, error: "modul_kunci pelajaran tidak valid." };
+        }
+        entri.modul_kunci = o.modul_kunci;
+      }
       if (entri.id === undefined) {
-        if (!entri.module_id) {
-          return { ok: false, error: "Pelajaran baru wajib punya module_id." };
+        if (!entri.module_id && !entri.modul_kunci) {
+          return { ok: false, error: "Pelajaran baru wajib punya module_id atau modul_kunci." };
         }
         if (typeof o.judul !== "string" || o.judul.trim() === "") {
           return { ok: false, error: "Judul pelajaran wajib diisi." };
@@ -418,152 +449,72 @@ export async function PATCH(
         { status: 404 },
       );
     }
-    const modulMilik = new Set(
-      (detail.modul as { id: string }[]).map((m) => m.id),
+    // P1-4 (B-T4, v13): SELURUH perubahan struktur + field kursus
+    // ditulis SATU RPC pf_patch_kursus_atomik dalam satu
+    // transaksi. Validasi kepemilikan + judul + slug dilakukan
+    // di dalam RPC SEBELUM menulis; gagal di tengah = tidak ada
+    // satu pun baris yang berubah.
+    const { data: hasilRpc, error: errRpc } = await service.rpc(
+      "pf_patch_kursus_atomik",
+      {
+        p_kursus_id: id,
+        p_kursus: validKursus.data,
+        p_modul: validStruktur.modul,
+        p_pelajaran: validStruktur.pelajaran,
+      },
     );
-    const pelajaranKeModul = new Map<string, string>();
-    for (const p of detail.pelajaran as {
-      id: string;
-      module_id: string;
-    }[]) {
-      pelajaranKeModul.set(p.id, p.module_id);
+    if (errRpc) {
+      // Bentrok slug saat race: RPC me-raise 'slug_bentrok'
+      // dengan kode 23505 (seluruh transaksi batal) → 409.
+      const pesan = (errRpc as { message?: string }).message ?? "";
+      const kode = (errRpc as { code?: string }).code;
+      if (kode === "23505" || pesan.includes("slug_bentrok")) {
+        return NextResponse.json(
+          { ok: false, error: "Slug kursus sudah dipakai." },
+          { status: 409 },
+        );
+      }
+      throw errRpc;
     }
-
-    // Modul dulu (pelajaran baru butuh modul yang sudah ada).
-    for (const m of validStruktur.modul) {
-      if (m.hapus) {
-        if (!modulMilik.has(m.id!)) {
-          return NextResponse.json(
-            { ok: false, error: `Modul ${m.id} bukan milik kursus ini.` },
-            { status: 400 },
-          );
-        }
-        const { error } = await service
-          .from("pf_course_modules")
-          .delete()
-          .eq("id", m.id);
-        if (error) throw error;
-        continue;
+    const hasil = (hasilRpc ?? {}) as { ok?: boolean; kode?: string; id?: string; kunci?: string };
+    if (hasil.ok !== true) {
+      const kode = hasil.kode ?? "tidak_diketahui";
+      if (kode === "kursus_tidak_ditemukan") {
+        return NextResponse.json(
+          { ok: false, error: "Kursus tidak ditemukan." },
+          { status: 404 },
+        );
       }
-      if (m.id) {
-        if (!modulMilik.has(m.id)) {
-          return NextResponse.json(
-            { ok: false, error: `Modul ${m.id} bukan milik kursus ini.` },
-            { status: 400 },
-          );
-        }
-        const perubahan: Record<string, unknown> = {};
-        if (m.judul !== undefined) perubahan.judul = m.judul;
-        if (m.deskripsi !== undefined) perubahan.deskripsi = m.deskripsi;
-        if (m.urutan !== undefined) perubahan.urutan = m.urutan;
-        if (Object.keys(perubahan).length > 0) {
-          const { error } = await service
-            .from("pf_course_modules")
-            .update(perubahan)
-            .eq("id", m.id);
-          if (error) throw error;
-        }
-      } else {
-        const { data, error } = await service
-          .from("pf_course_modules")
-          .insert({
-            course_id: id,
-            judul: m.judul,
-            deskripsi: m.deskripsi ?? null,
-            urutan: m.urutan ?? 0,
-          })
-          .select("id")
-          .single();
-        if (error) throw error;
-        modulMilik.add((data as { id: string }).id);
+      if (kode === "slug_bentrok") {
+        return NextResponse.json(
+          { ok: false, error: "Slug kursus sudah dipakai." },
+          { status: 409 },
+        );
       }
+      const pesanKode: Record<string, string> = {
+        modul_bukan_milik_kursus: `Modul ${hasil.id ?? ""} bukan milik kursus ini.`,
+        pelajaran_bukan_milik_kursus: `Pelajaran ${hasil.id ?? ""} bukan milik kursus ini.`,
+        module_id_bukan_milik_kursus: "module_id tujuan bukan milik kursus ini.",
+        modul_kunci_tidak_ditemukan: `modul_kunci "${hasil.kunci ?? ""}" tidak merujuk modul baru di PATCH ini.`,
+        pelajaran_tanpa_modul: "Pelajaran baru wajib punya module_id atau modul_kunci.",
+        modul_tanpa_judul: "Judul modul wajib diisi.",
+        pelajaran_tanpa_judul: "Judul pelajaran wajib diisi.",
+        modul_tanpa_id: "Hapus modul butuh id.",
+        pelajaran_tanpa_id: "Hapus pelajaran butuh id.",
+      };
+      return NextResponse.json(
+        { ok: false, error: pesanKode[kode] ?? "Perubahan kursus tidak valid." },
+        { status: 400 },
+      );
     }
-
-    for (const p of validStruktur.pelajaran) {
-      if (p.hapus) {
-        const modulLama = pelajaranKeModul.get(p.id!);
-        if (!modulLama || !modulMilik.has(modulLama)) {
-          return NextResponse.json(
-            { ok: false, error: `Pelajaran ${p.id} bukan milik kursus ini.` },
-            { status: 400 },
-          );
-        }
-        const { error } = await service
-          .from("pf_course_lessons")
-          .delete()
-          .eq("id", p.id);
-        if (error) throw error;
-        continue;
-      }
-      if (p.id) {
-        const modulLama = pelajaranKeModul.get(p.id);
-        if (!modulLama || !modulMilik.has(modulLama)) {
-          return NextResponse.json(
-            { ok: false, error: `Pelajaran ${p.id} bukan milik kursus ini.` },
-            { status: 400 },
-          );
-        }
-        if (p.module_id !== undefined && !modulMilik.has(p.module_id)) {
-          return NextResponse.json(
-            { ok: false, error: "module_id tujuan bukan milik kursus ini." },
-            { status: 400 },
-          );
-        }
-        const perubahan: Record<string, unknown> = {};
-        if (p.module_id !== undefined) perubahan.module_id = p.module_id;
-        if (p.judul !== undefined) perubahan.judul = p.judul;
-        if (p.isi !== undefined) perubahan.isi = p.isi;
-        if (p.jenis !== undefined) perubahan.jenis = p.jenis;
-        if (p.referensi !== undefined) perubahan.referensi = p.referensi;
-        if (p.artikel_id !== undefined) perubahan.artikel_id = p.artikel_id;
-        if (p.kuis_tanggal !== undefined) perubahan.kuis_tanggal = p.kuis_tanggal;
-        if (p.urutan !== undefined) perubahan.urutan = p.urutan;
-        if (Object.keys(perubahan).length > 0) {
-          const { error } = await service
-            .from("pf_course_lessons")
-            .update(perubahan)
-            .eq("id", p.id);
-          if (error) throw error;
-        }
-      } else {
-        if (!modulMilik.has(p.module_id!)) {
-          return NextResponse.json(
-            { ok: false, error: "module_id bukan milik kursus ini." },
-            { status: 400 },
-          );
-        }
-        const { error } = await service.from("pf_course_lessons").insert({
-          module_id: p.module_id,
-          judul: p.judul,
-          isi: p.isi ?? null,
-          jenis: p.jenis ?? "materi",
-          referensi: p.referensi ?? [],
-          artikel_id: p.artikel_id ?? null,
-          kuis_tanggal: p.kuis_tanggal ?? null,
-          urutan: p.urutan ?? 0,
-        });
-        if (error) throw error;
-      }
-    }
-
+    // Audit FAIL-CLOSED (Tahap 13A, T10): helper lama best-effort
+    // (gagal insert hanya console.error) DIGANTI catatAuditWajib —
+    // gagal audit melempar dan route menjawab 500/503.
+    // CATATAN: audit tetap di luar transaksi RPC (keterbatasan
+    // yang sama seperti sebelumnya — lihat B-T2; bila audit
+    // gagal sesudah RPC commit, route menjawab 500 dan perubahan
+    // kursus TETAP tersimpan, tercatat di laporan Gelombang B1).
     if (Object.keys(validKursus.data).length > 0) {
-      const { error } = await service
-        .from("pf_courses")
-        .update(validKursus.data)
-        .eq("id", id);
-      if (error) {
-        const kode = (error as { code?: string }).code;
-        if (kode === "23505") {
-          return NextResponse.json(
-            { ok: false, error: "Slug kursus sudah dipakai." },
-            { status: 409 },
-          );
-        }
-        throw error;
-      }
-      // Audit FAIL-CLOSED (Tahap 13A, T10): helper lama best-effort
-      // (gagal insert hanya console.error) DIGANTI catatAuditWajib —
-      // gagal audit melempar dan route menjawab 500/503.
       await catatAuditWajib({
         aktor_id: auth.user.id,
         aktor_email: auth.user.email ?? null,

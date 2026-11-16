@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import {
   JENIS_LAPORAN_PUBLIK,
@@ -28,7 +30,7 @@ import {
 // laporan. Yang dibaca publik HANYA nomor, jenis, status, dan
 // tanggal — TANPA data pelapor (nama/email tidak pernah
 // dikembalikan). Rate limit 10/menit/IP.
-const batasiKirim = buatRateLimiter(5);
+const batasiKirim = buatRateLimiterKeras(5);
 const batasiLacak = buatRateLimiter(10);
 
 const POLA_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -38,7 +40,10 @@ function respon503(pesan: string) {
 }
 
 export async function POST(req: Request) {
-  if (!(await batasiKirim(req))) return responRateLimit();
+  const hasilRateLimit = await batasiKirim(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   let body: {
     jenis?: unknown;

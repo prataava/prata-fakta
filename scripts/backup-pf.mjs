@@ -83,6 +83,10 @@ const TABEL_PF = [
   // menambah tabel pf_* baru, TAMBAHKAN namanya di sini agar
   // backup tetap mencakup semuanya.
   "pf_rate_limits",
+  // v13 (Gelombang B1, P0-4) — tabel baru: pf_quiz_answers
+  // (kunci kuis dipindah dari kolom pf_quiz_questions.kunci).
+  // Total sesudah v13: 55 tabel.
+  "pf_quiz_answers",
 ];
 
 function bacaEnvLocal() {

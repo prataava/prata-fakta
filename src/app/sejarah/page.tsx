@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
+import { formatTanggal, formatTanggalHari } from "@/lib/format";
 import {
   getArsipSejarah,
   getHariIniDalamSejarah,
@@ -18,27 +19,9 @@ export const metadata: Metadata = {
 // untuk rute yang membaca data dinamis dan searchParams).
 export const instant = false;
 
-function formatTanggal(tanggal: string | null): string {
-  if (!tanggal) return "Waktu belum tersedia";
-  const d = new Date(tanggal);
-  if (Number.isNaN(d.getTime())) return tanggal;
-  return d.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Asia/Jakarta",
-  });
-}
-
+/** Tanggal "YYYY-MM-DD" → format panjang (modul format bersama). */
 function formatTanggalPanjang(yyyyMmDd: string): string {
-  const d = new Date(`${yyyyMmDd}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return yyyyMmDd;
-  return d.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Asia/Jakarta",
-  });
+  return formatTanggalHari(yyyyMmDd);
 }
 
 /** Bangun href /sejarah dengan parameter filter yang dipertahankan. */
@@ -93,7 +76,8 @@ export default async function Sejarah({
         <p>
           Peristiwa yang tercatat di PRATA FAKTA, ditelusuri lewat
           tanggal, tahun, dan era — semuanya bersumber dari data
-          peristiwa yang benar-benar ada.
+          peristiwa yang benar-benar ada. Kronologi lengkap semua
+          peristiwa ada di <Link href="/timeline">Timeline</Link>.
         </p>
       </section>
 
@@ -117,7 +101,7 @@ export default async function Sejarah({
             {hariIni.events.map((e) => (
               <article className="kartu" key={e.id}>
                 <span className="kartu-kategori">
-                  {formatTanggal(e.dimulai_pada)}
+                  {formatTanggal(e.dimulai_pada, "Waktu belum tersedia")}
                   {e.era ? ` · Era ${e.era}` : ""}
                   {e.penting ? " · Penting" : ""}
                 </span>
@@ -244,7 +228,7 @@ export default async function Sejarah({
             {arsip.events.map((e) => (
               <article className="kartu" key={e.id}>
                 <span className="kartu-kategori">
-                  {formatTanggal(e.dimulai_pada)}
+                  {formatTanggal(e.dimulai_pada, "Waktu belum tersedia")}
                   {e.era ? ` · Era ${e.era}` : ""}
                   {e.penting ? " · Penting" : ""}
                 </span>

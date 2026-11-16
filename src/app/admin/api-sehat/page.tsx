@@ -133,10 +133,10 @@ export default async function AdminApiSehat() {
                 : "belum ada run ingestion tercatat."}
             </p>
             <p>
-              Agen AI terakhir:{" "}
+              Pipeline AI terakhir:{" "}
               {aiTerakhir
                 ? `${aiTerakhir.agen} — ${aiTerakhir.status} (${formatWaktu(aiTerakhir.dimulai_pada)})`
-                : "belum ada run agen AI tercatat."}
+                : "belum ada run pipeline AI tercatat."}
             </p>
           </>
         )}

@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
@@ -30,7 +31,7 @@ import {
 // policy INSERT anonim "pf_questions tambah publik" DICABUT di
 // migrasi v8. Pencarian kandidat + identitas pengguna tetap via
 // session client. 503 jujur bila service key belum diatur.
-const batasi = buatRateLimiter(5);
+const batasi = buatRateLimiterKeras(5);
 
 const STOPWORDS = new Set([
   "yang", "dan", "atau", "dengan", "untuk", "dari", "adalah", "ini", "itu",
@@ -125,6 +126,14 @@ async function cariKandidat(
     if (lama) lama.skor += skor;
     else peta.set(kunciMap, { judul, ringkasan, url, skor });
   };
+  // P2-11 (B-S3): indikator dikumpulkan dulu TANPA nilai —
+  // nilai terakhir SEMUA indikator diambil dalam SATU query
+  // sesudah loop kata kunci (bukan satu query per indikator
+  // per kata kunci).
+  const indikatorDitemukan = new Map<
+    string,
+    { nama: string; slug: string; satuan: string | null; sumber_nama: string; skor: number }
+  >();
 
   for (const k of kata) {
     const [art, png, ind, evt, neg] = await Promise.all([
@@ -170,31 +179,21 @@ async function cariKandidat(
     }
     if (!ind.error && ind.data) {
       for (const r of ind.data as { id: string; nama: string; slug: string; satuan: string | null; sumber_nama: string }[]) {
-        // Nilai terakhir indikator (tanpa nilai, indikator tetap
-        // jadi kandidat — jawabannya menyebut sumbernya saja).
-        let nilaiTeks = "";
-        try {
-          const { data: poin } = await supabase
-            .from("pf_data_points")
-            .select("tanggal, nilai")
-            .eq("indikator_id", r.id)
-            .order("tanggal", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (poin) {
-            const p = poin as { tanggal: string; nilai: number | string };
-            nilaiTeks = `Nilai terakhir: ${formatAngka(Number(p.nilai))}${r.satuan ? ` ${r.satuan}` : ""} (per ${p.tanggal}). `;
-          }
-        } catch {
-          // Poin gagal dibaca: kandidat tetap tampil tanpa nilai.
+        // Nilai terakhir diambil SESUDAH loop (satu query
+        // in("indikator_id", ids) untuk semua indikator).
+        const skor = r.nama.toLowerCase().includes(k) ? 3 : 1;
+        const lama = indikatorDitemukan.get(r.id);
+        if (lama) {
+          lama.skor += skor;
+        } else {
+          indikatorDitemukan.set(r.id, {
+            nama: r.nama,
+            slug: r.slug,
+            satuan: r.satuan,
+            sumber_nama: r.sumber_nama,
+            skor,
+          });
         }
-        catat(
-          `indikator:${r.slug}`,
-          r.nama,
-          `${nilaiTeks}Sumber: ${r.sumber_nama}.`,
-          "/data",
-          r.nama.toLowerCase().includes(k) ? 3 : 1,
-        );
       }
     }
     if (!evt.error && evt.data) {
@@ -227,13 +226,59 @@ async function cariKandidat(
       }
     }
   }
+
+  // P2-11 (B-S3): SATU query titik data untuk semua indikator
+  // yang ditemukan, terbaru per indikator dipilih di memori
+  // (baris terurut tanggal menurun — kemunculan pertama per
+  // indikator adalah yang terbaru). Batas 500 baris: deret
+  // harian satu indikator jarang melebihi itu dalam konteks
+  // retrieval; bila terlampaui, indikator tetap jadi kandidat
+  // tanpa nilai (bukan galat).
+  if (indikatorDitemukan.size > 0) {
+    const ids = [...indikatorDitemukan.keys()];
+    const terbaru = new Map<string, { tanggal: string; nilai: number | string }>();
+    try {
+      const { data: poin, error: errPoin } = await supabase
+        .from("pf_data_points")
+        .select("indikator_id, tanggal, nilai")
+        .in("indikator_id", ids)
+        .order("tanggal", { ascending: false })
+        .limit(500);
+      if (!errPoin && poin) {
+        for (const p of poin as { indikator_id: string; tanggal: string; nilai: number | string }[]) {
+          if (!terbaru.has(p.indikator_id)) {
+            terbaru.set(p.indikator_id, { tanggal: p.tanggal, nilai: p.nilai });
+          }
+        }
+      }
+    } catch (err) {
+      // Poin gagal dibaca: kandidat tetap tampil tanpa nilai.
+      console.error("[baca] cariKandidat: gagal membaca pf_data_points.", err);
+    }
+    for (const [id, r] of indikatorDitemukan) {
+      const poin = terbaru.get(id);
+      const nilaiTeks = poin
+        ? `Nilai terakhir: ${formatAngka(Number(poin.nilai))}${r.satuan ? ` ${r.satuan}` : ""} (per ${poin.tanggal}). `
+        : "";
+      catat(
+        `indikator:${r.slug}`,
+        r.nama,
+        `${nilaiTeks}Sumber: ${r.sumber_nama}.`,
+        "/data",
+        r.skor,
+      );
+    }
+  }
   return [...peta.values()]
     .sort((a, b) => b.skor - a.skor)
     .slice(0, 3);
 }
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   let body: { pertanyaan?: unknown };
   try {

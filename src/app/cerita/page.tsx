@@ -46,6 +46,11 @@ export default async function Cerita() {
         <section className="seksi" aria-labelledby="seksi-diikuti">
           <div className="seksi-kepala">
             <h2 id="seksi-diikuti">Cerita yang Anda ikuti</h2>
+            <p>
+              <Link href="/timeline?diikuti=ya">
+                Lihat kronologi cerita yang Anda ikuti di Timeline →
+              </Link>
+            </p>
           </div>
           <div className="grid-berita">
             {diikuti.map((c) => (
@@ -72,6 +77,11 @@ export default async function Cerita() {
         <section className="seksi" aria-label="Daftar cerita">
           <div className="seksi-kepala">
             <h2>Semua cerita</h2>
+            <p>
+              Jelajahi semua cerita yang sudah diterbitkan dan ikuti yang
+              menarik bagi Anda — ceritanya akan muncul di bagian atas
+              halaman ini.
+            </p>
           </div>
           <div className="grid-berita">
             {daftar.map((c) => (

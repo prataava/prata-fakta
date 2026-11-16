@@ -1,12 +1,11 @@
 // Lapisan akses data Fase 6 PRATA FAKTA (server).
-// Prinsip sama seperti src/lib/data.ts: gagal-aman (try/catch → [] /
-// null), Bahasa Indonesia, tanpa data palsu. Bila tabel pf_* Fase 6
-// belum dibuat (migrasi v6 masih menunggu dijalankan) atau query
-// gagal, fungsi-fungsi ini mengembalikan array kosong / null dan
-// pemanggil menampilkan empty state jujur — bukan angka, koordinat,
-// atau artikel karangan.
+// Prinsip (diperbarui Gelombang B1, P2-14): galat SELALU dicatat
+// dengan konteks fungsi (lib/galat.ts); "tabel belum ada" →
+// empty state jujur; galat lain → dilempar (bukan ditelan
+// menjadi [] diam-diam). Bahasa Indonesia, tanpa data palsu.
 import { createClient } from "@/lib/supabase/server";
 import { cobaServiceClient } from "@/lib/supabase/service";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import { tanggalWibHariIni } from "@/lib/rutin";
 import type { PfArtikelRingkas } from "@/lib/data";
 
@@ -219,10 +218,16 @@ export async function getEventDenganKoordinat(
       .not("bujur", "is", null)
       .order("dimulai_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getEventDenganKoordinat", error)) return [];
+      throw new GalatBaca("getEventDenganKoordinat", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(barisEvent);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getEventDenganKoordinat", err)) return [];
+    throw new GalatBaca("getEventDenganKoordinat", err);
   }
 }
 
@@ -243,7 +248,11 @@ export async function getArtikelDenganKoordinat(
       .not("bujur", "is", null)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelDenganKoordinat", error)) return [];
+      throw new GalatBaca("getArtikelDenganKoordinat", error);
+    }
+    if (!data) return [];
     const hasil: PfArtikelBerkoordinat[] = [];
     for (const r of data as unknown as Record<string, unknown>[]) {
       const lat = keAngka(r.lintang);
@@ -262,8 +271,10 @@ export async function getArtikelDenganKoordinat(
       });
     }
     return hasil;
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelDenganKoordinat", err)) return [];
+    throw new GalatBaca("getArtikelDenganKoordinat", err);
   }
 }
 
@@ -291,7 +302,11 @@ export async function getRiwayatSkor(
       .eq("user_id", userId)
       .order("tanggal", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getRiwayatSkor", error)) return [];
+      throw new GalatBaca("getRiwayatSkor", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[])
       .filter((r) => typeof r.tanggal === "string")
       .map((r) => ({
@@ -301,8 +316,10 @@ export async function getRiwayatSkor(
         dibuat_pada:
           typeof r.dibuat_pada === "string" ? r.dibuat_pada : null,
       }));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRiwayatSkor", err)) return [];
+    throw new GalatBaca("getRiwayatSkor", err);
   }
 }
 
@@ -316,7 +333,11 @@ export async function getRiwayatSkor(
       .select(KOLOM_EVENT)
       .order("dimulai_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return { events: [], adaKoordinat: 0 };
+    if (error) {
+      if (catatGalatBaca("getSemuaEvent", error)) return { events: [], adaKoordinat: 0 };
+      throw new GalatBaca("getSemuaEvent", error);
+    }
+    if (!data) return { events: [], adaKoordinat: 0 };
     const events = (data as unknown as Record<string, unknown>[]).map(
       barisEvent,
     );
@@ -326,8 +347,10 @@ export async function getRiwayatSkor(
         (e) => e.lintang !== null && e.bujur !== null,
       ).length,
     };
-  } catch {
-    return { events: [], adaKoordinat: 0 };
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getSemuaEvent", err)) return { events: [], adaKoordinat: 0 };
+    throw new GalatBaca("getSemuaEvent", err);
   }
 }
 
@@ -340,10 +363,16 @@ export async function getEvent(id: string): Promise<PfEvent | null> {
       .select(KOLOM_EVENT)
       .eq("id", id)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getEvent", error)) return null;
+      throw new GalatBaca("getEvent", error);
+    }
+    if (!data) return null;
     return barisEvent(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getEvent", err)) return null;
+    throw new GalatBaca("getEvent", err);
   }
 }
 
@@ -358,28 +387,16 @@ export async function getTimelineEvent(
       .select("id, event_id, waktu, peristiwa, sumber, perubahan")
       .eq("event_id", eventId)
       .order("waktu", { ascending: true });
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getTimelineEvent", error)) return [];
+      throw new GalatBaca("getTimelineEvent", error);
+    }
+    if (!data) return [];
     return data as PfTimelineEvent[];
-  } catch {
-    return [];
-  }
-}
-
-/** Semua entri kronologi, terbaru dulu (untuk /timeline). */
-export async function getSemuaTimeline(
-  limit = 50,
-): Promise<PfTimelineEvent[]> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_event_timeline")
-      .select("id, event_id, waktu, peristiwa, sumber, perubahan")
-      .order("waktu", { ascending: false })
-      .limit(limit);
-    if (error || !data) return [];
-    return data as PfTimelineEvent[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getTimelineEvent", err)) return [];
+    throw new GalatBaca("getTimelineEvent", err);
   }
 }
 
@@ -402,31 +419,49 @@ export async function getIndikator(
       .order("nama", { ascending: true });
     if (kategori) query = query.eq("kategori", kategori);
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getIndikator", error)) return [];
+      throw new GalatBaca("getIndikator", error);
+    }
+    if (!data) return [];
+
+    const daftar = data as unknown as Record<string, unknown>[];
+    // Nilai terakhir SEMUA indikator dalam SATU query (bukan
+    // N+1 per indikator) — terbaru per indikator di memori.
+    const nilaiTerakhir = new Map<
+      string,
+      { nilai: number | null; tanggal: string | null }
+    >();
+    try {
+      const { data: semuaPoin, error: errPoin } = await supabase
+        .from("pf_data_points")
+        .select("indikator_id, tanggal, nilai")
+        .in(
+          "indikator_id",
+          daftar.map((r) => String(r.id)),
+        )
+        .order("tanggal", { ascending: false })
+        .limit(1000);
+      if (errPoin) {
+        catatGalatBaca("getIndikator.nilai_terakhir", errPoin);
+      } else if (semuaPoin) {
+        for (const p of semuaPoin as unknown as Record<string, unknown>[]) {
+          const idInd = String(p.indikator_id ?? "");
+          if (!idInd || nilaiTerakhir.has(idInd)) continue;
+          nilaiTerakhir.set(idInd, {
+            nilai: keAngka(p.nilai),
+            tanggal: typeof p.tanggal === "string" ? p.tanggal : null,
+          });
+        }
+      }
+    } catch (err) {
+      // Poin gagal dibaca: indikator tetap tampil tanpa nilai.
+      catatGalatBaca("getIndikator.nilai_terakhir", err);
+    }
 
     const hasil: PfIndikator[] = [];
-    for (const r of data as unknown as Record<string, unknown>[]) {
-      let nilai_terakhir: number | null = null;
-      let tanggal_nilai_terakhir: string | null = null;
-      try {
-        const { data: poin, error: errPoin } = await supabase
-          .from("pf_data_points")
-          .select("tanggal, nilai")
-          .eq("indikator_id", String(r.id))
-          .order("tanggal", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (!errPoin && poin) {
-          nilai_terakhir = keAngka(
-            (poin as Record<string, unknown>).nilai,
-          );
-          tanggal_nilai_terakhir =
-            ((poin as Record<string, unknown>).tanggal as string | null) ??
-            null;
-        }
-      } catch {
-        // Poin gagal dibaca: indikator tetap tampil tanpa nilai.
-      }
+    for (const r of daftar) {
+      const poin = nilaiTerakhir.get(String(r.id));
       hasil.push({
         id: String(r.id),
         nama: String(r.nama ?? ""),
@@ -438,13 +473,15 @@ export async function getIndikator(
         metodologi: (r.metodologi as string | null) ?? null,
         tanggal_pembaruan: (r.tanggal_pembaruan as string | null) ?? null,
         ringkasan_tren: (r.ringkasan_tren as string | null) ?? null,
-        nilai_terakhir,
-        tanggal_nilai_terakhir,
+        nilai_terakhir: poin?.nilai ?? null,
+        tanggal_nilai_terakhir: poin?.tanggal ?? null,
       });
     }
     return hasil;
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getIndikator", err)) return [];
+    throw new GalatBaca("getIndikator", err);
   }
 }
 
@@ -461,14 +498,22 @@ export async function getPoinIndikator(
       .select("id")
       .eq("slug", slug)
       .maybeSingle();
-    if (errInd || !ind) return [];
+    if (errInd) {
+      if (catatGalatBaca("getPoinIndikator", errInd)) return [];
+      throw new GalatBaca("getPoinIndikator", errInd);
+    }
+    if (!ind) return [];
     const { data, error } = await supabase
       .from("pf_data_points")
       .select("tanggal, nilai")
       .eq("indikator_id", (ind as { id: string }).id)
       .order("tanggal", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getPoinIndikator", error)) return [];
+      throw new GalatBaca("getPoinIndikator", error);
+    }
+    if (!data) return [];
     const poin: PfPoinIndikator[] = [];
     for (const r of data as unknown as Record<string, unknown>[]) {
       const nilai = keAngka(r.nilai);
@@ -476,8 +521,10 @@ export async function getPoinIndikator(
       poin.push({ tanggal: r.tanggal, nilai });
     }
     return poin.reverse();
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getPoinIndikator", err)) return [];
+    throw new GalatBaca("getPoinIndikator", err);
   }
 }
 
@@ -532,12 +579,18 @@ export async function getArtikelPengetahuan(
       .limit(limit);
     if (topik) query = query.eq("topik", topik);
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelPengetahuan", error)) return [];
+      throw new GalatBaca("getArtikelPengetahuan", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(
       barisPengetahuan,
     );
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelPengetahuan", err)) return [];
+    throw new GalatBaca("getArtikelPengetahuan", err);
   }
 }
 
@@ -553,10 +606,16 @@ export async function getPengetahuanLengkap(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getPengetahuanLengkap", error)) return null;
+      throw new GalatBaca("getPengetahuanLengkap", error);
+    }
+    if (!data) return null;
     return barisPengetahuan(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getPengetahuanLengkap", err)) return null;
+    throw new GalatBaca("getPengetahuanLengkap", err);
   }
 }
 
@@ -573,10 +632,16 @@ export async function getPengetahuanHarian(
       .eq("status", "terbit")
       .eq("harian_tanggal", tanggal)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getPengetahuanHarian", error)) return null;
+      throw new GalatBaca("getPengetahuanHarian", error);
+    }
+    if (!data) return null;
     return barisPengetahuan(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getPengetahuanHarian", err)) return null;
+    throw new GalatBaca("getPengetahuanHarian", err);
   }
 }
 
@@ -584,48 +649,117 @@ export async function getPengetahuanHarian(
    Kuis harian
    ============================================================ */
 
+/** Galat penanda: layanan kuis belum tersedia (service key
+ *  belum diatur, atau tabel jawaban v13 belum dibuat). BUKAN
+ *  daftar kosong — pemanggil WAJIB menampilkan pesan jujur
+ *  "kuis belum tersedia", bukan empty state "belum ada soal"
+ *  (P2-14 / B-R11). */
+export class KuisBelumTersediaError extends Error {
+  constructor(pesan: string) {
+    super(pesan);
+    this.name = "KuisBelumTersediaError";
+  }
+}
+
 /** 5 pertanyaan kuis untuk tanggal YYYY-MM-DD yang diminta.
- *  T1-sisa (Fase 8 Gelombang 1): kolom `kunci` dibaca via service
- *  role bila key tersedia — migrasi v8 me-REVOKE SELECT (kunci)
- *  dari anon/authenticated, jadi session client tidak bisa lagi
- *  membaca kolom itu. Bila key belum diatur (mis. dev sebelum
- *  v8), mundur ke session client seperti sebelumnya; kunci tetap
- *  TIDAK PERNAH diteruskan ke klien (halaman /kuis memetakan ke
- *  PfKuisSoalPublik). */
+ *  P0-4 (B-T3, v13): kunci TIDAK LAGI di pf_quiz_questions —
+ *  dibaca dari pf_quiz_answers via service role (tabel tanpa
+ *  policy SELECT). Tanpa service key, fungsi ini MELEMPAR
+ *  KuisBelumTersediaError (bukan [] diam-diam). Tabel soal
+ *  belum ada (PGRST205) → [] + log (empty state OK, migrasi
+ *  belum dijalankan); galat lain → dicatat + dilempar.
+ *  Kunci tetap TIDAK PERNAH diteruskan ke klien (halaman /kuis
+ *  memetakan ke PfKuisSoalPublik). */
 export async function getKuisHarian(tanggal: string): Promise<PfKuisSoal[]> {
+  const service = cobaServiceClient();
+  if (!service) {
+    console.error(
+      "[baca] getKuisHarian: SUPABASE_SERVICE_ROLE_KEY belum diatur — kuis belum tersedia.",
+    );
+    throw new KuisBelumTersediaError(
+      "Layanan kuis belum tersedia (kunci layanan belum diatur).",
+    );
+  }
+  let data: unknown;
   try {
-    const supabase = cobaServiceClient() ?? (await createClient());
-    const { data, error } = await supabase
+    const { data: soal, error } = await service
       .from("pf_quiz_questions")
       .select(
-        "id, tanggal, pertanyaan, opsi, kunci, penjelasan, sumber_url, sumber_nama, artikel_id",
+        "id, tanggal, pertanyaan, opsi, penjelasan, sumber_url, sumber_nama, artikel_id",
       )
       .eq("tanggal", tanggal)
       .order("id", { ascending: true })
       .limit(5);
-    if (error || !data) return [];
-    const hasil: PfKuisSoal[] = [];
-    for (const r of data as unknown as Record<string, unknown>[]) {
-      const opsi = keOpsiKuis(r.opsi);
-      if (opsi.length === 0) continue;
-      const kunci = typeof r.kunci === "number" ? r.kunci : -1;
-      if (kunci < 0 || kunci >= opsi.length) continue;
-      hasil.push({
-        id: String(r.id),
-        tanggal: String(r.tanggal),
-        pertanyaan: String(r.pertanyaan ?? ""),
-        opsi,
-        kunci,
-        penjelasan: (r.penjelasan as string | null) ?? null,
-        sumber_url: (r.sumber_url as string | null) ?? null,
-        sumber_nama: (r.sumber_nama as string | null) ?? null,
-        artikel_id: (r.artikel_id as string | null) ?? null,
-      });
+    if (error) {
+      if (catatGalatBaca("getKuisHarian", error)) return [];
+      throw new GalatBaca("getKuisHarian", error);
     }
-    return hasil;
-  } catch {
-    return [];
+    data = soal ?? [];
+  } catch (err) {
+    if (err instanceof GalatBaca || err instanceof KuisBelumTersediaError) throw err;
+    if (catatGalatBaca("getKuisHarian", err)) return [];
+    throw new GalatBaca("getKuisHarian", err);
   }
+  const daftar = data as unknown as Record<string, unknown>[];
+  if (daftar.length === 0) return [];
+  // Kunci dari tabel jawaban (v13) — satu query untuk semua
+  // soal tanggal ini (bukan N+1 per soal).
+  let petaKunci: Map<string, number>;
+  try {
+    const { data: jawaban, error: errKunci } = await service
+      .from("pf_quiz_answers")
+      .select("soal_id, kunci")
+      .in(
+        "soal_id",
+        daftar.map((r) => String(r.id)),
+      );
+    if (errKunci) {
+      if (catatGalatBaca("getKuisHarian", errKunci)) {
+        throw new KuisBelumTersediaError(
+          "Layanan kuis belum tersedia (tabel jawaban belum dibuat — jalankan migrasi v13).",
+        );
+      }
+      throw new GalatBaca("getKuisHarian", errKunci);
+    }
+    petaKunci = new Map(
+      ((jawaban ?? []) as unknown as Record<string, unknown>[]).map((r) => [
+        String(r.soal_id),
+        typeof r.kunci === "number" ? r.kunci : -1,
+      ]),
+    );
+  } catch (err) {
+    if (err instanceof GalatBaca || err instanceof KuisBelumTersediaError) throw err;
+    if (catatGalatBaca("getKuisHarian", err)) {
+      throw new KuisBelumTersediaError(
+        "Layanan kuis belum tersedia (tabel jawaban belum dibuat — jalankan migrasi v13).",
+      );
+    }
+    throw new GalatBaca("getKuisHarian", err);
+  }
+  const hasil: PfKuisSoal[] = [];
+  for (const r of daftar) {
+    const opsi = keOpsiKuis(r.opsi);
+    if (opsi.length === 0) continue;
+    const kunci = petaKunci.get(String(r.id)) ?? -1;
+    if (kunci < 0 || kunci >= opsi.length) {
+      console.error(
+        `[baca] getKuisHarian: soal ${String(r.id)} tanpa kunci valid di pf_quiz_answers — dilewati.`,
+      );
+      continue;
+    }
+    hasil.push({
+      id: String(r.id),
+      tanggal: String(r.tanggal),
+      pertanyaan: String(r.pertanyaan ?? ""),
+      opsi,
+      kunci,
+      penjelasan: (r.penjelasan as string | null) ?? null,
+      sumber_url: (r.sumber_url as string | null) ?? null,
+      sumber_nama: (r.sumber_nama as string | null) ?? null,
+      artikel_id: (r.artikel_id as string | null) ?? null,
+    });
+  }
+  return hasil;
 }
 
 /* ============================================================
@@ -647,7 +781,11 @@ export async function getPertanyaanSaya(
       .eq("user_id", userId)
       .order("dibuat_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getPertanyaanSaya", error)) return [];
+      throw new GalatBaca("getPertanyaanSaya", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map((r) => ({
       id: String(r.id),
       user_id: (r.user_id as string | null) ?? null,
@@ -661,8 +799,10 @@ export async function getPertanyaanSaya(
       dibuat_pada: (r.dibuat_pada as string | null) ?? null,
       dijawab_pada: (r.dijawab_pada as string | null) ?? null,
     }));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getPertanyaanSaya", err)) return [];
+    throw new GalatBaca("getPertanyaanSaya", err);
   }
 }
 
@@ -678,10 +818,16 @@ export async function getJumlahPertanyaanMenunggu(): Promise<number> {
       .from("pf_questions")
       .select("id", { count: "exact", head: true })
       .in("status", ["menunggu", "tidak_ada_data"]);
-    if (error || count === null) return 0;
+    if (error) {
+      if (catatGalatBaca("getJumlahPertanyaanMenunggu", error)) return 0;
+      throw new GalatBaca("getJumlahPertanyaanMenunggu", error);
+    }
+    if (count === null) return 0;
     return count;
-  } catch {
-    return 0;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getJumlahPertanyaanMenunggu", err)) return 0;
+    throw new GalatBaca("getJumlahPertanyaanMenunggu", err);
   }
 }
 
@@ -700,10 +846,16 @@ export async function getTopikDiikuti(
       .select("id, user_id, tipe, target, dibuat_pada")
       .eq("user_id", userId)
       .order("dibuat_pada", { ascending: false });
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getTopikDiikuti", error)) return [];
+      throw new GalatBaca("getTopikDiikuti", error);
+    }
+    if (!data) return [];
     return data as PfTopikDiikuti[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getTopikDiikuti", err)) return [];
+    throw new GalatBaca("getTopikDiikuti", err);
   }
 }
 
@@ -726,10 +878,16 @@ export async function getRekomendasiUntukTopik(
       .in("kategori_slug", targetKategori)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getRekomendasiUntukTopik", error)) return [];
+      throw new GalatBaca("getRekomendasiUntukTopik", error);
+    }
+    if (!data) return [];
     return data as PfArtikelRingkas[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRekomendasiUntukTopik", err)) return [];
+    throw new GalatBaca("getRekomendasiUntukTopik", err);
   }
 }
 
@@ -750,10 +908,16 @@ export async function getNotifikasi(
       .limit(limit);
     if (hanyaBelumDibaca) query = query.eq("dibaca", false);
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getNotifikasi", error)) return [];
+      throw new GalatBaca("getNotifikasi", error);
+    }
+    if (!data) return [];
     return data as PfNotifikasi[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getNotifikasi", err)) return [];
+    throw new GalatBaca("getNotifikasi", err);
   }
 }
 
@@ -774,7 +938,11 @@ export async function getRiwayatBaca(
       .eq("pf_articles.status", "terbit")
       .order("dibaca_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getRiwayatBaca", error)) return [];
+      throw new GalatBaca("getRiwayatBaca", error);
+    }
+    if (!data) return [];
     const hasil: PfRiwayatBaca[] = [];
     for (const r of data as unknown as {
       id: string;
@@ -791,8 +959,10 @@ export async function getRiwayatBaca(
       });
     }
     return hasil;
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRiwayatBaca", err)) return [];
+    throw new GalatBaca("getRiwayatBaca", err);
   }
 }
 
@@ -905,6 +1075,12 @@ export async function getRingkasanSaya(
     let totalBaca = 0;
     let selesaiBaca = 0;
     if (baca.error || !baca.data) {
+      // Agregat dasbor: sub-tabel yang gagal dicatat + ditandai
+      // tersedia=false (angka dari tabel lain tetap nyata) —
+      // pengecualian terdokumentasi dari aturan "lempar" P2-14:
+      // melempar di sini mematikan SELURUH dasbor /saya karena
+      // satu tabel; sinyal jujurnya adalah flag tersedia.
+      if (baca.error) catatGalatBaca("getRingkasanSaya.baca", baca.error);
       tersedia = false;
     } else {
       totalBaca = typeof baca.count === "number" ? baca.count : baca.data.length;
@@ -919,6 +1095,7 @@ export async function getRingkasanSaya(
     let totalSoal = 0;
     let rataBenar: number | null = null;
     if (skor.error || !skor.data) {
+      if (skor.error) catatGalatBaca("getRingkasanSaya.skor", skor.error);
       tersedia = false;
     } else {
       const baris = skor.data as { tanggal: string; benar: number; total: number }[];
@@ -933,14 +1110,18 @@ export async function getRingkasanSaya(
     }
 
     const hitung = (
+      nama: string,
       res: { error: unknown; count: number | null },
     ): number | null => {
-      if (res.error) return null;
+      if (res.error) {
+        catatGalatBaca(`getRingkasanSaya.${nama}`, res.error);
+        return null;
+      }
       return typeof res.count === "number" ? res.count : 0;
     };
-    const jumlahBookmark = hitung(bookmark);
-    const jumlahTopik = hitung(topik);
-    const notifikasiBelumDibaca = hitung(notif);
+    const jumlahBookmark = hitung("bookmark", bookmark);
+    const jumlahTopik = hitung("topik", topik);
+    const notifikasiBelumDibaca = hitung("notifikasi", notif);
     if (
       jumlahBookmark === null ||
       jumlahTopik === null ||
@@ -962,7 +1143,8 @@ export async function getRingkasanSaya(
       notifikasiBelumDibaca: notifikasiBelumDibaca ?? 0,
       tersedia,
     };
-  } catch {
+  } catch (err) {
+    catatGalatBaca("getRingkasanSaya", err);
     return kosong;
   }
 }

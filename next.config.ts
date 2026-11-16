@@ -23,6 +23,17 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
+          // HSTS (Gelombang B1, P2-28/S-22): paksa HTTPS 2 tahun
+          // + semua subdomain + preload. Hanya bermakna lewat
+          // HTTPS (produksi Vercel); di dev diabaikan browser.
+          // `report-to` CSP TIDAK ditambah: belum ada endpoint
+          // pengumpul laporan — menambah direktif tanpa endpoint
+          // adalah konfigurasi palsu (follow-up: sediakan
+          // endpoint pengumpul dulu, baru pasang report-to).
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
         ],
       },
       {

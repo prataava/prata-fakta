@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import {
+  BATAS_DNS_MS,
   fetchAman,
   fetchTerpin,
   ipPrivat,
@@ -199,6 +200,30 @@ cek(
   const res = await fetchAman("https://example.com/", { signal: AbortSignal.timeout(15000) });
   cek("fetchAman live example.com → 200", res.status === 200, `${Date.now() - t0} ms`);
   await res.arrayBuffer();
+}
+{
+  // Batas DNS (integrasi B1): resolver yang menggantung TIDAK BOLEH
+  // menahan fetch selamanya — dulu tahap13b §E menggantung >10 menit
+  // di VM karena lookup example.com tak kembali sebelum signal
+  // dibuat. Resolver mock yang tak pernah selesai harus ditolak
+  // dalam BATAS_DNS_MS (+ toleransi), bukan gantung.
+  const t0 = Date.now();
+  let ditolak = false;
+  try {
+    await fetchTerpin("https://contoh.test/jalan", {}, {
+      penyelesaian: () => new Promise(() => {}),
+      izinkanPrivat: true,
+    });
+  } catch (err) {
+    ditolak = String(err?.message ?? "").includes("kehabisan waktu");
+  }
+  const durasi = Date.now() - t0;
+  cek("fetchTerpin: resolver menggantung → ditolak dalam batas DNS", ditolak && durasi < BATAS_DNS_MS + 3000, `${durasi} ms (batas ${BATAS_DNS_MS} ms)`);
+  // Re-resolusi dengan resolver menggantung → null (fail-open) dalam batas.
+  const t1 = Date.now();
+  const hasil = await periksaUlangResolusi("https://example.com/", ["93.184.215.14"], () => new Promise(() => {}));
+  const durasi2 = Date.now() - t1;
+  cek("periksaUlangResolusi: resolver menggantung → null dalam batas", hasil === null && durasi2 < BATAS_DNS_MS + 3000, `${durasi2} ms (batas ${BATAS_DNS_MS} ms)`);
 }
 
 // ---------- (F) fetchTerpin transport lokal ----------

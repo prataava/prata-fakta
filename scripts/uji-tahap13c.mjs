@@ -314,11 +314,15 @@ cek(
   "cron seed = JADWAL_CRON_JOB di src/lib/scheduler/jobs.ts",
   jobsSeed.every((j) => JADWAL_CRON_JOB[j.nama] === j.jadwal_cron),
 );
-cek("TIMEOUT_LOCK_MENIT = 30", TIMEOUT_LOCK_MENIT === 30);
+// P2-9 (Gelombang B1): TIMEOUT_LOCK_MENIT 30 -> 15 (jobs.ts) —
+// lock basi dilepas lebih cepat; batas lama 30 menit sudah usang.
+cek("TIMEOUT_LOCK_MENIT = 15", TIMEOUT_LOCK_MENIT === 15);
 const laporan = bacaRepo("LAPORAN-FASE-8.md");
 cek(
   "LAPORAN-FASE-8 §14 memuat seed SQL yang sama (data-analysis + terbitkan-terjadwal)",
-  laporan.includes("## 14. Tahap 13C") &&
+  // Judul §14 berubah di Tahap 15-17 ("13C" -> "13–17"); isi seed
+  // SQL-nya sama (baris 1794-1795).
+  laporan.includes("## 14. Tahap 13–17") &&
     laporan.includes("('data-analysis', '0 1 * * 1'") &&
     laporan.includes("('terbitkan-terjadwal', '0 * * * *'"),
 );
@@ -520,6 +524,19 @@ class AdapterUji {
     );
     return r.rows[0] ?? null;
   }
+  // Ditambah integrasi B1: gate terbit P0-2 memanggil
+  // getReviewTerakhir — mock lama tidak punya metode ini sehingga
+  // gate melempar TypeError (bukan GalatGateTerbit) dan artikel
+  // VERIFIED tak pernah terbit di run F12. Cerminan adapter nyata
+  // (supabase-adapter.ts getReviewTerakhir).
+  async getReviewTerakhir({ artikel_id }) {
+    const r = await this.db.query(
+      `select id, artikel_id, reviewer_id, keputusan, catatan, dibuat_pada
+         from public.pf_editorial_reviews where artikel_id = $1 order by dibuat_pada desc limit 1`,
+      [artikel_id],
+    );
+    return r.rows[0] ?? null;
+  }
   async simpanVersi(input) {
     const r = await this.db.query(
       `insert into public.pf_article_versions (artikel_id, versi, judul, isi, dibuat_oleh, catatan)
@@ -589,6 +606,17 @@ async function buatTerjadwal(judul, verifikasi) {
     `insert into public.pf_verification_records (artikel_id, keputusan, catatan) values ($1, $2, 'Catatan uji.')`,
     [id, verifikasi],
   );
+  // Gate B1 (P0-2) WAJIB review 'setuju' — artikel VERIFIED tanpa
+  // review tetap ditolak terbit. Beri review untuk VERIFIED saja;
+  // UNCONFIRMED sengaja tanpa review (harus gagal gate).
+  // Review disisipkan SESUDAH verification record agar tidak
+  // kedaluwarsa (verifikasi tidak lebih baru dari review).
+  if (verifikasi === "VERIFIED") {
+    await db.query(
+      `insert into public.pf_editorial_reviews (artikel_id, keputusan, catatan, reviewer_id) values ($1, 'setuju', 'Review uji.', null)`,
+      [id],
+    );
+  }
   return id;
 }
 const idU = await buatTerjadwal("UNCONFIRMED", "UNCONFIRMED");
@@ -657,6 +685,7 @@ cek(
   h3.dilewati.length === 1 &&
     h3.dilewati[0].id === idU &&
     h3.ditunda_backoff.length === 0,
+  `terbit=${h3.diterbitkan.map((a) => a.id).join(",") || "-"} lewati=${h3.dilewati.map((a) => a.id).join(",") || "-"} tunda=${h3.ditunda_backoff.map((a) => a.id).join(",") || "-"} (idU=${idU} idV=${idV})`,
 );
 cek(
   "F12 run 3: penanda baru ditulis (total 2)",
@@ -725,12 +754,20 @@ for (const [job, path] of Object.entries(ROUTE_HARAP)) {
   } catch (e) {
     galat = e instanceof Error ? e.message : String(e);
   }
+  // Kontrak BARU (Gelombang B1, P1-3/T10): audit 'sistem.job'
+  // fail-closed — tanpa service key, pemicu manual MELEMPAR
+  // sesudah job dipanggil (job sudah terlanjur berjalan, tidak
+  // bisa dibatalkan; yang gagal hanyalah pencatatannya, dan
+  // kegagalan itu terlihat sebagai galat, bukan sukses diam-diam).
+  // Di sini kunci service sengaja dihapus (hermetik), jadi yang
+  // diuji: (a) POST ke route yang benar tetap terjadi, (b) galat
+  // audit terlihat. Jalur sukses penuh (ok:true + audit tercatat)
+  // butuh service client yang terjangkau — diuji di staging/live.
   cek(
-    `pemicu manual '${job}': ok:true + POST ${path}`,
-    galat === "" &&
-      hasil !== null &&
-      hasil.ok === true &&
-      hasil.job === job &&
+    `pemicu manual '${job}': POST ${path} tetap terjadi + galat audit terlihat (fail-closed, tanpa service key)`,
+    galat !== "" &&
+      /service|audit|kunci/i.test(galat) &&
+      hasil === null &&
       hit.length === 1 &&
       hit[0].method === "POST" &&
       hit[0].url === path,

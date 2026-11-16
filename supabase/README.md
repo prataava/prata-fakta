@@ -861,3 +861,151 @@ Ekspektasi sesudah v12: **54 tabel** `pf_*` ber-RLS,
 `scripts/uji-tahap13-migrasi.mjs` 15/15 (v1–v12 2× idempoten
 TANPA blanket grant; nama bogus ditolak CHECK; RPC v11
 tetap berfungsi).
+
+## Migrasi v13 — Gelombang B1: Audit Ultimate backend & database (16 Nov 2026)
+
+Berkas: `20261116_pf_v13_ultimate.sql`. Jalankan SETELAH
+v1–v12 (idempoten — aman diulang). Sebagian besar ADITIF,
+kecuali §1 yang MENGHAPUS kolom `kunci` dari
+`pf_quiz_questions` (sesudah datanya dipindah — lihat
+rollback di bawah).
+
+Isi:
+
+- **§1 — P0-4 (B-T3): kunci kuis ke tabel terpisah.**
+  Tabel baru `pf_quiz_answers` (`soal_id` FK →
+  `pf_quiz_questions(id)` ON DELETE CASCADE, `kunci` int
+  CHECK 0..4, unique `soal_id`), RLS aktif, **0 policy**
+  (sengaja — bahkan service role tidak butuh policy),
+  REVOKE dari public/anon/authenticated, GRANT hanya ke
+  `service_role`. Data dimigrasi dari kolom lama
+  (`INSERT ... ON CONFLICT DO NOTHING`), lalu kolom `kunci`
+  DIHAPUS dari `pf_quiz_questions` — sesudah v13 TIDAK ADA
+  lagi kolom kunci di tabel soal, jadi kunci tidak bisa bocor
+  lewat GRANT/SELECT apa pun. GRANT pada
+  `pf_quiz_questions` sendiri tidak diubah v13 (grant
+  per-kolom v9 atas kolom yang tersisa tetap berlaku).
+  Kode yang membaca kunci (`getKuisHarian`, kedua route
+  `kuis/jawab` + `akademi/kuis/jawab`) sudah diubah ke tabel
+  baru via service role — **deploy kode itu WAJIB sebelum
+  atau bersamaan v13**, bila tidak kuis mati sampai deploy
+  selesai (sama seperti jendela v8).
+- **§2 — P1-4 (B-T4): RPC `pf_patch_kursus_atomik`**
+  (SECURITY DEFINER, `SET search_path = public`, GRANT
+  execute hanya `service_role`): PATCH kursus (field +
+  modul + pelajaran) dalam SATU transaksi, dua pass
+  (validasi seluruh entri dulu, baru tulis; galat di pass 2
+  me-RAISE → rollback total). Mendukung `kunci` (modul baru)
+  + `modul_kunci` (pelajaran baru merujuk modul baru dalam
+  PATCH yang sama). Slug bentrok di-raise ulang errcode
+  23505 + pesan `slug_bentrok` (route → 409).
+- **§3 — P1-15 (B-S10): policy arsip Q&A publik** pada
+  `pf_questions`: SELECT publik `publik = true AND status =
+  'terjawab'` (tanpa `user_id`/email di hasil — route arsip
+  hanya mengambil kolom aman, via session client).
+- **§4 — P2-16: `pf_research_reports.indikator_id`** uuid
+  FK → `pf_data_indicators(id)` nullable + backfill dari
+  slug yang cocok; fungsi laporan `pf_topik_yatim()`
+  (SECURITY DEFINER, hanya service_role) mengembalikan
+  `followed_topics` tipe `negara` yang targetnya tidak ada
+  di `pf_countries` (tidak menghapus apa pun).
+- **§5 — P2-30: tegaskan `SET search_path = public`** pada
+  `pf_has_role` / `pf_is_super_admin` (+ sudah ada sejak v7;
+  v13 hanya menegaskan + menguji `proconfig`).
+- **§6 — P2-31: policy `pf_profiles`** ditulis ulang:
+  `auth.uid() = id OR staf (super_admin/editor/fact_checker/
+  writer)` — anonim tidak lagi melihat satu baris pun
+  (termasuk kolom `nonaktif`).
+- **§7 — P2-32: policy `pf_system_settings`** ditulis ulang
+  tanpa `OR pf_has_role('admin')` (peran `admin` tidak ada).
+- **§8 — P3-8: RPC `pf_ai_status_agregat()`** (GROUP BY
+  agen, SECURITY DEFINER, grant execute ke authenticated +
+  service_role) untuk `/api/ai/status`.
+- **§9 — Integrasi B1 (follow-up agen gate + ingestion).**
+  Kolom `pf_sources.topik_gdelt` (P3-3, topik GDELT per
+  sumber — kode engine sudah membacanya bila ada) + unique
+  index `pf_evidence(klaim_id, sumber_url)` (P2-10, menutup
+  jendela race dedup evidence di kode; duplikat lama — bila
+  ada — dihapus dulu dengan mempertahankan baris tertua).
+- **§10 — P0-INTEGRASI (temuan integrasi 16 Nov 2026):
+  GRANT service_role atas SEMUA 55 tabel.** `GRANT SELECT,
+  INSERT, UPDATE, DELETE ... TO service_role` eksplisit per
+  tabel (satu pernyataan, 55 tabel disebut satu per satu).
+  Alasan: Supabase menghentikan grant otomatis untuk tabel
+  baru di `public` pada 30 Okt 2026 — tabel baru tidak
+  mendapat grant apa pun, termasuk service_role, sampai ada
+  GRANT eksplisit; tanpa §10, seluruh service client
+  (pipeline, admin, ingestion) gagal 42501 di produksi.
+  Audit: sebelum §10, satu-satunya grant tabel ke
+  service_role adalah `pf_quiz_answers` (§1). Grant ini
+  TIDAK membuka akses publik (anon/authenticated tetap
+  dibatasi v9/v10 + RLS). §10 berjalan sesudah §1, jadi
+  grant atas `pf_quiz_questions` tidak membuka kunci apa pun
+  (kolom kunci sudah dihapus §1).
+
+Ekspektasi sesudah v13: **55 tabel** `pf_*` ber-RLS,
+**107 policy** (+1 arsip Q&A; `pf_quiz_answers` = 0),
+fungsi baru: `pf_patch_kursus_atomik`,
+`pf_topik_yatim`, `pf_ai_status_agregat`. Validasi lokal:
+`scripts/uji-ultimate-backend.mjs` (PGlite, v1–v13 2×
+idempoten TANPA blanket grant; seed disisipkan sesudah
+v1–v12 dan sebelum v13 agar migrasi kunci + backfill
+teruji).
+
+Rollback v13 (bila v13 gagal total dan harus dibatalkan
+SEBELUM deploy kode baru — koordinasikan dengan pemilik):
+
+1. Kembalikan kolom `kunci` + datanya dari backup
+   (`scripts/backup-pf.mjs` — `pf_quiz_questions.json`
+   masih memuat kunci lama BILA backup diambil SEBELUM v13;
+   backup yang diambil sesudah v13 TIDAK punya kolom kunci):
+   ```sql
+   alter table public.pf_quiz_questions
+     add column kunci integer check (kunci between 0 and 4);
+   update public.pf_quiz_questions q
+     set kunci = a.kunci
+     from public.pf_quiz_answers a where a.soal_id = q.id;
+   ```
+2. Hapus tabel baru + fungsi baru + policy arsip:
+   ```sql
+   drop table if exists public.pf_quiz_answers;
+   drop function if exists public.pf_patch_kursus_atomik(uuid, jsonb, jsonb, jsonb);
+   drop function if exists public.pf_topik_yatim();
+   drop function if exists public.pf_ai_status_agregat();
+   drop policy if exists "arsip publik" on public.pf_questions;
+   ```
+3. Kembalikan policy lama `pf_profiles` /
+   `pf_system_settings` dari berkas v1/v10 (lihat definisi
+   asli di berkas migrasi tersebut) — ATAU pulihkan dari
+   backup SQL Editor bila ada.
+4. `pf_research_reports.indikator_id` boleh dibiarkan
+   (kolom nullable tanpa data wajib) atau di-drop:
+   `alter table public.pf_research_reports drop column if
+   exists indikator_id;`
+5. Perhatian: rollback §1 TIDAK mengembalikan kode — kode
+   yang sudah deploy membaca `pf_quiz_answers`; bila tabel
+   itu di-drop, kembalikan juga deploy kode lama (atau
+   jalankan ulang langkah 1–2 lalu deploy ulang kode lama).
+
+## Uji restore berkala (prosedur — BUKAN klaim sudah diuji)
+
+Restore BELUM PERNAH dijalankan terhadap database produksi;
+uji restore HANYA di staging. Prosedur yang harus dijalankan
+berkala (pemilik / agen yang ditunjuk):
+
+1. Buat proyek Supabase staging baru (gratis, kosong).
+2. Jalankan migrasi v1–v13 berurutan di staging (lihat
+   `supabase/CUTOVER.md` §3).
+3. Ambil artefak backup terbaru (workflow Backup Harian,
+   retensi 7 hari) atau jalankan `scripts/backup-pf.mjs`
+   terhadap produksi.
+4. Untuk tiap tabel: impor JSON lewat SQL Editor / skrip
+   (urutan FK: profil → kategori/sumber → artikel →
+   sisanya; bila FK menolak, impor dua pass — pass 1 tanpa
+   FK, pass 2 perbaiki referensi).
+5. Verifikasi: jumlah baris per tabel sama dengan
+   `manifest.json` (±0); smoke test baca publik (artikel
+   terbit terbaca, kunci kuis TIDAK terbaca anon).
+6. Catat hasil (tanggal, siapa, jumlah tabel cocok/tidak)
+   di `supabase/README.md` bagian ini — sampai ada catatan
+   itu, status uji restore tetap **BELUM DIUJI**.

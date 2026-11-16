@@ -3,9 +3,9 @@ import { buatSupabaseAiAdapter } from "@/lib/ai/supabase-adapter";
 import { jalankanBriefHarian } from "@/lib/ai/pipeline";
 import {
   autentikasiPemicuAi,
-  buatRateLimiter,
-  normalisasiDipicuOleh,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
@@ -15,25 +15,28 @@ import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 //  (a) header x-pf-ai-secret == PF_AI_SECRET (pemicu jadwal);
 //  (b) sesi login super_admin/editor.
 // Bila PF_AI_SECRET belum diatur DAN tidak ada sesi -> 503 jujur.
-// Body opsional: { tanggal?, dipicu_oleh? }. tanggal format
+// Body opsional: { tanggal? }. tanggal format
 // YYYY-MM-DD (bawaan: hari ini WIB). Entri brief diambil dari draf
 // artikel terbaru (maks 10) lalu dilengkapi dari antrean
 // UNCONFIRMED (berlabel jujur) bila kurang dari 10. Brief disimpan
 // sebagai 'draft' (upsert per tanggal) — penerbitan tetap butuh
 // persetujuan editorial (Fase 5).
 // Rate limiting: 10 req/menit/IP (pola /api/langganan).
-const lolosRateLimit = buatRateLimiter(10);
+const lolosRateLimit = buatRateLimiterKeras(10);
 
 const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
-  if (!(await lolosRateLimit(req))) return responRateLimit();
+  const hasilRateLimit = await lolosRateLimit(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;
 
   // --- Body opsional ---
-  let body: { tanggal?: unknown; dipicu_oleh?: unknown } = {};
+  let body: { tanggal?: unknown } = {};
   try {
     const teks = await req.text();
     if (teks.trim()) body = JSON.parse(teks) as typeof body;
@@ -53,7 +56,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const dipicuOleh = normalisasiDipicuOleh(body.dipicu_oleh, auth.dipicuOleh);
+  // P3-4 (N-R1): dipicu_oleh HANYA dari jalur autentikasi server.
+  const dipicuOleh = auth.dipicuOleh;
 
   // --- Adapter (butuh SUPABASE_SERVICE_ROLE_KEY) ---
   let adapter: ReturnType<typeof buatSupabaseAiAdapter>;

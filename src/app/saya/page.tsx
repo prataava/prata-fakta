@@ -3,6 +3,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import ProfilKeamanan from "@/components/saya/ProfilKeamanan";
+import FormPengaturan from "@/components/saya/FormPengaturan";
+import { formatTanggalJam } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { getBookmarkPengguna, getBriefTerbit } from "@/lib/data";
 import {
@@ -27,17 +30,7 @@ export const metadata: Metadata = {
 export const instant = false;
 
 function formatTanggal(waktu: string | null): string {
-  if (!waktu) return "—";
-  const d = new Date(waktu);
-  if (Number.isNaN(d.getTime())) return waktu;
-  return d.toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Jakarta",
-  });
+  return formatTanggalJam(waktu);
 }
 
 function formatPersen(nilai: number | null): string {
@@ -83,16 +76,39 @@ export default async function Saya() {
           ikuti. Semua angka di sini dihitung dari aktivitas Anda sendiri.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
-          <Link className="tombol" href="/saya/pengaturan">
+          <Link className="tombol" href="#profil-keamanan">
+            Profil &amp; keamanan
+          </Link>
+          <Link className="tombol" href="#pengaturan-privasi">
             Pengaturan &amp; privasi
           </Link>
           <Link className="tombol" href="/feed-saya">
             Feed Saya
           </Link>
-          <Link className="tombol" href="/profil">
-            Profil
-          </Link>
         </div>
+      </section>
+
+      {/* F-T2: /saya adalah satu-satunya permukaan akun — isi /profil
+          (info akun, reset kata sandi, keluar) dan /saya/pengaturan
+          digabung di sini. Rute lama redirect ke jangkar seksi ini. */}
+      <section className="seksi" aria-labelledby="seksi-profil" id="profil-keamanan">
+        <div className="seksi-kepala">
+          <h2 id="seksi-profil">Profil &amp; Keamanan</h2>
+          <p>Informasi akun, ubah kata sandi, dan keluar.</p>
+        </div>
+        <ProfilKeamanan />
+      </section>
+
+      <section className="seksi" aria-labelledby="seksi-pengaturan" id="pengaturan-privasi">
+        <div className="seksi-kepala">
+          <h2 id="seksi-pengaturan">Pengaturan &amp; Privasi</h2>
+          <p>
+            Preferensi notifikasi dan digest Anda, tersimpan di akun dan
+            berlaku di semua perangkat. Perubahan tersimpan otomatis saat
+            Anda mengubahnya.
+          </p>
+        </div>
+        <FormPengaturan />
       </section>
 
       {!ringkasan.tersedia && (

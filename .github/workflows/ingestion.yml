@@ -13,6 +13,10 @@
 # Concurrency (Tahap 13C, F3): satu run ingestion pada satu waktu
 # (cancel-in-progress false — run yang sedang jalan tidak dibatalkan,
 # run baru menunggu giliran Actions).
+# Lock server-side (Gelombang B1): TIMEOUT_LOCK_MENIT 15 menit —
+# lebih lama dari timeout workflow (10 menit) tapi lebih cepat dari
+# interval cron (30 menit), jadi lock basi tidak pernah memblokir
+# run berikutnya.
 # Retry (F8): curl --retry 2 --retry-delay 10 (gagal jaringan /
 # HTTP 408/429/5xx sementara dicoba ulang 2x).
 # Assert respons (F5): sukses palsu parsial ditolak — job gagal bila

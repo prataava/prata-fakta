@@ -9,11 +9,13 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { catatAuditWajib, responGalatAudit } from "@/lib/admin/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -188,32 +190,6 @@ export function validasiInputPengetahuan(
 const KOLOM_ADMIN =
   "id, slug, judul, ringkasan, isi, topik, referensi, status, harian_tanggal, penulis_nama, jenis, tingkat, estimasi_baca_menit, seri_slug, dibuat_pada, diperbarui_pada";
 
-/** Catat audit best-effort (kegagalan audit tidak menggagalkan
- *  tulis konten; dicatat ke console server). */
-async function catatAuditPengetahuan(
-  service: ReturnType<typeof createServiceClient>,
-  aktor: { id: string; email?: string | null },
-  aksi: "pengetahuan.buat" | "pengetahuan.ubah" | "pengetahuan.hapus",
-  entitasId: string | null,
-  sesudah: unknown,
-  ip: string | null,
-): Promise<void> {
-  try {
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktor.id,
-      aktor_email: aktor.email ?? null,
-      aksi,
-      entitas: "pengetahuan",
-      entitas_id: entitasId,
-      sebelum: {},
-      sesudah: (sesudah ?? {}) as Record<string, unknown>,
-      ip,
-    });
-  } catch (err) {
-    console.error("Audit pengetahuan gagal:", err);
-  }
-}
-
 export async function GET(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
   const auth = await autentikasiAdmin(req);
@@ -235,6 +211,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 
@@ -279,14 +258,48 @@ export async function POST(req: Request) {
       }
       throw error;
     }
-    await catatAuditPengetahuan(
-      service,
-      auth.user,
-      "pengetahuan.buat",
-      (data as { id: string }).id,
-      data,
-      ipDariRequest(req),
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): mutasi
+    // ditolak bila audit gagal dicatat. Compensating delete
+    // menghapus-balik baris yang baru dibuat agar tidak ada
+    // artikel tanpa jejak audit. Atomicity penuh (transaksi/RPC)
+    // adalah follow-up migrasi — compensating delete menutup
+    // celah selama delete-nya berhasil; bila delete gagal,
+    // kegagalan dicatat keras di log server (baris yatim tanpa
+    // audit masih mungkin — lihat laporan Gelombang B1).
+    const entitasId = (data as { id: string }).id;
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "pengetahuan.buat",
+        entitas: "pengetahuan",
+        entitas_id: entitasId,
+        sebelum: {},
+        sesudah: data,
+        ip: ipDariRequest(req),
+      });
+    } catch (errAudit) {
+      try {
+        await service
+          .from("pf_knowledge_articles")
+          .delete()
+          .eq("id", entitasId);
+      } catch (errHapus) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_delete_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/pengetahuan",
+            entitas_id: entitasId,
+            pesan:
+              errHapus instanceof Error
+                ? errHapus.message
+                : String(errHapus ?? ""),
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, artikel: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

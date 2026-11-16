@@ -49,9 +49,9 @@ async function HasilCari({ q }: { q: string }) {
         <div className="kosong" style={{ marginBottom: 24 }}>
           <h3>Pencarian artikel belum tersedia</h3>
           <p>
-            Tabel artikel (Fase 2) belum dibuat di database, jadi isi artikel
-            belum bisa dicari. Yang bisa dicari saat ini: kategori dan sumber
-            berita terdaftar.
+            Isi artikel belum bisa dicari saat ini karena arsip
+            artikel belum tersedia. Yang bisa dicari saat ini: kategori
+            dan sumber berita terdaftar.
           </p>
         </div>
       )}
@@ -120,7 +120,7 @@ export default async function Cari({
       <section className="hero" aria-labelledby="judul-cari">
         <span className="hero-label">Pencarian</span>
         <h1 id="judul-cari">Cari di PRATA FAKTA</h1>
-        <p>Cari kategori, sumber berita, dan (mulai Fase 2) isi artikel.</p>
+        <p>Cari kategori, sumber berita, dan isi artikel.</p>
         <div style={{ marginTop: 18 }}>
           <SearchBar nilaiAwal={q} />
         </div>

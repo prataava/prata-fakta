@@ -1,13 +1,13 @@
 // Lapisan akses data PRATA Podcast (Fase 8 Gelombang 2, Area 9).
-// Prinsip sama seperti src/lib/data.ts: gagal-aman (try/catch → []
-// / null), Bahasa Indonesia, tanpa data palsu. Bila tabel
-// pf_podcast_* belum dibuat (migrasi v10 masih menunggu
-// dijalankan) atau query gagal, fungsi mengembalikan array kosong
-// / null dan pemanggil menampilkan empty state jujur.
+// Prinsip (diperbarui Gelombang B1, P2-14): galat SELALU dicatat
+// dengan konteks fungsi (lib/galat.ts); "tabel belum ada" →
+// empty state jujur; galat lain → dilempar (bukan ditelan
+// menjadi [] diam-diam). Bahasa Indonesia, tanpa data palsu.
 // Episode 'terbit' saja yang dibaca publik (RLS); draf tidak
 // pernah bocor. Riwayat + playlist hanya milik pengguna sendiri
 // (RLS auth.uid() = user_id).
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 
 export type JenisEpisode = "brief" | "artikel" | "mingguan";
 
@@ -101,10 +101,16 @@ export async function getDaftarEpisode(
       .limit(limit);
     if (jenis) query = query.eq("jenis", jenis);
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getDaftarEpisode", error)) return [];
+      throw new GalatBaca("getDaftarEpisode", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(barisEpisode);
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDaftarEpisode", err)) return [];
+    throw new GalatBaca("getDaftarEpisode", err);
   }
 }
 
@@ -120,10 +126,16 @@ export async function getEpisode(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getEpisode", error)) return null;
+      throw new GalatBaca("getEpisode", error);
+    }
+    if (!data) return null;
     return barisEpisode(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getEpisode", err)) return null;
+    throw new GalatBaca("getEpisode", err);
   }
 }
 
@@ -140,7 +152,11 @@ export async function getRiwayat(
       .eq("user_id", userId)
       .order("diperbarui_pada", { ascending: false })
       .limit(200);
-    if (error || !data) return kosong;
+    if (error) {
+      if (catatGalatBaca("getRiwayat", error)) return kosong;
+      throw new GalatBaca("getRiwayat", error);
+    }
+    if (!data) return kosong;
     for (const r of data as unknown as Record<string, unknown>[]) {
       kosong.set(String(r.episode_id), {
         episode_id: String(r.episode_id),
@@ -152,8 +168,10 @@ export async function getRiwayat(
       });
     }
     return kosong;
-  } catch {
-    return kosong;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getRiwayat", err)) return kosong;
+    throw new GalatBaca("getRiwayat", err);
   }
 }
 
@@ -173,7 +191,11 @@ export async function getPlaylist(
       .eq("pf_podcast_episodes.status", "terbit")
       .order("urutan", { ascending: true })
       .order("dibuat_pada", { ascending: true });
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getPlaylist", error)) return [];
+      throw new GalatBaca("getPlaylist", error);
+    }
+    if (!data) return [];
     const hasil: PfPodcastPlaylistItem[] = [];
     for (const r of data as unknown as Record<string, unknown>[]) {
       const ep = r.pf_podcast_episodes as Record<string, unknown> | null;
@@ -187,7 +209,9 @@ export async function getPlaylist(
       });
     }
     return hasil;
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getPlaylist", err)) return [];
+    throw new GalatBaca("getPlaylist", err);
   }
 }

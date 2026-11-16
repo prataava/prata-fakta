@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 
 // POST /api/kuis/jawab — periksa satu jawaban kuis di server.
@@ -20,14 +21,15 @@ import {
 // Tahap 13A, T3; 5 soal + main ulang).
 // Boleh anonim (kuis bersifat publik). 503 jujur bila tabel belum
 // ada; 404 bila soal tidak ada atau bukan kuis hari ini/kemarin.
-// T1-sisa (Fase 8 Gelombang 1): kunci dibaca via service role —
-// migrasi v8 me-REVOKE SELECT (kunci) dari anon/authenticated,
-// jadi session client tidak bisa lagi membaca kolom kunci.
+// P0-4 (B-T3, v13): kunci PINDAH ke tabel pf_quiz_answers
+// (tanpa policy SELECT; hanya service role) — kolom kunci di
+// pf_quiz_questions SUDAH DIHAPUS. Route ini membaca soal TANPA
+// kunci, lalu kunci dari pf_quiz_answers via service role.
 // 503 jujur bila service key belum diatur.
 const POLA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const batasi = buatRateLimiter(20);
+const batasi = buatRateLimiterKeras(20);
 
 /** Validasi murni body permintaan (diekspos untuk uji). */
 export function validasiJawabanKuis(
@@ -69,7 +71,10 @@ function kemarinWib(tanggal: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   let body: unknown;
   try {
@@ -103,7 +108,7 @@ export async function POST(req: Request) {
   }
   const { data, error } = await service
     .from("pf_quiz_questions")
-    .select("id, tanggal, kunci, penjelasan, sumber_url, sumber_nama")
+    .select("id, tanggal, penjelasan, sumber_url, sumber_nama")
     .eq("id", valid.soalId)
     .maybeSingle();
   if (error) {
@@ -128,6 +133,35 @@ export async function POST(req: Request) {
       { status: 404 },
     );
   }
+  // Kunci dibaca dari pf_quiz_answers (v13, P0-4) — tabel tanpa
+  // policy SELECT; hanya service role yang bisa membacanya.
+  const { data: jawaban, error: errKunci } = await service
+    .from("pf_quiz_answers")
+    .select("kunci")
+    .eq("soal_id", valid.soalId)
+    .maybeSingle();
+  if (errKunci) {
+    const kode = (errKunci as { code?: string }).code;
+    if (kode === "PGRST205") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Layanan kuis belum aktif (tabel database belum dibuat).",
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { ok: false, error: "Gagal memeriksa jawaban. Coba lagi." },
+      { status: 500 },
+    );
+  }
+  if (!jawaban) {
+    return NextResponse.json(
+      { ok: false, error: "Soal tidak ditemukan." },
+      { status: 404 },
+    );
+  }
   // Hanya soal kuis hari ini/kemarin yang boleh dijawab — mencegah
   // enumerasi kunci kuis lama satu per satu.
   const hariIni = tanggalWibHariIni();
@@ -141,7 +175,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const kunci = Number((data as { kunci: unknown }).kunci);
+  const kunci = Number((jawaban as { kunci: unknown }).kunci);
   return NextResponse.json({
     ok: true,
     benar: valid.jawaban === kunci,

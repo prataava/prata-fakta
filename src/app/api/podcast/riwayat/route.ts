@@ -6,9 +6,22 @@
 // PemutarPodcast); posisi detik presisi hanya untuk <audio>.
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { tolakAkunNonaktif } from "@/lib/ai/route-auth";
+import {
+  buatRateLimiter,
+  cekOrigin,
+  responRateLimit,
+  tolakAkunNonaktif,
+} from "@/lib/ai/route-auth";
+
+// Gelombang B1 (P1-5/B-S1): riwayat dengar dibatasi 30/menit
+// (sebelumnya tanpa limiter sama sekali).
+const lolosRateLimit = buatRateLimiter(30);
 
 export async function POST(req: Request) {
+  if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const supabase = await createClient();
   const {
     data: { user },

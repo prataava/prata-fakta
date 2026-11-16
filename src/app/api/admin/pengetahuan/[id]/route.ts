@@ -14,6 +14,7 @@ import {
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { catatAuditWajib, responGalatAudit } from "@/lib/admin/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -168,30 +169,6 @@ function validasiPatch(
   return { ok: true, data };
 }
 
-async function catatAuditPengetahuan(
-  service: ReturnType<typeof createServiceClient>,
-  aktor: { id: string; email?: string | null },
-  aksi: "pengetahuan.ubah" | "pengetahuan.hapus",
-  entitasId: string | null,
-  sesudah: unknown,
-  ip: string | null,
-): Promise<void> {
-  try {
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktor.id,
-      aktor_email: aktor.email ?? null,
-      aksi,
-      entitas: "pengetahuan",
-      entitas_id: entitasId,
-      sebelum: {},
-      sesudah: (sesudah ?? {}) as Record<string, unknown>,
-      ip,
-    });
-  } catch (err) {
-    console.error("Audit pengetahuan gagal:", err);
-  }
-}
-
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -257,6 +234,20 @@ export async function PATCH(
   }
   try {
     const service = createServiceClient();
+    // Baris lama dibaca SEBELUM update — dipakai sebagai `sebelum`
+    // audit dan sebagai bahan compensating restore bila audit gagal.
+    const { data: lama, error: errLama } = await service
+      .from("pf_knowledge_articles")
+      .select(KOLOM_ADMIN)
+      .eq("id", id)
+      .maybeSingle();
+    if (errLama) throw errLama;
+    if (!lama) {
+      return NextResponse.json(
+        { ok: false, error: "Artikel tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     const { data, error } = await service
       .from("pf_knowledge_articles")
       .update(valid.data)
@@ -279,14 +270,58 @@ export async function PATCH(
         { status: 404 },
       );
     }
-    await catatAuditPengetahuan(
-      service,
-      auth.user,
-      "pengetahuan.ubah",
-      id,
-      data,
-      ipDariRequest(req),
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating restore nilai lama
+    // (lihat catatan yang sama di pengetahuan/route.ts POST).
+    // Atomicity penuh (transaksi/RPC) adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "pengetahuan.ubah",
+        entitas: "pengetahuan",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: data,
+        ip: ipDariRequest(req),
+      });
+    } catch (errAudit) {
+      const lamaObj = lama as unknown as Record<string, unknown>;
+      const pulih: Record<string, unknown> = {};
+      for (const k of [
+        "slug",
+        "judul",
+        "ringkasan",
+        "isi",
+        "topik",
+        "referensi",
+        "status",
+        "harian_tanggal",
+        "penulis_nama",
+        "jenis",
+        "tingkat",
+        "estimasi_baca_menit",
+        "seri_slug",
+      ]) {
+        pulih[k] = lamaObj[k] ?? null;
+      }
+      const { error: errPulih } = await service
+        .from("pf_knowledge_articles")
+        .update(pulih)
+        .eq("id", id);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_restore_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/pengetahuan/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, artikel: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -309,6 +344,20 @@ export async function DELETE(
   }
   try {
     const service = createServiceClient();
+    // Baris lama dibaca SEBELUM hapus — dipakai sebagai `sebelum`
+    // audit dan sebagai bahan compensating re-insert bila audit gagal.
+    const { data: lama, error: errLama } = await service
+      .from("pf_knowledge_articles")
+      .select(KOLOM_ADMIN)
+      .eq("id", id)
+      .maybeSingle();
+    if (errLama) throw errLama;
+    if (!lama) {
+      return NextResponse.json(
+        { ok: false, error: "Artikel tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     const { data, error } = await service
       .from("pf_knowledge_articles")
       .delete()
@@ -322,14 +371,38 @@ export async function DELETE(
         { status: 404 },
       );
     }
-    await catatAuditPengetahuan(
-      service,
-      auth.user,
-      "pengetahuan.hapus",
-      id,
-      data,
-      ipDariRequest(req),
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating re-insert baris lama
+    // (dengan id yang sama). Atomicity penuh (transaksi/RPC)
+    // adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "pengetahuan.hapus",
+        entitas: "pengetahuan",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: null,
+        ip: ipDariRequest(req),
+      });
+    } catch (errAudit) {
+      const { error: errPulih } = await service
+        .from("pf_knowledge_articles")
+        .insert(lama);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_reinsert_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/pengetahuan/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, artikel: data });
   } catch (err) {
     return responGalatAdmin(err);

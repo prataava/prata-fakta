@@ -572,8 +572,8 @@ cek("jawab akademi: kunci hanya dipakai membandingkan di server",
   jawabAkademiSrc.includes("valid.jawaban === kunci"));
 cek("jawab akademi: hanya soal tanggal pelajaran",
   jawabAkademiSrc.includes("tanggal !== kuisTanggal"));
-cek("jawab akademi: rate limit 20/mnt",
-  jawabAkademiSrc.includes("buatRateLimiter(20)"));
+cek("jawab akademi: rate limit 20/mnt (fail-closed, P0-7)",
+  jawabAkademiSrc.includes("buatRateLimiterKeras(20)"));
 cek("progres akademi: rate limit 20/mnt",
   progresSrc.includes("buatRateLimiter(20)"));
 cek("progres akademi: wajib login (401)",

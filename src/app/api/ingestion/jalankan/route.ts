@@ -9,11 +9,15 @@ import {
   type SumberIngestion,
 } from "@/lib/ingestion/engine";
 import { buatSupabaseAdapter } from "@/lib/ingestion/supabase-adapter";
-import { fetchGdelt } from "@/lib/ingestion/gdelt";
+import {
+  jalankanPemeliharaanAntrean,
+  UMUR_KEDALUWARSA_HARI,
+} from "@/lib/ingestion/pemeliharaan";
 import {
   bandingkanSecret,
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
 import { bacaFlag } from "@/lib/scheduler/flags";
@@ -29,19 +33,19 @@ import { bacaFlag } from "@/lib/scheduler/flags";
 //  jalankanIngestion(adapter, sumber, opsi) -> Promise<HasilIngestion>
 //  ({ perSumber: HasilPerSumber[], total }). Engine sendiri yang membuat
 //  baris pf_ingestion_runs, menangani error per sumber, dan mengambil
-//  GDELT untuk sumber jenis 'api' (topik "Indonesia", maks 25 artikel).
-//  Adapter dibuat lewat buatSupabaseAdapter() (baca env sendiri).
+//  GDELT untuk sumber jenis 'api' (topik per sumber / opsi / "Indonesia",
+//  maks 25 artikel). Adapter dibuat lewat buatSupabaseAdapter() (baca env sendiri).
 //
-// GDELT per topik: bila body.topik_gdelt diisi, route memanggil
-// fetchGdelt(topik, { maxRecords: 5 }) SATU kali sebagai pemeriksaan
-// topik; hasil ingestion GDELT yang sebenarnya dicatat engine sebagai
-// run sumber 'GDELT DOC API' (bila sumber itu terdaftar). Bila sumber
-// itu tidak ada, hasil pemeriksaan dilewati dengan catatan di respons.
+// GDELT per topik (Gelombang B1, P2-5 / N-S6): body.topik_gdelt TIDAK
+// lagi di-fetch di sini — topik diteruskan ke engine lewat
+// opsi.topikGdelt, jadi GDELT hanya dipanggil SEKALI oleh engine.
+// Sebelumnya route memanggil fetchGdelt lalu membuang hasilnya dan
+// engine memanggil ulang (2 panggilan GDELT per run).
 // Rate limiting: 10 req/menit (limiter database lintas instance,
 // Tahap 13A, T3 — menggantikan Map in-memory per instance).
-const batasi = buatRateLimiter(10);
+const batasi = buatRateLimiterKeras(10);
 
-type DipicuOleh = "manual" | "github_actions" | "cron_muse";
+type DipicuOleh = "manual" | "github_actions";
 
 const TOTAL_KOSONG = {
   ditemukan: 0,
@@ -52,7 +56,10 @@ const TOTAL_KOSONG = {
 };
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   // --- Autentikasi dua jalur ---
   const secretEnv = process.env.PF_INGESTION_SECRET;
@@ -134,7 +141,6 @@ export async function POST(req: Request) {
       : null;
   const dipicuOleh: DipicuOleh =
     body.dipicu_oleh === "github_actions" ||
-    body.dipicu_oleh === "cron_muse" ||
     body.dipicu_oleh === "manual"
       ? body.dipicu_oleh
       : dipicuOlehDefault;
@@ -174,13 +180,33 @@ export async function POST(req: Request) {
   }
 
   // --- Baca sumber aktif ---
-  let query = service
-    .from("pf_sources")
-    .select("id,nama,jenis,url,prioritas,aktif")
-    .eq("aktif", true)
-    .order("prioritas", { ascending: false });
-  if (sumberId) query = query.eq("id", sumberId);
-  const { data: sumberRows, error: errSumber } = await query;
+  // Topik GDELT per sumber (P3-3) dibaca dari kolom pf_sources.topik_gdelt
+  // (migrasi v13 — BELUM ADA saat Gelombang B1). Bila kolom belum ada,
+  // PostgREST menolak select → ulangi tanpa kolom itu (topik per sumber
+  // kosong, engine memakai opsi.topikGdelt / bawaan "Indonesia").
+  let sumberRows: Array<Record<string, unknown>> | null = null;
+  let errSumber: { message: string } | null = null;
+  {
+    const hasil = await service
+      .from("pf_sources")
+      .select("id,nama,jenis,url,prioritas,aktif,topik_gdelt")
+      .eq("aktif", true)
+      .order("prioritas", { ascending: false });
+    sumberRows = hasil.data as Array<Record<string, unknown>> | null;
+    errSumber = hasil.error as { message: string } | null;
+    if (errSumber && /topik_gdelt/i.test(errSumber.message ?? "")) {
+      const ulang = await service
+        .from("pf_sources")
+        .select("id,nama,jenis,url,prioritas,aktif")
+        .eq("aktif", true)
+        .order("prioritas", { ascending: false });
+      sumberRows = ulang.data as Array<Record<string, unknown>> | null;
+      errSumber = ulang.error as { message: string } | null;
+    }
+  }
+  if (sumberId) {
+    sumberRows = (sumberRows ?? []).filter((r) => r.id === sumberId);
+  }
   if (errSumber) {
     return NextResponse.json(
       {
@@ -190,88 +216,115 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const semuaSumber = (sumberRows ?? []) as SumberIngestion[];
+  const semuaSumber = (sumberRows ?? []) as unknown as SumberIngestion[];
   if (sumberId && semuaSumber.length === 0) {
     return NextResponse.json(
       { ok: false, error: "Sumber tidak ditemukan atau tidak aktif." },
       { status: 404 },
     );
   }
+  // Peta topik GDELT per sumber (P3-3) dari kolom DB bila ada.
+  const topikGdeltPerSumber: Record<string, string> = {};
+  for (const s of semuaSumber) {
+    if (typeof s.topik_gdelt === "string" && s.topik_gdelt.trim()) {
+      topikGdeltPerSumber[s.id] = s.topik_gdelt.trim().slice(0, 200);
+    }
+  }
 
-  // --- Lock server-side (Tahap 13C, F3): dua run bersamaan
-  // tidak memproses batch yang sama. Lock tak tersedia (baris/
-  // tabel job belum ada) -> jalan tanpa lock + dicatat di respons.
+  // --- Lock server-side (Tahap 13C, F3 + Gelombang B1, P2-9 / N-S9):
+  // dua run bersamaan tidak memproses batch yang sama. Lock TIDAK
+  // tersedia (tabel/baris job tidak bisa dibuat) -> TOLAK dengan 503
+  // jujur, JANGAN jalan diam-diam tanpa lock. Lock dipegang run lain
+  // -> 409. klaimJob membuat baris job otomatis bila belum ada.
   const klaim = await klaimJob(service, "ingestion");
-  if (klaim.tersedia && !klaim.diklaim) {
+  if (!klaim.diklaim) {
+    if (klaim.tersedia) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Job ingestion sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "Job ingestion sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+        error: `Lock ingestion tidak tersedia (${klaim.alasan ?? "tanpa keterangan"}). Ingestion ditolak agar tidak jalan tanpa lock.`,
       },
-      { status: 409 },
+      { status: 503 },
     );
   }
-  const infoLock = klaim.diklaim
-    ? "diklaim"
-    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+  const infoLock = "diklaim";
 
   let okRun = false;
   let galatRun: string | null = null;
+  let peringatanRun: string | null = null;
+  let pemeliharaan: {
+    basi: Array<{ sumber_nama: string; jam_sejak_item_terakhir: number | null; pernah_produktif: boolean }>;
+    kedaluarsa_ditandai: number;
+    umur_kedaluarsa_hari: number;
+  } | null = null;
   try {
-    // --- GDELT per topik (bila diminta): fetch SATU kali, maks 5 ---
-    let gdelt: {
-      topik: string;
-      ditemukan: number;
-      baru: number;
-      ms: number;
-      catatan?: string;
-    } | null = null;
-    if (topikGdelt) {
-      const mulaiGdelt = Date.now();
-      try {
-        const hasilGdelt = await fetchGdelt(topikGdelt, { maxRecords: 5 });
-        const adaSumberGdelt = semuaSumber.some(
-          (s) => s.nama === "GDELT DOC API",
-        );
-        gdelt = {
-          topik: topikGdelt,
-          ditemukan: hasilGdelt.items.length,
-          // 'baru' diisi sesudah engine berjalan (dari run sumber GDELT).
-          baru: 0,
-          ms: Date.now() - mulaiGdelt,
-          ...(!adaSumberGdelt
-            ? {
-                catatan:
-                  "Sumber 'GDELT DOC API' tidak terdaftar — hasil GDELT dilewati.",
-              }
-            : {}),
-        };
-      } catch (err) {
-        // Gagal ambil GDELT bukan kegagalan seluruh run.
-        gdelt = {
-          topik: topikGdelt,
-          ditemukan: 0,
-          baru: 0,
-          ms: Date.now() - mulaiGdelt,
-          catatan: `Gagal mengambil GDELT: ${err instanceof Error ? err.message : "tidak diketahui"}`,
-        };
-      }
-    }
-
     // --- Jalankan engine (error per sumber ditangani di dalam engine) ---
+    // Topik GDELT diteruskan ke engine (P2-5): route TIDAK memanggil
+    // fetchGdelt sendiri, jadi GDELT hanya dipanggil sekali per run.
     const adapter = buatSupabaseAdapter();
     const hasil: HasilIngestion = await jalankanIngestion(
       adapter,
       semuaSumber,
-      { dipicu_oleh: dipicuOleh },
+      {
+        dipicu_oleh: dipicuOleh,
+        topikGdelt: topikGdelt ?? undefined,
+        topikGdeltPerSumber,
+      },
     );
     const perSumber: HasilPerSumber[] = hasil.perSumber ?? [];
     const total = hasil.total ?? { ...TOTAL_KOSONG };
 
-    if (gdelt && !gdelt.catatan) {
+    // --- Pemeliharaan antrean (P1-6 + P2-8, best-effort) ---
+    // Periksa sumber basi + tandai item UNCONFIRMED kedaluwarsa.
+    // Gagal di sini tidak menggagalkan run ingestion.
+    try {
+      pemeliharaan = await jalankanPemeliharaanAntrean(
+        adapter,
+        semuaSumber.map((s) => ({ id: s.id, nama: s.nama })),
+      );
+      if (pemeliharaan.basi.length > 0) {
+        peringatanRun = `Sumber basi (>48 jam tanpa item baru): ${pemeliharaan.basi
+          .map((b) => b.sumber_nama)
+          .join(", ")}`;
+      }
+    } catch {
+      pemeliharaan = null;
+    }
+
+    // Ringkasan GDELT dari run engine (bukan pre-fetch): bila topik
+    // diminta tapi tidak ada sumber jenis 'api' aktif, catat itu.
+    let gdelt: {
+      topik: string;
+      ditemukan: number;
+      baru: number;
+      catatan?: string;
+    } | null = null;
+    if (topikGdelt) {
       const runGdelt = perSumber.find((h) => h.sumber_nama === "GDELT DOC API");
-      gdelt.baru = runGdelt ? runGdelt.baru : 0;
+      if (runGdelt) {
+        gdelt = {
+          topik: topikGdelt,
+          ditemukan: runGdelt.ditemukan,
+          baru: runGdelt.baru,
+        };
+      } else {
+        gdelt = {
+          topik: topikGdelt,
+          ditemukan: 0,
+          baru: 0,
+          catatan:
+            "Tidak ada sumber jenis 'api' aktif — topik GDELT diabaikan.",
+        };
+      }
     }
 
     okRun = true;
@@ -282,6 +335,13 @@ export async function POST(req: Request) {
       per_sumber: perSumber,
       total,
       ...(gdelt ? { gdelt } : {}),
+      sumber_basi: pemeliharaan?.basi ?? [],
+      kedaluarsa: pemeliharaan
+        ? {
+            ditandai: pemeliharaan.kedaluarsa_ditandai,
+            umur_hari: pemeliharaan.umur_kedaluarsa_hari,
+          }
+        : { ditandai: 0, umur_hari: UMUR_KEDALUWARSA_HARI },
     });
   } catch (err) {
     galatRun =
@@ -295,7 +355,11 @@ export async function POST(req: Request) {
     );
   } finally {
     // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
-    // setiap run cron (berhasil maupun gagal).
-    await selesaikanJob(service, "ingestion", okRun, galatRun);
+    // setiap run cron (berhasil maupun gagal). Peringatan basi
+    // (bila ada) dicatat ke error_terakhir sebagai "PERINGATAN: ..."
+    // tanpa mengubah status 'berhasil' (lihat selesaikanJob).
+    await selesaikanJob(service, "ingestion", okRun, galatRun, {
+      peringatan: peringatanRun,
+    });
   }
 }

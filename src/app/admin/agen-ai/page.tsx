@@ -5,7 +5,7 @@ import { formatWaktu } from "@/lib/admin/format";
 
 export const metadata: Metadata = {
   title: "AI Agent Logs — Admin",
-  description: "Log run agen AI PRATA FAKTA dari pf_ai_runs.",
+  description: "Log run pipeline AI PRATA FAKTA dari pf_ai_runs.",
 };
 
 export const instant = false;
@@ -65,7 +65,7 @@ export default async function AdminAgenAi() {
     return (
       <section className="seksi">
         <EmptyState
-          judul="Log agen AI belum tersedia"
+          judul="Log pipeline AI belum tersedia"
           pesan="Tabel pf_ai_runs tidak dapat dibaca — migrasi Fase 4 mungkin belum dijalankan di Supabase, atau akun Anda belum punya izin baca staf."
         />
       </section>
@@ -93,7 +93,7 @@ export default async function AdminAgenAi() {
         </div>
         {perAgen.length === 0 ? (
           <p className="artikel-meta-kecil">
-            Belum ada run agen AI tercatat — pipeline belum pernah berjalan.
+            Belum ada run pipeline AI tercatat — pipeline belum pernah berjalan.
           </p>
         ) : (
           <div className="tabel-gulir">
@@ -137,7 +137,7 @@ export default async function AdminAgenAi() {
           <h2 id="judul-run">Run Terbaru</h2>
         </div>
         {runs.length === 0 ? (
-          <p className="artikel-meta-kecil">Belum ada run agen AI.</p>
+          <p className="artikel-meta-kecil">Belum ada run pipeline AI.</p>
         ) : (
           <div className="tabel-gulir">
             <table className="tabel-data">

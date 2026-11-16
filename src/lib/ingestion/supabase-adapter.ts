@@ -132,6 +132,129 @@ export class SupabaseIngestionAdapter implements IngestionAdapter {
     if (error) throw new Error(`tutupRun gagal: ${error.message}`);
   }
 
+  async daftarJudulBaruSejak(sejak: Date, batas = 500): Promise<
+    Array<{
+      id: string;
+      judul: string;
+      sumber_id: string | null;
+      waktu_terbit_asli: string | null;
+      waktu_diambil: string;
+    }>
+  > {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("id, judul, sumber_id, waktu_terbit_asli, waktu_diambil")
+      .gte("waktu_diambil", sejak.toISOString())
+      .order("waktu_diambil", { ascending: true })
+      .limit(batas);
+    if (error) {
+      throw new Error(`daftarJudulBaruSejak gagal: ${error.message}`);
+    }
+    return (data ?? []).map((baris) => ({
+      id: baris.id as string,
+      judul: baris.judul as string,
+      sumber_id: (baris.sumber_id as string | null) ?? null,
+      waktu_terbit_asli: (baris.waktu_terbit_asli as string | null) ?? null,
+      waktu_diambil: baris.waktu_diambil as string,
+    }));
+  }
+
+  async jumlahItemBaruSejak(sumberId: string, sejak: Date): Promise<number> {
+    const { count, error } = await this.klien
+      .from("pf_raw_items")
+      .select("id", { count: "exact", head: true })
+      .eq("sumber_id", sumberId)
+      .gte("waktu_diambil", sejak.toISOString());
+    if (error) {
+      throw new Error(`jumlahItemBaruSejak gagal: ${error.message}`);
+    }
+    return count ?? 0;
+  }
+
+  async waktuItemTerbaru(sumberId: string): Promise<Date | null> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("waktu_diambil")
+      .eq("sumber_id", sumberId)
+      .order("waktu_diambil", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`waktuItemTerbaru gagal: ${error.message}`);
+    }
+    if (!data || typeof data.waktu_diambil !== "string") return null;
+    const tanggal = new Date(data.waktu_diambil as string);
+    return Number.isNaN(tanggal.getTime()) ? null : tanggal;
+  }
+
+  /**
+   * Tandai item UNCONFIRMED yang lebih tua dari batas sebagai
+   * kedaluwarsa (P2-8 / N-S11). Status 'ditolak' dipakai karena
+   * CHECK status pf_raw_items hanya mengizinkan
+   * baru/duplikat/ditolak/disalin_dari — tidak ada nilai 'kedaluwarsa'
+   * tanpa migrasi. Penanda aslinya ada di alasan (awalan
+   * "Kedaluarsa otomatis") + metadata.kedaluarsa_pada, sehingga
+   * item tetap dapat ditemukan dan dipulihkan admin bila perlu.
+   * Mengembalikan jumlah item yang ditandai (maks 200 per panggilan).
+   */
+  async tandaiItemKedaluarsa(batas: Date, alasan: string): Promise<number> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("id, metadata")
+      .eq("status_verifikasi", "UNCONFIRMED")
+      .in("status", ["baru", "disalin_dari", "duplikat"])
+      .lt("waktu_diambil", batas.toISOString())
+      .limit(200);
+    if (error) {
+      throw new Error(`tandaiItemKedaluarsa (baca) gagal: ${error.message}`);
+    }
+    const baris = (data ?? []) as Array<{
+      id: string;
+      metadata: Record<string, unknown> | null;
+    }>;
+    let ditandai = 0;
+    for (const b of baris) {
+      const { error: errUpdate } = await this.klien
+        .from("pf_raw_items")
+        .update({
+          status: "ditolak",
+          alasan,
+          metadata: {
+            ...(b.metadata ?? {}),
+            kedaluarsa_pada: new Date().toISOString(),
+          },
+        })
+        .eq("id", b.id);
+      if (!errUpdate) ditandai += 1;
+    }
+    return ditandai;
+  }
+
+  /**
+   * Tulis peringatan basi ke pf_sources.status_terakhir (P1-6).
+   * Segmen "BASI: ..." lama diganti (bukan ditumpuk) agar teks
+   * tidak tumbuh tanpa batas dari run ke run.
+   */
+  async tandaiSumberBasi(sumberId: string, pesan: string): Promise<void> {
+    const { data } = await this.klien
+      .from("pf_sources")
+      .select("status_terakhir")
+      .eq("id", sumberId)
+      .maybeSingle();
+    const lama =
+      data && typeof data.status_terakhir === "string"
+        ? (data.status_terakhir as string).replace(/ · BASI:[^·]*/g, "").trim()
+        : "";
+    const baru = lama ? `${lama} · ${pesan}` : pesan;
+    const { error } = await this.klien
+      .from("pf_sources")
+      .update({ status_terakhir: baru })
+      .eq("id", sumberId);
+    if (error) {
+      throw new Error(`tandaiSumberBasi gagal: ${error.message}`);
+    }
+  }
+
   async perbaruiSumber(
     id: string,
     patch: {

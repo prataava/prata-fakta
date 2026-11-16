@@ -19,6 +19,7 @@ import {
 } from "@/lib/admin/guard";
 import { createServiceClient } from "@/lib/supabase/service";
 import { catatAuditWajib } from "@/lib/admin/audit";
+import { ROLES } from "@/lib/auth/roles";
 import {
   normalisasiKode,
   validasiFaktaInput,
@@ -76,7 +77,9 @@ function responIdTakValid() {
 
 export async function PATCH(req: Request, { params }: Ctx) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
-  const auth = await autentikasiAdmin(req);
+  // P0-5 (B-T1): mutasi HANYA editor — lihat catatan di
+  // ../route.ts POST (data referensi publik, bukan draf).
+  const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   if (!POLA_UUID.test(id)) return responIdTakValid();
@@ -188,7 +191,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 export async function DELETE(req: Request, { params }: Ctx) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
-  const auth = await autentikasiAdmin(req);
+  // P0-5 (B-T1): hapus HANYA editor — lihat catatan di
+  // ../route.ts POST (data referensi publik, bukan draf).
+  const auth = await autentikasiAdmin(req, ROLES.EDITOR);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   if (!POLA_UUID.test(id)) return responIdTakValid();

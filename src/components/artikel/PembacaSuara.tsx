@@ -181,6 +181,8 @@ export default function PembacaSuara({
   // tidak berkedip antara "didukung" dan "tidak didukung" saat SSR.
   if (didukung === null) return null;
 
+  // TTS tidak didukung (F-R2): tombol "Putar" DISEMBUNYIKAN —
+  // hanya pesan yang tampil, bukan tombol nonaktif.
   if (!didukung) {
     return (
       <div className={gaya["pembaca-suara"]} aria-label="Pembaca suara">
@@ -188,9 +190,6 @@ export default function PembacaSuara({
         <p className={gaya["pembaca-suara-pesan"]} role="status">
           Browser Anda tidak mendukung text-to-speech.
         </p>
-        <button type="button" className="tombol" disabled>
-          Putar
-        </button>
       </div>
     );
   }

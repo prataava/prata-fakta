@@ -5,8 +5,13 @@
 // Hanya memakai fetch global — tanpa library tambahan.
 
 import type { ItemMentah } from "./rss.ts";
+import { bacaTeksTerbatas } from "./rss.ts";
 import { fetchAman, tolakHostPrivat } from "./ssrf.ts";
 import { tolakHostFeedAman } from "./feed-allowlist.ts";
+import {
+  buatGalatHttp,
+  GalatSementara,
+} from "./retry.ts";
 
 export interface OpsiFetchGdelt {
   maxRecords?: number;
@@ -87,20 +92,28 @@ export async function fetchGdelt(
       },
     );
   } catch (err) {
+    if (err instanceof GalatSementara) throw err;
     const pesan = err instanceof Error ? err.message : String(err);
-    throw new Error(
+    if (pesan.startsWith("URL ditolak:")) {
+      throw err instanceof Error ? err : new Error(pesan);
+    }
+    throw new GalatSementara(
       `Gagal mengambil GDELT untuk topik "${topik}" (${Date.now() - mulai} ms): ${pesan}`,
     );
   }
   if (!respons.ok) {
-    throw new Error(
+    throw buatGalatHttp(
+      respons.status,
+      respons,
       `GDELT menolak topik "${topik}": HTTP ${respons.status} (${Date.now() - mulai} ms)`,
     );
   }
 
   let data: unknown;
   try {
-    data = await respons.json();
+    // Body dibatasi seperti feed RSS (5 MB) agar respons JSON
+    // raksasa tidak menghabiskan memori.
+    data = JSON.parse(await bacaTeksTerbatas(respons));
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);
     throw new Error(
@@ -124,13 +137,20 @@ export async function fetchGdelt(
       if (!urlArtikel && !judul) continue;
       const seendate =
         typeof a.seendate === "string" ? a.seendate : "";
+      const waktuDilihat = seendate ? parseSeendate(seendate) : null;
       items.push({
         url: urlArtikel,
         judul,
         ringkasan: "",
         isiRingkas: "",
         penulis: null,
-        waktuTerbit: seendate ? parseSeendate(seendate) : null,
+        // P1-8 / N-T6: seendate adalah kapan GDELT *melihat* artikel,
+        // BUKAN kapan artikel diterbitkan. Mengisinya ke waktuTerbit
+        // membuat item GDELT tampak "baru" padahal tanggal terbitnya
+        // tidak diketahui — jadi waktuTerbit SELALU null di sini.
+        // Tanggal lihat disimpan ke metadata sebagai waktu_dilihat_gdelt
+        // (seendate mentah dipertahankan untuk ketertelusuran).
+        waktuTerbit: null,
         guid: null,
         gambarUrl:
           typeof a.socialimage === "string" && a.socialimage
@@ -144,6 +164,9 @@ export async function fetchGdelt(
           negara_sumber:
             typeof a.sourcecountry === "string" ? a.sourcecountry : null,
           seendate: seendate || null,
+          waktu_dilihat_gdelt: waktuDilihat
+            ? waktuDilihat.toISOString()
+            : null,
         },
       });
     } catch {

@@ -587,8 +587,10 @@ cek(
 );
 cek(
   "GDELT: topik jadi parameter (default tetap Indonesia)",
-  bacaRepo("src/lib/ingestion/engine.ts").includes("topikGdelt") &&
-    bacaRepo("src/lib/ingestion/engine.ts").includes('opsi.topikGdelt ?? "Indonesia"'),
+  bacaRepo("src/lib/ingestion/engine.ts").includes("sumber.topik_gdelt") &&
+    bacaRepo("src/lib/ingestion/engine.ts").includes("opsi.topikGdeltPerSumber?.[sumber.id]") &&
+    bacaRepo("src/lib/ingestion/engine.ts").includes("opsi.topikGdelt") &&
+    bacaRepo("src/lib/ingestion/engine.ts").includes('"Indonesia"'),
 );
 cek(
   "GDELT: tidak ada lagi fetchGdelt(\"Indonesia\" hardcoded di engine",

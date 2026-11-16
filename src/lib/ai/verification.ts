@@ -99,10 +99,12 @@ function dalam24Jam(
   item: ItemSerupaVerifikasi,
   sekarang: Date,
 ): boolean {
-  // Tanpa tanggal terbit, item dianggap baru (baru saja diambil).
-  if (!item.waktu_terbit_asli) return true;
+  // P1-1 (N-T2, AUDIT-ULTIMATE §7.1): tanpa tanggal terbit, umur
+  // item TIDAK DIKETAHUI — jangan hitung sebagai "baru". Item
+  // tanpa tanggal tidak boleh membuat topik terlihat ramai.
+  if (!item.waktu_terbit_asli) return false;
   const terbit = new Date(item.waktu_terbit_asli).getTime();
-  if (Number.isNaN(terbit)) return true;
+  if (Number.isNaN(terbit)) return false;
   return sekarang.getTime() - terbit <= SATU_HARI_MS;
 }
 

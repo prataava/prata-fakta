@@ -1,18 +1,20 @@
 // Guard autentikasi + rate limit untuk route /api/admin/* (Fase 5).
 // Mengikuti pola src/lib/ai/route-auth.ts: rate limiter dan helper IP
 // diimpor ulang dari sana agar perilakunya identik.
+import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES, type Role } from "@/lib/auth/roles";
 import {
   buatRateLimiter,
+  cekOrigin,
   ipDariRequest,
   responRateLimit,
 } from "@/lib/ai/route-auth";
 import { adalahGalatBelumSiap } from "./types.ts";
 import type { User } from "@supabase/supabase-js";
 
-export { buatRateLimiter, ipDariRequest, responRateLimit };
+export { buatRateLimiter, cekOrigin, ipDariRequest, responRateLimit };
 
 export interface AdminTerautentikasi {
   user: User;
@@ -81,11 +83,6 @@ export async function autentikasiAdmin(
   return { user, roles };
 }
 
-/** IP pemanggil dari x-forwarded-for (dipakai untuk audit). */
-export function ambilIp(req: Request): string {
-  return ipDariRequest(req);
-}
-
 /** Rate limiter bersama route admin: 30 req/menit (lintas instance,
  * Tahap 13A, T3 — lihat src/lib/ai/route-auth.ts). Mengembalikan
  * fungsi ASINKRON atas Request; pemanggil WAJIB await:
@@ -98,7 +95,12 @@ export function buatRateLimiterAdmin(): (
 
 /**
  * Terjemahkan galat dari lapisan admin menjadi respons JSON:
- * galat "layanan belum siap" -> 503 jujur; galat lain -> 500.
+ * galat "layanan belum siap" -> 503 jujur; galat lain -> 500
+ * dengan pesan GENERIK + kode galat buram (Gelombang B1, P2-13/
+ * B-S8): pesan galat mentah (termasuk teks galat Postgres — nama
+ * tabel/kolom/constraint) TIDAK BOLEH sampai ke klien. Pesan
+ * lengkap hanya di log server (JSON terstruktur, beserta kode)
+ * agar operator bisa melacak tanpa membocorkan skema.
  */
 export function responGalatAdmin(err: unknown): NextResponse {
   if (adalahGalatBelumSiap(err)) {
@@ -111,11 +113,20 @@ export function responGalatAdmin(err: unknown): NextResponse {
       { status: 503 },
     );
   }
+  const kode = `ERR-${randomBytes(4).toString("hex").toUpperCase()}`;
+  console.error(
+    JSON.stringify({
+      event: "galat_admin",
+      waktu: new Date().toISOString(),
+      kode,
+      pesan: err instanceof Error ? err.message : String(err ?? ""),
+      stack: err instanceof Error ? (err.stack ?? null) : null,
+    }),
+  );
   return NextResponse.json(
     {
       ok: false,
-      error:
-        err instanceof Error ? err.message : "Terjadi kesalahan. Coba lagi.",
+      error: `Terjadi kesalahan di server. Kode galat: ${kode}.`,
     },
     { status: 500 },
   );

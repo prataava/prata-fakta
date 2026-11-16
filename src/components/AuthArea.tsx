@@ -47,7 +47,7 @@ export default function AuthArea() {
 
   return (
     <>
-      <Link className="tombol tombol-hantu" href="/profil" title={email}>
+      <Link className="tombol tombol-hantu" href="/saya" title={email}>
         {email.length > 18 ? `${email.slice(0, 16)}…` : email}
       </Link>
       <button className="tombol tombol-hantu" type="button" onClick={keluar}>

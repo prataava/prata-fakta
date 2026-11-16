@@ -449,8 +449,9 @@ cek(
   tanyaSrc.includes("kategori,") && tanyaSrc.includes("publik: false"),
 );
 cek(
-  "arsip memakai service role (RLS pemilik+staf memblokir anon)",
-  bacaRepo("src/app/api/tanya/arsip/route.ts").includes("createServiceClient"),
+  "arsip memakai RLS policy publik (bukan service role) — v13 §3/P1-15: filter publik+terjawab ditegakkan policy di database",
+  bacaRepo("src/app/api/tanya/arsip/route.ts").includes("createClient") &&
+    !bacaRepo("src/app/api/tanya/arsip/route.ts").includes("createServiceClient"),
 );
 cek(
   "arsip memfilter publik + terjawab",
@@ -458,9 +459,10 @@ cek(
     bacaRepo("src/app/api/tanya/arsip/route.ts").includes('.eq("status", "terjawab")'),
 );
 cek(
-  "membantu: satu vote per IP per pertanyaan per hari",
-  bacaRepo("src/app/api/tanya/[id]/membantu/route.ts").includes("SUDAH_VOTE") &&
-    bacaRepo("src/app/api/tanya/[id]/membantu/route.ts").includes("tanggalWibHariIni"),
+  "membantu: satu vote per IP per pertanyaan per hari (dedup RPC, bukan Map in-memory — P1-5)",
+  bacaRepo("src/app/api/tanya/[id]/membantu/route.ts").includes("vote-membantu:") &&
+    bacaRepo("src/app/api/tanya/[id]/membantu/route.ts").includes("cekRateLimitDbKeras") &&
+    !bacaRepo("src/app/api/tanya/[id]/membantu/route.ts").includes("SUDAH_VOTE"),
 );
 cek(
   "admin tanya: PATCH jawab wajib referensi",

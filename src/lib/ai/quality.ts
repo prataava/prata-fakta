@@ -12,11 +12,21 @@ export interface MasukanKualitas {
   sumber_url: string;
   jumlahKlaimTerverifikasi: number;
   jumlahEvidence: number;
+  // P2-2 (N-S2): evidence dari sumber INDEPENDEN (bukan sumber
+  // item sendiri). Bila diisi dan keputusan VERIFIED/CROSS-CHECKED,
+  // wajib >= 1 — self-evidence saja tidak cukup.
+  jumlahEvidenceIndependen?: number;
+  keputusan?: "VERIFIED" | "CROSS-CHECKED" | "DEVELOPING" | "UNCONFIRMED";
 }
 
 export interface HasilKualitas {
   lolos: boolean;
   kegagalan: string[];
+  // P2-2: sama dengan `lolos` — disimpan pipeline ke pf_ai_runs
+  // (detail run editorial_quality) dan ke bukti verification
+  // record artikel, agar penjadwalan bisa menegakkannya.
+  // (Kolom siap_review di pf_articles adalah follow-up migrasi v13.)
+  siap_review: boolean;
 }
 
 // Penanda draf belum selesai / placeholder — tidak boleh ada di isi.
@@ -46,6 +56,17 @@ export function periksaKualitasDraf(d: MasukanKualitas): HasilKualitas {
   if (d.jumlahEvidence < 1) {
     kegagalan.push("Tidak ada evidence (bukti sumber) yang tercatat.");
   }
+  // P2-2 (N-S2): self-evidence tidak dihitung — VERIFIED /
+  // CROSS-CHECKED butuh minimal 1 evidence dari sumber independen.
+  if (
+    (d.keputusan === "VERIFIED" || d.keputusan === "CROSS-CHECKED") &&
+    typeof d.jumlahEvidenceIndependen === "number" &&
+    d.jumlahEvidenceIndependen < 1
+  ) {
+    kegagalan.push(
+      "Tidak ada evidence dari sumber independen (butuh >= 1 untuk VERIFIED/CROSS-CHECKED; evidence dari sumber item sendiri tidak dihitung).",
+    );
+  }
   if (!urlValid(d.sumber_url)) {
     kegagalan.push("sumber_url bukan URL http(s) yang valid.");
   }
@@ -59,5 +80,9 @@ export function periksaKualitasDraf(d: MasukanKualitas): HasilKualitas {
     kegagalan.push(`Isi kurang dari 300 karakter (saat ini ${d.isi ? d.isi.length : 0}).`);
   }
 
-  return { lolos: kegagalan.length === 0, kegagalan };
+  return {
+    lolos: kegagalan.length === 0,
+    kegagalan,
+    siap_review: kegagalan.length === 0,
+  };
 }

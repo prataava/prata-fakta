@@ -9,7 +9,7 @@ import {
 } from "@/lib/rutin";
 
 export const metadata: Metadata = {
-  title: "World Explained",
+  title: "Dunia Dijelaskan",
   description:
     "Pengetahuan tentang negara dan geografi, ditambah artikel terbaru kategori Dunia di PRATA FAKTA.",
 };
@@ -33,7 +33,7 @@ export default async function RutinDunia() {
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-dunia">
         <span className="hero-label">Konten rutin · Dunia</span>
-        <h1 id="judul-dunia">World Explained</h1>
+        <h1 id="judul-dunia">Dunia Dijelaskan</h1>
         <p>
           Pengetahuan tentang negara dan geografi, ditambah artikel
           terbaru kategori Dunia — semuanya dari data yang benar-benar

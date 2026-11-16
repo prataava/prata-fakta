@@ -54,19 +54,32 @@ export class SupabaseAiAdapter implements AiAdapter {
     });
   }
 
-  async ambilAntrean(limit: number): Promise<RawItemAntrean[]> {
-    const { data, error } = await this.klien
+  async ambilAntrean(
+    limit: number,
+    mode: "terbaru" | "terlama" = "terbaru",
+  ): Promise<RawItemAntrean[]> {
+    const kueri = this.klien
       .from("pf_raw_items")
       .select(
         "id, sumber_id, url, judul, ringkasan, isi_ringkas, penulis, " +
           "waktu_terbit_asli, waktu_diambil, status, disalin_dari_id, " +
           "metadata, pf_sources(nama, prioritas)",
       )
-      .eq("status_verifikasi", "UNCONFIRMED")
-      .order("prioritas", { foreignTable: "pf_sources", ascending: false })
-      .order("waktu_terbit_asli", { ascending: false })
-      .order("waktu_diambil", { ascending: false })
-      .limit(limit);
+      .eq("status_verifikasi", "UNCONFIRMED");
+    if (mode === "terlama") {
+      // P2-8 (integrasi B1): mode kejar — item TERTUA dulu
+      // (waktu_diambil ASC), tanpa memandang prioritas/tanggal
+      // terbit, agar antrean lama terkuras sebelum kedaluwarsa.
+      kueri.order("waktu_diambil", { ascending: true });
+    } else {
+      kueri
+        .order("prioritas", { foreignTable: "pf_sources", ascending: false })
+        // P1-1 (N-T2): item tanpa tanggal terbit PALING BELAKANG
+        // (NULLS LAST) — tanggal tidak diketahui bukan berarti baru.
+        .order("waktu_terbit_asli", { ascending: false, nullsFirst: false })
+        .order("waktu_diambil", { ascending: false });
+    }
+    const { data, error } = await kueri.limit(limit);
     if (error) throw new Error(`ambilAntrean gagal: ${error.message}`);
     // Select memakai embed pf_sources: tipe bawaan supabase-js tidak
     // bisa mengurai string select ini, jadi baca lewat unknown.
@@ -98,6 +111,22 @@ export class SupabaseAiAdapter implements AiAdapter {
           (baris.metadata as Record<string, unknown> | null) ?? null,
       };
     });
+  }
+
+  // P2-8 (integrasi B1): waktu diambil item UNCONFIRMED tertua
+  // (ISO) atau null bila antrean kosong — dipakai pipeline
+  // memutuskan mode kejar ("terlama") sebelum mengambil antrean.
+  async ambilWaktuAntreanTertua(): Promise<string | null> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("waktu_diambil")
+      .eq("status_verifikasi", "UNCONFIRMED")
+      .order("waktu_diambil", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error)
+      throw new Error(`ambilWaktuAntreanTertua gagal: ${error.message}`);
+    return (data as { waktu_diambil?: string } | null)?.waktu_diambil ?? null;
   }
 
   async ambilSumber(id: string): Promise<SumberRingkas | null> {
@@ -253,7 +282,23 @@ export class SupabaseAiAdapter implements AiAdapter {
     return data ? (data.id as string) : null;
   }
 
+  // P2-10 (N-S12): dedup evidence per (klaim_id, sumber_url) di
+  // kode SEBELUM insert — run ulang atas item yang sama tidak
+  // boleh menumpuk baris evidence duplikat. Bila pasangan sudah
+  // ada, insert dilewati diam-diam (idempotent).
+  // (Unique index DB per (klaim_id, sumber_url) adalah follow-up
+  // migrasi v13 — cek-lalu-sisip di sini tetap punya celah race
+  // bila dua run bersamaan; indeks itulah penutupnya.)
   async simpanBukti(b: SimpanBuktiInput): Promise<void> {
+    const { data: sudahAda, error: errCek } = await this.klien
+      .from("pf_evidence")
+      .select("id")
+      .eq("klaim_id", b.klaim_id)
+      .eq("sumber_url", b.sumber_url)
+      .limit(1)
+      .maybeSingle();
+    if (errCek) throw new Error(`simpanBukti gagal: ${errCek.message}`);
+    if (sudahAda) return;
     const { error } = await this.klien.from("pf_evidence").insert({
       klaim_id: b.klaim_id,
       sumber_url: b.sumber_url,
@@ -262,6 +307,24 @@ export class SupabaseAiAdapter implements AiAdapter {
       arah: b.arah,
     });
     if (error) throw new Error(`simpanBukti gagal: ${error.message}`);
+  }
+
+  /** True bila evidence untuk pasangan (klaim_id, sumber_url)
+   *  sudah ada — dipakai pipeline untuk menghitung evidence baru
+   *  secara jujur (simpanBukti bertipe void di interface). */
+  async cariBuktiSama(
+    klaim_id: string,
+    sumber_url: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.klien
+      .from("pf_evidence")
+      .select("id")
+      .eq("klaim_id", klaim_id)
+      .eq("sumber_url", sumber_url)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`cariBuktiSama gagal: ${error.message}`);
+    return !!data;
   }
 
   async simpanVerification(r: SimpanVerificationInput): Promise<string> {
@@ -404,19 +467,201 @@ export class SupabaseAiAdapter implements AiAdapter {
   async ambilDrafArtikel(limit: number): Promise<ArtikelDrafRingkas[]> {
     const { data, error } = await this.klien
       .from("pf_articles")
-      .select("judul, ringkasan, kategori_slug, status_verifikasi, sumber_url, dibuat_pada")
+      .select(
+        "id, judul, ringkasan, kategori_slug, status_verifikasi, sumber_url, dibuat_pada, raw_item_id",
+      )
       .eq("status", "draft")
       .order("dibuat_pada", { ascending: true })
       .limit(limit);
     if (error) throw new Error(`ambilDrafArtikel gagal: ${error.message}`);
-    return (data ?? []).map((d) => ({
+    const draf = (data ?? []) as Array<{
+      id: string;
+      judul: string;
+      ringkasan: string;
+      kategori_slug: string;
+      status_verifikasi: string;
+      sumber_url: string;
+      dibuat_pada: string;
+      raw_item_id: string | null;
+    }>;
+    // P2-4 (N-S7): waktu terbit asli berita dibaca dari raw item
+    // asal draf (bukan dibuat_pada draf). Draf manual/lama tanpa
+    // raw_item_id -> waktu_terbit_asli null (label "tanggal tidak
+    // diketahui" di entriBriefDariDraf).
+    const ids = [...new Set(
+      draf.map((d) => d.raw_item_id).filter((v): v is string => !!v),
+    )];
+    const waktuPerItem = new Map<string, string | null>();
+    if (ids.length > 0) {
+      const { data: itemRows, error: errItem } = await this.klien
+        .from("pf_raw_items")
+        .select("id, waktu_terbit_asli")
+        .in("id", ids);
+      if (errItem) {
+        throw new Error(`ambilDrafArtikel gagal: ${errItem.message}`);
+      }
+      for (const row of (itemRows ?? []) as Array<{
+        id: string;
+        waktu_terbit_asli: string | null;
+      }>) {
+        waktuPerItem.set(row.id, row.waktu_terbit_asli);
+      }
+    }
+    return draf.map((d) => ({
       judul: d.judul as string,
       ringkasan: d.ringkasan as string,
       kategori_slug: d.kategori_slug as string,
       status_verifikasi: d.status_verifikasi as string,
       sumber_url: d.sumber_url as string,
       dibuat_pada: d.dibuat_pada as string,
+      raw_item_id: d.raw_item_id,
+      waktu_terbit_asli: d.raw_item_id
+        ? (waktuPerItem.get(d.raw_item_id) ?? null)
+        : null,
     }));
+  }
+
+  // ---------- Rekonsiliasi (P1-2 / N-T3) ----------
+  // Metode di bawah ini BUKAN bagian interface AiAdapter (tipe
+  // bersama di types.ts tidak diubah gelombang ini) — pipeline
+  // memakainya lewat metode opsional dan memeriksa keberadaannya
+  // dulu, agar adapter lain/uji lama tetap jalan.
+
+  /** Item VERIFIED/CROSS-CHECKED yang belum punya artikel sama
+   *  sekali (draf hilang karena status diubah sebelum draf dibuat
+   *  pada versi pipeline lama, atau simpanArtikel pernah gagal). */
+  async cariItemTerverifikasiTanpaArtikel(
+    limit: number,
+  ): Promise<RawItemAntrean[]> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select(
+        "id, sumber_id, url, judul, ringkasan, isi_ringkas, penulis, " +
+          "waktu_terbit_asli, waktu_diambil, status, disalin_dari_id, " +
+          "metadata, pf_sources(nama, prioritas)",
+      )
+      .in("status_verifikasi", ["VERIFIED", "CROSS-CHECKED"])
+      .order("waktu_diambil", { ascending: true })
+      .limit(limit * 3);
+    if (error) {
+      throw new Error(
+        `cariItemTerverifikasiTanpaArtikel gagal: ${error.message}`,
+      );
+    }
+    const barisSemua =
+      (data as unknown as Array<Record<string, unknown>> | null) ?? [];
+    const { data: artikel, error: errArtikel } = await this.klien
+      .from("pf_articles")
+      .select("raw_item_id")
+      .not("raw_item_id", "is", null)
+      .limit(1000);
+    if (errArtikel) {
+      throw new Error(
+        `cariItemTerverifikasiTanpaArtikel gagal: ${errArtikel.message}`,
+      );
+    }
+    const sudahPunyaArtikel = new Set(
+      ((artikel ?? []) as Array<{ raw_item_id: string | null }>)
+        .map((a) => a.raw_item_id)
+        .filter((v): v is string => !!v),
+    );
+    return barisSemua
+      .filter((baris) => !sudahPunyaArtikel.has(baris.id as string))
+      .slice(0, limit)
+      .map((baris) => {
+        const sumber = baris.pf_sources as
+          | { nama?: string; prioritas?: number }
+          | null
+          | undefined;
+        return {
+          id: baris.id as string,
+          sumber_id: (baris.sumber_id as string | null) ?? null,
+          sumber_nama:
+            typeof sumber?.nama === "string" && sumber.nama
+              ? sumber.nama
+              : "Tidak diketahui",
+          sumber_prioritas:
+            typeof sumber?.prioritas === "number" ? sumber.prioritas : 0,
+          url: baris.url as string,
+          judul: baris.judul as string,
+          ringkasan: (baris.ringkasan as string) ?? "",
+          isi_ringkas: (baris.isi_ringkas as string) ?? "",
+          penulis: (baris.penulis as string | null) ?? null,
+          waktu_terbit_asli: (baris.waktu_terbit_asli as string | null) ?? null,
+          waktu_diambil: baris.waktu_diambil as string,
+          status: baris.status as string,
+          disalin_dari_id: (baris.disalin_dari_id as string | null) ?? null,
+          metadata:
+            (baris.metadata as Record<string, unknown> | null) ?? null,
+        };
+      });
+  }
+
+  /** Artikel (draft) yang item asalnya VERIFIED/CROSS-CHECKED
+   *  tetapi belum punya verification record ber-artikel_id
+   *  (tautan P0-1 putus — mis. penulisan tautan gagal sesudah
+   *  draf tersimpan). Dipakai job rekonsiliasi untuk menulis
+   *  ulang tautannya. */
+  async cariArtikelTanpaVerifikasiTerkait(
+    limit: number,
+  ): Promise<
+    Array<{ artikel_id: string; raw_item_id: string; keputusan: string }>
+  > {
+    const { data, error } = await this.klien
+      .from("pf_articles")
+      .select("id, raw_item_id, status_verifikasi")
+      .eq("status", "draft")
+      .in("status_verifikasi", ["VERIFIED", "CROSS-CHECKED"])
+      .not("raw_item_id", "is", null)
+      .order("dibuat_pada", { ascending: true })
+      .limit(limit * 3);
+    if (error) {
+      throw new Error(
+        `cariArtikelTanpaVerifikasiTerkait gagal: ${error.message}`,
+      );
+    }
+    const barisSemua =
+      (data as unknown as Array<Record<string, unknown>> | null) ?? [];
+    const { data: verifikasi, error: errVer } = await this.klien
+      .from("pf_verification_records")
+      .select("artikel_id")
+      .not("artikel_id", "is", null)
+      .limit(1000);
+    if (errVer) {
+      throw new Error(
+        `cariArtikelTanpaVerifikasiTerkait gagal: ${errVer.message}`,
+      );
+    }
+    const sudahTertaut = new Set(
+      ((verifikasi ?? []) as Array<{ artikel_id: string | null }>)
+        .map((v) => v.artikel_id)
+        .filter((v): v is string => !!v),
+    );
+    return barisSemua
+      .filter((b) => !sudahTertaut.has(b.id as string))
+      .slice(0, limit)
+      .map((b) => ({
+        artikel_id: b.id as string,
+        raw_item_id: b.raw_item_id as string,
+        keputusan: b.status_verifikasi as string,
+      }));
+  }
+
+  /** Id artikel yang sudah dibuat dari satu raw item (atau null).
+   *  Dipakai pipeline agar run ulang atas item yang drafnya sudah
+   *  ada tidak membuat draf duplikat (bentrok slug). */
+  async cariArtikelUntukItem(rawItemId: string): Promise<string | null> {
+    const { data, error } = await this.klien
+      .from("pf_articles")
+      .select("id")
+      .eq("raw_item_id", rawItemId)
+      .order("dibuat_pada", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`cariArtikelUntukItem gagal: ${error.message}`);
+    }
+    return data ? (data.id as string) : null;
   }
 }
 

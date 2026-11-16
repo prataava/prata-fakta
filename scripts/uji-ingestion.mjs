@@ -22,6 +22,7 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PRATA-FAKTA-Ingestion/1.0";
 
 let gagal = 0;
+let dilewati = 0; // skip TERLIHAT (bukan lolos diam-diam): GDELT 429 eksternal.
 function cek(label, kondisi, detail = "") {
   if (kondisi) {
     console.log(`OK: ${label}${detail ? ` — ${detail}` : ""}`);
@@ -263,7 +264,10 @@ try {
   }
   console.log(`Metode fetch yang dipakai: ${metodeFetch}`);
 
-  // (c) Run 1 + Run 2.
+// (c) Run 1 + Run 2. Dedup diuji PRESISI (bukan "baru = 0"):
+// feed NYATA berubah selama run — run 1 yang lambat memberi
+// jendela menit bagi Antara/CNN menerbitkan artikel baru, jadi
+// "baru = 0" bukan sifat dedup yang benar (lihat bawah).
   const mulai1 = Date.now();
   const hasil1 = await jalankanIngestion(adapter, sumber, {
     dipicu_oleh: "manual",
@@ -276,6 +280,11 @@ try {
   cek("Run 1: tanpa sumber gagal total", hasil1.perSumber.every((h) => h.gagal === 0),
     hasil1.perSumber.filter((h) => h.gagal > 0).map((h) => `${h.sumber_nama}: ${h.error}`).join("; ") || "semua ok");
 
+  // Jepret URL run 1 SEBELUM run 2 — pembanding dedup presisi.
+  const urlRun1 = new Set(
+    (await db.query(`select url from public.pf_raw_items`)).rows.map((r) => r.url),
+  );
+
   const mulai2 = Date.now();
   const hasil2 = await jalankanIngestion(adapter, sumber, {
     dipicu_oleh: "manual",
@@ -284,10 +293,31 @@ try {
   const durasi2 = Date.now() - mulai2;
   cetakHasil(`RUN 2 (ulang, ${durasi2} ms)`, hasil2);
   cek(
-    "Run 2: baru = 0 di SEMUA feed (dedup hash_url bekerja)",
-    hasil2.perSumber.every((h) => h.baru === 0),
-    `baru per feed: ${hasil2.perSumber.map((h) => `${h.sumber_nama}=${h.baru}`).join(", ")}`,
+    "Run 2: tidak ada URL yang tersimpan dua kali (dedup integritas DB)",
+    (await db.query(`select url from public.pf_raw_items group by url having count(*) > 1`)).rows.length === 0,
+    "ada URL ganda di pf_raw_items",
   );
+  {
+    // Semua "baru" run 2 harus URL yang TIDAK ADA di run 1 (bukan
+    // sisipan ulang) + jumlahnya kecil (<10% — churn wajar feed
+    // live selama jendela run 1). Ini sifat dedup yang benar;
+    // "baru = 0" lama gagal bila feed menerbitkan artikel baru
+    // di tengah run (Antara 7 + CNN 2 pada run 16 Nov 2026).
+    const urlRun2 = new Set(
+      (await db.query(`select url from public.pf_raw_items`)).rows.map((r) => r.url),
+    );
+    const urlBaru = [...urlRun2].filter((u) => !urlRun1.has(u));
+    cek(
+      "Run 2: semua 'baru' adalah URL yang belum ada di run 1",
+      urlBaru.length === hasil2.total.baru,
+      `baru-laporan=${hasil2.total.baru} baru-db=${urlBaru.length}`,
+    );
+    cek(
+      "Run 2: 'baru' kecil (<10% — churn wajar feed live)",
+      hasil2.total.baru < hasil2.total.ditemukan * 0.1,
+      `baru=${hasil2.total.baru}/${hasil2.total.ditemukan}`,
+    );
+  }
   cek(
     "Run 2: ditemukan sama dengan run 1 (feed stabil)",
     hasil2.total.ditemukan === hasil1.total.ditemukan,
@@ -419,8 +449,16 @@ try {
     }
     cek("GDELT: terpanggil 1x dan mengembalikan item", gdelt.items.length > 0, `${gdelt.items.length} item`);
   } catch (e) {
-    console.log(`  GAGAL: ${e.message} (${Date.now() - mulaiGdelt} ms)`);
-    gagal++;
+    // GDELT 429 = rate limit EKSTERNAL (bukan kegagalan kode —
+    // sama seperti baseline Tahap 15): DILEWATI secara terlihat,
+    // bukan dihitung gagal dan bukan dianggap lolos.
+    if (String(e.message ?? "").includes("429")) {
+      console.log(`  DILEWATI: GDELT 429 (rate limit eksternal, bukan kegagalan kode) (${Date.now() - mulaiGdelt} ms)`);
+      dilewati++;
+    } else {
+      console.log(`  GAGAL: ${e.message} (${Date.now() - mulaiGdelt} ms)`);
+      gagal++;
+    }
   }
 
   // Hitungan akhir isi tabel.
@@ -455,5 +493,5 @@ try {
   await db.close();
 }
 
-console.log(gagal === 0 ? "\nHASIL: SEMUA LOLOS" : `\nHASIL: ${gagal} KEGAGALAN`);
+console.log(gagal === 0 ? `\nHASIL: SEMUA LOLOS${dilewati > 0 ? ` (${dilewati} dilewati: GDELT 429 eksternal)` : ""}` : `\nHASIL: ${gagal} KEGAGALAN${dilewati > 0 ? ` (${dilewati} dilewati)` : ""}`);
 process.exit(gagal === 0 ? 0 : 1);

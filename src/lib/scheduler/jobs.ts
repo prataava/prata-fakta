@@ -11,19 +11,29 @@
 //   mengevaluasi ulang WHERE sesudah commit pertama dan mendapat
 //   0 baris -> lock tidak didapat -> route menjawab 409 jujur,
 //   bukan memproses batch yang sama dua kali.
-// - Bila baris job BELUM ADA (seed v5 hanya 3 job; seed 5 job
-//   ada di LAPORAN-FASE-8 §14) atau tabel belum ada, klaim
-//   melaporkan tersedia=false dan route TETAP BERJALAN tanpa
-//   lock (best-effort) sambil mencatatnya di respons — bukan
-//   409 palsu. Lock adalah pengaman, bukan prasyarat jalan.
+// - Baris job yang BELUM ADA dibuat otomatis saat klaim (upsert,
+//   Gelombang B1 / N-S9): seed v12 belum tentu diterapkan di
+//   produksi, jadi mengandalkan seed saja membuat lock tidak pernah
+//   tersedia. Upsert memakai jadwal dari JADWAL_CRON_JOB bila nama
+//   job dikenal, "manual" bila tidak. Bila baris tetap tidak bisa
+//   dibuat (mis. nama job melanggar CHECK migrasi v5/v12, atau
+//   tabel belum ada), klaim melaporkan tersedia=false dan route
+//   WAJIB menolak jalan tanpa lock (409 bila lock dipegang run lain,
+//   503 bila sistem lock tidak tersedia) — TIDAK BOLEH lagi jalan
+//   diam-diam tanpa lock seperti sebelumnya.
 // - selesaikanJob() memperbarui terakhir_jalan + status_terakhir
 //   di AKHIR setiap run cron (F6): dashboard tidak lagi
 //   menampilkan job cron "belum pernah jalan" selamanya.
 //   Dipanggil dari finally route, jadi jalan baik saat run
 //   berhasil maupun gagal.
-// - Timeout lock 30 menit: workflow timeout 10 menit, jadi lock
-//   yang masih 'berjalan' sesudah 30 menit pasti run yang mati
-//   (crash/timeout platform) dan boleh direbut run berikutnya.
+// - Timeout lock 15 menit (Gelombang B1 / N-S5): workflow timeout
+//   10 menit, jadi lock yang masih 'berjalan' sesudah 15 menit
+//   pasti run yang mati (crash/timeout platform) dan boleh direbut
+//   run berikutnya; 15 menit juga LEBIH CEPAT dari interval cron
+//   tersingkat (ingestion 30 menit), jadi run berikutnya tidak
+//   pernah terblokir oleh lock basi run sebelumnya. Sebelumnya
+//   30 menit — sama dengan interval ingestion, sehingga satu run
+//   mati bisa memblokir tepat satu run berikutnya.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Lima job yang dipanggil cron GitHub Actions (LAPORAN §10.1). */
@@ -46,8 +56,8 @@ export const JADWAL_CRON_JOB: Record<NamaJobCron, string> = {
   "terbitkan-terjadwal": "0 * * * *",
 };
 
-/** Lock dianggap basi sesudah 30 menit (workflow timeout 10 mnt). */
-export const TIMEOUT_LOCK_MENIT = 30;
+/** Lock dianggap basi sesudah 15 menit (workflow timeout 10 mnt, interval cron tersingkat 30 mnt). */
+export const TIMEOUT_LOCK_MENIT = 15;
 
 export interface HasilKlaim {
   /** true bila lock berhasil diklaim run ini. */
@@ -61,7 +71,13 @@ export interface HasilKlaim {
 /**
  * Klaim lock job. Mengembalikan { diklaim:true } bila run ini
  * pemilik lock. TIDAK PERNAH melempar: galat DB dilaporkan
- * sebagai tersedia=false agar route bisa jalan tanpa lock.
+ * sebagai tersedia=false agar route bisa menolak dengan 503 jujur
+ * (bukan jalan tanpa lock).
+ *
+ * Bila baris job belum ada, baris dibuat otomatis dulu (upsert) —
+ * lock selalu tersedia tanpa bergantung pada seed v12. Balapan
+ * dua run yang sama-sama insert ditangani: konflik unik (23505)
+ * diabaikan, klaim UPDATE berikutnya yang menentukan pemenang.
  */
 export async function klaimJob(
   klien: SupabaseClient,
@@ -73,6 +89,51 @@ export async function klaimJob(
     Date.now() - timeoutMenit * 60_000,
   ).toISOString();
   try {
+    // Upsert baris job bila belum ada (N-S9): cek dulu, lalu insert.
+    // Cek + insert tidak atomik — balapan ditangani di bawah
+    // (konflik unik 23505 diabaikan; klaim UPDATE yang memutuskan).
+    const { data: barisAda, error: errCek } = await klien
+      .from("pf_scheduled_jobs")
+      .select("id")
+      .eq("nama", nama)
+      .maybeSingle();
+    if (errCek) {
+      return {
+        diklaim: false,
+        tersedia: false,
+        alasan: `tabel pf_scheduled_jobs tidak dapat dibaca (${errCek.message})`,
+      };
+    }
+    if (!barisAda) {
+      const jadwal =
+        (JADWAL_CRON_JOB as Record<string, string>)[nama] ?? "manual";
+      const { error: errInsert } = await klien
+        .from("pf_scheduled_jobs")
+        .insert({
+          nama,
+          jadwal_cron: jadwal,
+          deskripsi:
+            "Baris job dibuat otomatis saat klaim lock (Gelombang B1 — seed v12 belum diterapkan)",
+          aktif: true,
+        })
+        .select("id")
+        .single();
+      if (errInsert) {
+        const kode = (errInsert as { code?: string }).code;
+        const pesan = errInsert.message ?? "";
+        const konflikUnik =
+          kode === "23505" ||
+          /duplicate key|unique constraint|already exists/i.test(pesan);
+        if (!konflikUnik) {
+          return {
+            diklaim: false,
+            tersedia: false,
+            alasan: `baris job '${nama}' belum ada dan tidak dapat dibuat otomatis (${pesan})`,
+          };
+        }
+        // Balapan insert: baris kini ada — lanjut ke klaim UPDATE.
+      }
+    }
     const { data, error } = await klien
       .from("pf_scheduled_jobs")
       .update({
@@ -107,7 +168,7 @@ export async function klaimJob(
         diklaim: false,
         tersedia: false,
         alasan:
-          "baris job belum ada di pf_scheduled_jobs (seed 5 job belum diterapkan — lihat LAPORAN-FASE-8 §14)",
+          "baris job tidak ada di pf_scheduled_jobs dan tidak dapat dibuat otomatis",
       };
     }
     return {
@@ -129,20 +190,32 @@ export async function klaimJob(
  * error_terakhir. Best-effort: TIDAK PERNAH melempar, agar
  * pencatatan tidak membatalkan hasil run. Mengembalikan true
  * bila baris berhasil diperbarui.
+ *
+ * Opsi `peringatan` (Gelombang B1, P1-6): bila run BERHASIL tetapi
+ * ada peringatan non-gagal (mis. sumber basi), status tetap
+ * 'berhasil' namun error_terakhir diisi "PERINGATAN: ..." agar
+ * peringatan tampil di dashboard admin lewat kolom yang sama.
+ * Bila run gagal, `error` menang atas peringatan.
  */
 export async function selesaikanJob(
   klien: SupabaseClient,
   nama: string,
   ok: boolean,
   error: string | null = null,
+  opsi: { peringatan?: string | null } = {},
 ): Promise<boolean> {
   try {
+    const errorTerakhir = ok
+      ? opsi.peringatan
+        ? `PERINGATAN: ${opsi.peringatan}`
+        : null
+      : error;
     const { data, error: errUpdate } = await klien
       .from("pf_scheduled_jobs")
       .update({
         status_terakhir: ok ? "berhasil" : "gagal",
         terakhir_jalan: new Date().toISOString(),
-        error_terakhir: ok ? null : error,
+        error_terakhir: errorTerakhir,
       })
       .eq("nama", nama)
       .select("id")

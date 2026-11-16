@@ -169,16 +169,23 @@ export class SupabaseAdminAdapter implements AdminAdapter {
   async perbaruiArtikel({
     id,
     patch,
+    harapkanStatus,
   }: {
     id: string;
     patch: ArtikelPatch;
+    harapkanStatus?: string;
   }): Promise<Artikel | null> {
     const { catatan_versi: _catatan, ...kolom } = patch;
     void _catatan;
-    const { data, error } = await this.klien()
+    // P2-9 (integrasi B1): bila harapkanStatus diisi, update
+    // bersyarat status saat ini — dua penerbit bersamaan tidak
+    // bisa sama-sama berhasil (yang kedua mendapat 0 baris).
+    let kueri = this.klien()
       .from("pf_articles")
       .update(kolom)
-      .eq("id", id)
+      .eq("id", id);
+    if (harapkanStatus) kueri = kueri.eq("status", harapkanStatus);
+    const { data, error } = await kueri
       .select(KOLOM_ARTIKEL)
       .maybeSingle();
     if (error) this.lempar("perbaruiArtikel", error);

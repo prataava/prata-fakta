@@ -6,8 +6,17 @@
 // (auth.uid() = user_id). Episode harus terbit.
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { tolakAkunNonaktif } from "@/lib/ai/route-auth";
+import {
+  buatRateLimiter,
+  cekOrigin,
+  responRateLimit,
+  tolakAkunNonaktif,
+} from "@/lib/ai/route-auth";
 import { getPlaylist } from "@/lib/podcast";
+
+// Gelombang B1 (P1-5/B-S1): playlist dibatasi 30/menit
+// (sebelumnya tanpa limiter sama sekali).
+const lolosRateLimit = buatRateLimiter(30);
 
 async function penggunaAtau401() {
   const supabase = await createClient();
@@ -18,7 +27,8 @@ async function penggunaAtau401() {
   return { supabase, user };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!(await lolosRateLimit(req))) return responRateLimit();
   const sesi = await penggunaAtau401();
   if (!sesi) {
     return NextResponse.json(
@@ -34,6 +44,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const sesi = await penggunaAtau401();
   if (!sesi) {
     return NextResponse.json(
@@ -127,6 +141,10 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const sesi = await penggunaAtau401();
   if (!sesi) {
     return NextResponse.json(

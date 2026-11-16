@@ -1258,13 +1258,13 @@ cek(
     bacaRepo("src/lib/admin/data.ts").includes("jenis?: string"),
 );
 cek(
-  "Area 7: /profil menautkan Dasbor Saya",
-  bacaRepo("src/app/profil/page.tsx").includes('href="/saya"'),
+  "Area 7: /profil redirect ke Dasbor Saya (/saya) — F-T2",
+  bacaRepo("src/app/profil/page.tsx").includes('redirect("/saya'),
 );
 cek(
   "Area 7: Header menautkan /saya; navigasi menautkan /laporkan",
-  bacaRepo("src/components/Header.tsx").includes('href="/saya"') &&
-    bacaRepo("src/components/Header.tsx").includes('href="/laporkan"'),
+  bacaRepo("src/components/HeaderNav.tsx").includes('href: "/saya"') &&
+    bacaRepo("src/components/HeaderNav.tsx").includes('href: "/laporkan"'),
 );
 cek(
   "D3: validasiTarget diekspor di /api/topik",

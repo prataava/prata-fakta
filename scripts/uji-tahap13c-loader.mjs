@@ -46,6 +46,20 @@ export async function resolve(specifier, context, nextResolve) {
       shortCircuit: true,
     };
   }
+  // next/server: NextResponse.json fungsional (dipakai
+  // responGalatAudit di jalur yang diuji); sisanya melempar jelas.
+  // (Ditambah integrasi B1: audit.ts memakai NextResponse sejak
+  //  keamanan fail-closed; loader lama hanya men-stub next/headers
+  //  sehingga baterai crash ERR_MODULE_NOT_FOUND.)
+  if (specifier === "next/server") {
+    return {
+      url: new URL(
+        "./uji-tahap13c-next-server-stub.mjs",
+        import.meta.url,
+      ).href,
+      shortCircuit: true,
+    };
+  }
   if (specifier.startsWith("@/")) {
     const target = cobaFile(path.join(DIR_SRC, specifier.slice(2)));
     if (target) {

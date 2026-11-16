@@ -3,9 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES } from "@/lib/auth/roles";
 import { fetchAman, tolakHostPrivat } from "@/lib/ingestion/ssrf";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   ipDariRequest,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import {
   catatAuditWajib,
@@ -20,7 +21,7 @@ import {
 // Tahap 13A, T3). Audit fail-closed (Tahap 13A, T10): setiap
 // pemeriksaan menulis "sumber.cek" dengan admin + waktu + hasil;
 // gagal audit → operasi ditolak (bukan ok:false diam-diam).
-const batasi = buatRateLimiter(10);
+const batasi = buatRateLimiterKeras(10);
 
 const TIMEOUT_MS = 10_000;
 
@@ -28,7 +29,10 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const { id } = await params;
 

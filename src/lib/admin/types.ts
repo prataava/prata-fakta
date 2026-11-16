@@ -447,6 +447,11 @@ export interface AdminAdapter {
   perbaruiArtikel(input: {
     id: string;
     patch: ArtikelPatch;
+    /** Bila diisi, update hanya berhasil bila status saat ini sama
+     *  (update bersyarat — menutup race dua penerbit bersamaan;
+     *  P2-9 integrasi B1). Tanpa ini, update memengaruhi 0 baris
+     *  dan mengembalikan null. */
+    harapkanStatus?: string;
   }): Promise<Artikel | null>;
   hapusArtikel(input: { id: string }): Promise<void>;
 

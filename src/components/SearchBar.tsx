@@ -2,7 +2,7 @@
 export default function SearchBar({ nilaiAwal = "" }: { nilaiAwal?: string }) {
   return (
     <form className="cari" action="/cari" method="get" role="search">
-      <label htmlFor="cari-q" className="sr-only" style={{ position: "absolute", left: -9999 }}>
+      <label htmlFor="cari-q" className="sr-only">
         Cari berita, topik, atau sumber
       </label>
       <input

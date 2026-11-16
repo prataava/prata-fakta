@@ -4,9 +4,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { PfCeritaRingkas } from "@/lib/cerita";
+import Kartu from "@/components/Kartu";
 
 /** Tombol Ikuti / Berhenti mengikuti satu cerita. */
 export function TombolIkutiCerita({
@@ -103,31 +103,29 @@ export default function KartuCerita({
   tampilkanIkuti?: boolean;
 }) {
   return (
-    <article className="kartu">
-      <span className="kartu-kategori">
-        {LABEL_PERKEMBANGAN[cerita.status_perkembangan] ??
-          cerita.status_perkembangan}
-        {mengikuti ? " · Anda ikuti" : ""}
-      </span>
-      <Link className="kartu-judul" href={`/cerita/${cerita.slug}`}>
-        {cerita.judul}
-      </Link>
-      {cerita.ringkasan && (
-        <span className="kartu-teks">{cerita.ringkasan}</span>
-      )}
-      <span className="kartu-meta">
-        {cerita.jumlah_event} peristiwa · {cerita.jumlah_artikel} berita
-        terkait · {cerita.jumlah_pengikut} pengikut
-      </span>
-      {tampilkanIkuti && (
-        <span style={{ marginTop: 8 }}>
-          <TombolIkutiCerita
-            slug={cerita.slug}
-            mengikutiAwal={mengikuti ?? false}
-            masuk={masuk ?? false}
-          />
-        </span>
-      )}
-    </article>
+    <Kartu
+      judulHref={`/cerita/${cerita.slug}`}
+      kategori={
+        <>
+          {LABEL_PERKEMBANGAN[cerita.status_perkembangan] ??
+            cerita.status_perkembangan}
+          {mengikuti ? " · Anda ikuti" : ""}
+        </>
+      }
+      judul={cerita.judul}
+      teks={cerita.ringkasan ?? undefined}
+      meta={`${cerita.jumlah_event} peristiwa · ${cerita.jumlah_artikel} berita terkait · ${cerita.jumlah_pengikut} pengikut`}
+      aksi={
+        tampilkanIkuti ? (
+          <span style={{ marginTop: 8 }}>
+            <TombolIkutiCerita
+              slug={cerita.slug}
+              mengikutiAwal={mengikuti ?? false}
+              masuk={masuk ?? false}
+            />
+          </span>
+        ) : undefined
+      }
+    />
   );
 }

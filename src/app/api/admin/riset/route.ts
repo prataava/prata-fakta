@@ -13,11 +13,13 @@ import {
   autentikasiAdmin,
   bacaBody,
   buatRateLimiterAdmin,
+  cekOrigin,
   ipDariRequest,
   responBodyTakValid,
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { catatAuditWajib, responGalatAudit } from "@/lib/admin/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { buatSlug } from "@/lib/ai/slug";
 import { JENIS_DOKUMEN } from "@/lib/riset";
@@ -36,31 +38,6 @@ function tanggalValid(v: unknown): string | null {
   if (v === null || v === undefined || v === "") return null;
   if (typeof v !== "string" || !POLA_TANGGAL.test(v)) return "__tak_valid__";
   return v;
-}
-
-/** Catat audit staf (aksi sudah ada di CHECK v9). Gagal catat
- *  tidak menggagalkan operasi utama. */
-async function catatAudit(
-  aktorId: string,
-  aktorEmail: string | null,
-  aksi: string,
-  entitas: string,
-  entitasId: string | null,
-  ip: string,
-): Promise<void> {
-  try {
-    const service = createServiceClient();
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktorId,
-      aktor_email: aktorEmail,
-      aksi,
-      entitas,
-      entitas_id: entitasId,
-      ip,
-    });
-  } catch {
-    // Audit gagal: jangan gagalkan operasi utama.
-  }
 }
 
 function galatDuplikat(err: unknown): boolean {
@@ -116,6 +93,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await lolosRateLimit(req))) return responRateLimit();
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
   const auth = await autentikasiAdmin(req, ROLES.EDITOR, ROLES.WRITER);
   if (auth instanceof NextResponse) return auth;
 
@@ -181,14 +161,41 @@ export async function POST(req: Request) {
         }
         throw error;
       }
-      await catatAudit(
-        auth.user.id,
-        auth.user.email ?? null,
-        "riset.buat",
-        "pf_research_reports",
-        (data as { id: string }).id,
-        ip,
-      );
+      // Audit FAIL-CLOSED (Gelombang B1, P1-3): gagal catat ->
+      // operasi ditolak + compensating delete baris yang baru
+      // dibuat (lihat catatan yang sama di pengetahuan/route.ts).
+      const entitasId = (data as { id: string }).id;
+      try {
+        await catatAuditWajib({
+          aktor_id: auth.user.id,
+          aktor_email: auth.user.email ?? null,
+          aksi: "riset.buat",
+          entitas: "pf_research_reports",
+          entitas_id: entitasId,
+          ip,
+        });
+      } catch (errAudit) {
+        try {
+          await service
+            .from("pf_research_reports")
+            .delete()
+            .eq("id", entitasId);
+        } catch (errHapus) {
+          console.error(
+            JSON.stringify({
+              event: "audit_compensating_delete_gagal",
+              waktu: new Date().toISOString(),
+              rute: "admin/riset",
+              entitas_id: entitasId,
+              pesan:
+                errHapus instanceof Error
+                  ? errHapus.message
+                  : String(errHapus ?? ""),
+            }),
+          );
+        }
+        return responGalatAudit(errAudit);
+      }
       return NextResponse.json({ ok: true, riset: data }, { status: 201 });
     }
 
@@ -253,14 +260,38 @@ export async function POST(req: Request) {
       )
       .single();
     if (error) throw error;
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "riset.buat",
-      "pf_documents",
-      (data as { id: string }).id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3): gagal catat ->
+    // operasi ditolak + compensating delete baris yang baru
+    // dibuat (lihat catatan yang sama di pengetahuan/route.ts).
+    const entitasId = (data as { id: string }).id;
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "riset.buat",
+        entitas: "pf_documents",
+        entitas_id: entitasId,
+        ip,
+      });
+    } catch (errAudit) {
+      try {
+        await service.from("pf_documents").delete().eq("id", entitasId);
+      } catch (errHapus) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_delete_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/riset",
+            entitas_id: entitasId,
+            pesan:
+              errHapus instanceof Error
+                ? errHapus.message
+                : String(errHapus ?? ""),
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, dokumen: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

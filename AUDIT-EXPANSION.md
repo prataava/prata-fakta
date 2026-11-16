@@ -976,3 +976,95 @@ Vercel 403 butuh otorisasi pemilik). Sisa terbuka jujur:
 T6 penutupan penuh, CSRF sebagian, flag cookie sesi belum
 diuji, run live Actions 0, uji responsif visual + a11y penuh
 belum diuji, uji login + klik browser nyata belum diuji.
+
+## 10. Gelombang B1 — Keputusan perbaikan backend & database (Audit Ultimate, 16 Nov 2026)
+
+Perbaikan Audit Ultimate §7.1–§7.4 dikerjakan Gelombang B1
+(migrasi v13 + kode; baterai `scripts/uji-ultimate-backend.mjs`).
+Keputusan desain yang perlu dicatat (bukan sekadar "selesai"):
+
+### 10.1 P0-5 — Mutasi negara: EDITOR saja (bukan EDITOR+WRITER)
+
+`POST/PATCH/DELETE /api/admin/negara/**` memakai
+`autentikasiAdmin(req, ROLES.EDITOR)`. Alasan: negara/fakta
+adalah data referensi yang LANGSUNG tampil publik (bukan
+draf yang masih melewati meja editor) — sama polanya dengan
+terbitkan/batalkan artikel (EDITOR). Writer tetap boleh
+membaca + mengusulkan lewat jalur draf artikel, bukan
+menulis langsung data referensi publik. Bila pemilik
+memutuskan writer boleh, ubah satu baris per route
+(`ROLES.EDITOR` → `ROLES.EDITOR, ROLES.WRITER`) + uji ulang
+baterai peran.
+
+### 10.2 P2-15 — RBAC: peran kasar memang cukup; PERMISSIONS dihapus
+
+Konstanta `PERMISSIONS` + pemakaiannya DIHAPUS dari
+`src/lib/auth/roles.ts` (0 pemakaian di luar berkas itu —
+kode mati sejak v1). Alasan: seluruh guard memakai peran
+kasar (`super_admin`/`editor`/`fact_checker`/`writer`) dan
+itu sudah membedakan dengan benar semua jalur yang ada
+(B-T1 diperbaiki dengan peran kasar, bukan izin halus).
+Menegakkan `pf_permissions`/`pf_role_permissions` akan
+menambah satu lapis lookup + risiko inkonsistensi tanpa
+satu pun kasus pemakaian yang membutuhkannya.
+**Tabel `pf_permissions` / `pf_role_permissions` TETAP ADA**
+(seed v1 tidak boleh diubah) dan didokumentasikan sebagai
+tidak dipakai / cadangan — bila suatu hari ada kebutuhan
+izin halus (mis. "writer boleh edit tapi tidak terbitkan
+kategori X"), tabel itu sudah tersedia. Keputusan ini
+bisa dibalik tanpa migrasi.
+
+### 10.3 P3-7 — Tanpa zod mid-project
+
+Zod TIDAK diadopsi. Alasan: proyek sudah punya pola
+validasi yang bekerja (`bacaBody` + validator per-route di
+`src/lib/admin/validasi.ts` + `src/lib/validasi.ts`) dan
+mengganti semuanya mid-project adalah churn besar dengan
+risiko regresi di 100+ route demi keuntungan yang tidak
+dibutuhkan saat ini. Sebagai gantinya: helper validasi
+dipusatkan (`bacaBody` dipakai semua route mutasi milik
+Gelombang B1) dan keputusan ini didokumentasikan di sini.
+Bila proyek baru / rewrite besar dimulai, adopsi zod boleh
+dievaluasi ulang saat itu.
+
+### 10.4 Keputusan lain yang dicatat
+
+- **P0-4 — TIDAK dibuat RPC pemeriksa jawaban.** Route
+  `kuis/jawab` membaca `pf_quiz_answers` via service role
+  langsung (sesuai instruksi tugas). RPC pemeriksa akan
+  menambah permukaan API tanpa keuntungan keamanan —
+  service role sudah menjadi satu-satunya pembaca.
+- **P1-4 — RPC dua pass.** `pf_patch_kursus_atomik`
+  memvalidasi SELURUH entri dulu (pass 1) baru menulis
+  (pass 2); galat di pass 2 me-RAISE (bukan return) karena
+  RETURN lebih awal di PL/pgSQL TIDAK me-rollback tulis
+  yang sudah terjadi. Audit `catatAuditWajib` tetap di luar
+  transaksi RPC (keterbatasan B-T2): bila audit gagal
+  sesudah RPC commit, route 500 tapi perubahan tersimpan.
+- **P2-16 — `followed_topics` yatim: fungsi laporan saja.**
+  `pf_topik_yatim()` hanya melaporkan (tidak menghapus)
+  karena penghapusan diam-diam data pengguna adalah
+  keputusan produk, bukan kebersihan DB; hanya tipe
+  `negara` yang punya referen DB (kategori = taksonomi
+  kode, isu = teks bebas).
+- **P2-14 — pengecualian "lempar" yang disengaja:**
+  pengayaan opsional (peta nama negara, navigasi arsip,
+  tag/sumber/koreksi artikel, nilai indikator) hanya
+  dicatat, tidak melempar; agregat dasbor
+  (`getRingkasanSaya`, `cariArtikel`, `getJejakFakta`,
+  `getPerbandinganSumber`) memakai flag `tersedia` + log,
+  bukan lempar. `getKuisHarian` tanpa service key melempar
+  `KuisBelumTersediaError` — halaman `/kuis/page.tsx`
+  (bukan milik Gelombang B1) akan menampilkan halaman
+  error Next bila service key belum diatur; follow-up agen
+  frontend.
+- **P3-6 — cache peran per request** (`cache()` React di
+  `getUserRoles`). Integrasi `kunciRateLimit`
+  (`lib/ai/route-auth.ts`) + `autentikasiAdmin`
+  (`lib/admin/guard.ts`) adalah follow-up agen keamanan
+  (bukan berkas milik Gelombang B1) — dicatat di laporan
+  B1, tidak diubah di sini.
+- **P2-30 — sudah dikerjakan v7.** `pf_has_role` /
+  `pf_is_super_admin` / `pf_handle_new_user` sudah
+  `SET search_path = public` sejak v7; v13 hanya
+  menegaskan ulang + menguji `proconfig` di baterai.

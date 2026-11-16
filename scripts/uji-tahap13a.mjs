@@ -411,7 +411,16 @@ for (const f of berkasSrc) {
 cek("T3: semua pemanggilan limiter di-await", pemakaianSinkron.length === 0, pemakaianSinkron.join("; "));
 const jumlahLimiter = berkasSrc.filter((f) => {
   const isi = fs.readFileSync(f, "utf8");
-  return isi.includes("buatRateLimiter(") || isi.includes("buatRateLimiterAdmin(");
+  // Gelombang B1 (P0-7): 12 route berisiko tinggi pindah ke
+  // varian fail-closed buatRateLimiterKeras — tetap limiter DB
+  // (cekRateLimitDbKeras memanggil RPC pf_rate_limit_check yang
+  // sama), jadi ikut dihitung; tanpa ini hitungan turun ke 66
+  // dan asersi usang ini gagal walau cakupan limiter membaik.
+  return (
+    isi.includes("buatRateLimiter(") ||
+    isi.includes("buatRateLimiterAdmin(") ||
+    isi.includes("buatRateLimiterKeras(")
+  );
 }).length;
 cek("T3: limiter DB dipakai di >= 70 berkas route", jumlahLimiter >= 70, `dapat ${jumlahLimiter}`);
 
@@ -431,6 +440,16 @@ const auditRoutes = [
   ["src/app/api/admin/podcast/[id]/route.ts", ["podcast.episode", "podcast.terbit"]],
   ["src/app/api/admin/akademi/route.ts", ["akademi.kursus"]],
   ["src/app/api/admin/akademi/[id]/route.ts", ["akademi.kursus", "akademi.modul"]],
+  // Gelombang B1 (P1-3): 3 route yang sebelumnya best-effort.
+  ["src/app/api/admin/pengetahuan/route.ts", ["pengetahuan.buat"]],
+  ["src/app/api/admin/riset/route.ts", ["riset.buat"]],
+  ["src/app/api/admin/data/route.ts", ["data.indikator"]],
+  // Gelombang B1 lanjutan (P1-3 sisa): route [id] ketiga area —
+  // PATCH/DELETE memakai catatAuditWajib + compensating
+  // restore/re-insert; POST titik di data/[id] juga.
+  ["src/app/api/admin/pengetahuan/[id]/route.ts", ["pengetahuan.ubah", "pengetahuan.hapus"]],
+  ["src/app/api/admin/riset/[id]/route.ts", ["riset.ubah", "riset.hapus"]],
+  ["src/app/api/admin/data/[id]/route.ts", ["data.indikator", "data.titik"]],
 ];
 for (const [rel, aksiList] of auditRoutes) {
   const isi = bacaRepo(rel);
@@ -453,6 +472,119 @@ cek(
 );
 for (const rel of ["src/app/api/admin/akademi/route.ts", "src/app/api/admin/akademi/[id]/route.ts"]) {
   cek(`T10: ${rel} TIDAK lagi punya helper best-effort catatAuditAkademi`, !bacaRepo(rel).includes("catatAuditAkademi"));
+}
+
+// (b2) Gelombang B1 (P1-3): 4 jalur best-effort TERAKHIR diganti
+// catatAuditWajib + compensating delete/restore.
+// - pengetahuan/route.ts: helper catatAuditPengetahuan dihapus;
+//   POST memakai catatAuditWajib + responGalatAudit.
+// - riset/route.ts + data/route.ts: helper lokal catatAudit
+//   (try/catch penelan) dihapus; POST memakai catatAuditWajib.
+// - kendali.ts: setFlag (sistem.flag) + pemicuJobManual
+//   (sistem.job) memakai catatAuditWajib; route flags/jalankan
+//   memanggil setFlag/pemicuJobManual (audit fail-closed naik ke
+//   route sebagai 500/503 lewat responGalatAdmin).
+// - [id] route ketiga area (PATCH/DELETE + POST titik) SUDAH
+//   diganti (Gelombang B1 lanjutan): asersi di blok (b3) bawah.
+// - SQL: aksi audit keenam jalur [id] lolos CHECK v11 (blok b3).
+for (const [rel, helperLama, penandaCompensating] of [
+  ["src/app/api/admin/pengetahuan/route.ts", "catatAuditPengetahuan", "audit_compensating_delete_gagal"],
+  ["src/app/api/admin/riset/route.ts", "async function catatAudit(", "audit_compensating_delete_gagal"],
+  ["src/app/api/admin/data/route.ts", "async function catatAudit(", "audit_compensating_delete_gagal"],
+]) {
+  const isi = bacaRepo(rel);
+  cek(`T10-B1: ${rel} TIDAK lagi punya helper best-effort '${helperLama}'`, !isi.includes(helperLama));
+  cek(`T10-B1: ${rel} TIDAK lagi menelan galat audit ('jangan gagalkan operasi utama')`, !isi.includes("jangan gagalkan operasi utama") && !isi.includes("Audit pengetahuan gagal"));
+  cek(`T10-B1: ${rel} memakai catatAuditWajib + responGalatAudit`, isi.includes("catatAuditWajib") && isi.includes("responGalatAudit"));
+  cek(`T10-B1: ${rel} punya compensating delete sesudah audit gagal`, isi.includes(penandaCompensating) && isi.includes(".delete()"));
+}
+const kendali = bacaRepo("src/lib/admin/kendali.ts");
+cek("T10-B1: kendali.ts memakai catatAuditWajib untuk 'sistem.flag'", kendali.includes("catatAuditWajib") && kendali.includes('"sistem.flag"'));
+cek("T10-B1: kendali.ts memakai catatAuditWajib untuk 'sistem.job'", kendali.includes("catatAuditWajib") && kendali.includes('"sistem.job"'));
+cek("T10-B1: kendali.ts TIDAK lagi menelan galat audit ('tidak membatalkan')", !kendali.includes("tidak membatalkan") && !kendali.includes("Audit gagal tidak membatalkan"));
+cek("T10-B1: kendali.ts punya compensating restore flag", kendali.includes("audit_compensating_restore_flag_gagal"));
+cek("T10-B1: kendali.ts punya compensating restore job", kendali.includes("audit_compensating_restore_job_gagal"));
+cek("T10-B1: kendali.ts melempar galat audit (fail-closed, bukan ditelan)", kendali.includes("throw errAudit"));
+cek(
+  "T10-B1: flags route memanggil setFlag (audit fail-closed naik ke route)",
+  bacaRepo("src/app/api/admin/kendali/flags/route.ts").includes("setFlag"),
+);
+cek(
+  "T10-B1: jalankan route memanggil pemicuJobManual (audit fail-closed naik ke route)",
+  bacaRepo("src/app/api/admin/kendali/jalankan/route.ts").includes("pemicuJobManual"),
+);
+// SQL: aksi audit keempat jalur lolos CHECK v11.
+for (const [aksi, entitas] of [
+  ["pengetahuan.buat", "pengetahuan"],
+  ["riset.buat", "pf_research_reports"],
+  ["data.indikator", "pf_data_indicators"],
+  ["sistem.flag", "pf_system_settings"],
+  ["sistem.job", "pf_scheduled_jobs"],
+]) {
+  let ok = false;
+  try {
+    await db.query(
+      `insert into public.pf_audit_logs (aktor_id, aktor_email, aksi, entitas, entitas_id, sebelum, sesudah, ip)
+       values ($1, 'admin@uji.id', $2, $3, 'entitas-uji-b1', '{"nilai":"lama"}'::jsonb, '{"nilai":"baru"}'::jsonb, '203.0.113.5')`,
+      [UID_A, aksi, entitas],
+    );
+    ok = true;
+  } catch {
+    ok = false;
+  }
+  cek(`T10-B1: insert audit aksi '${aksi}' berhasil (CHECK v11)`, ok);
+}
+
+// (b3) Gelombang B1 lanjutan (P1-3 sisa): route [id] ketiga
+// area — helper best-effort lokal dihapus, PATCH/DELETE/POST
+// memakai catatAuditWajib + responGalatAudit, dengan
+// compensating restore (PATCH/POST-upsert) dan re-insert
+// (DELETE) bila audit gagal. Baris lama dibaca SEBELUM mutasi
+// (asersi sumber: ada select baris lama sebelum .update() /
+// .delete() / .upsert() di tiap handler).
+for (const [rel, helperLama, peristiwa] of [
+  ["src/app/api/admin/pengetahuan/[id]/route.ts", "catatAuditPengetahuan", ["audit_compensating_restore_gagal", "audit_compensating_reinsert_gagal"]],
+  ["src/app/api/admin/riset/[id]/route.ts", "async function catatAudit(", ["audit_compensating_restore_gagal", "audit_compensating_reinsert_gagal"]],
+  ["src/app/api/admin/data/[id]/route.ts", "async function catatAudit(", ["audit_compensating_restore_gagal", "audit_compensating_reinsert_gagal", "audit_compensating_delete_gagal"]],
+]) {
+  const isi = bacaRepo(rel);
+  cek(`T10-B1-id: ${rel} TIDAK lagi punya helper best-effort '${helperLama}'`, !isi.includes(helperLama));
+  cek(`T10-B1-id: ${rel} TIDAK lagi menelan galat audit ('jangan gagalkan operasi utama')`, !isi.includes("jangan gagalkan operasi utama") && !isi.includes("Audit pengetahuan gagal"));
+  cek(`T10-B1-id: ${rel} memakai catatAuditWajib + responGalatAudit`, isi.includes("catatAuditWajib") && isi.includes("responGalatAudit"));
+  for (const ev of peristiwa) {
+    cek(`T10-B1-id: ${rel} mencatat keras '${ev}' bila compensating gagal`, isi.includes(ev));
+  }
+  cek(
+    `T10-B1-id: ${rel} membaca baris lama SEBELUM update (PATCH) dan SEBELUM hapus (DELETE)`,
+    isi.includes("SEBELUM update") && isi.includes("SEBELUM hapus"),
+  );
+  if (rel === "src/app/api/admin/data/[id]/route.ts") {
+    cek(
+      "T10-B1-id: data/[id] membaca titik lama SEBELUM upsert (POST)",
+      isi.includes("SEBELUM") && isi.includes("upsert menimpa nilai"),
+    );
+  }
+}
+// SQL: aksi audit keenam jalur [id] lolos CHECK v11.
+for (const [aksi, entitas] of [
+  ["pengetahuan.ubah", "pengetahuan"],
+  ["pengetahuan.hapus", "pengetahuan"],
+  ["riset.ubah", "pf_research_reports"],
+  ["riset.hapus", "pf_research_reports"],
+  ["data.titik", "pf_data_points"],
+]) {
+  let ok = false;
+  try {
+    await db.query(
+      `insert into public.pf_audit_logs (aktor_id, aktor_email, aksi, entitas, entitas_id, sebelum, sesudah, ip)
+       values ($1, 'admin@uji.id', $2, $3, 'entitas-uji-b1-id', '{"nilai":"lama"}'::jsonb, '{"nilai":"baru"}'::jsonb, '203.0.113.5')`,
+      [UID_A, aksi, entitas],
+    );
+    ok = true;
+  } catch {
+    ok = false;
+  }
+  cek(`T10-B1-id: insert audit aksi '${aksi}' berhasil (CHECK v11)`, ok);
 }
 
 // (c) T4: 13 route pengguna memanggil tolakAkunNonaktif.
@@ -485,11 +617,18 @@ const fnIp = /export function ipDariRequest\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
 const fnKunci = /export async function kunciRateLimit\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
 const fnCekDb = /export async function cekRateLimitDb\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
 const fnBuat = /export function buatRateLimiter\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
-cek("TS: ipDariRequest/kunciRateLimit/cekRateLimitDb/buatRateLimiter dapat diekstrak", Boolean(fnIp && fnKunci && fnCekDb && fnBuat));
+// Gelombang B1: cekRateLimitDb kini memanggil dua helper baru
+// (klasifikasi + log terstruktur) — ikut diekstrak agar uji TS
+// tetap bisa menjalankan fungsi itu apa adanya.
+const fnKlasifikasi = /export function klasifikasiGalatRpc\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
+const fnCatatGalat = /export function catatGalatRateLimit\([\s\S]*?\n\}/.exec(routeAuth)?.[0];
+cek("TS: ipDariRequest/kunciRateLimit/cekRateLimitDb/buatRateLimiter dapat diekstrak", Boolean(fnIp && fnKunci && fnCekDb && fnBuat && fnKlasifikasi && fnCatatGalat));
 if (fnIp && fnKunci && fnCekDb && fnBuat) {
   const kode = transpileKeJs(
     `${fnIp.replace("export function", "function")}\n` +
       `${fnKunci.replace("export async function", "async function")}\n` +
+      `${(fnKlasifikasi ?? "").replace("export function", "function")}\n` +
+      `${(fnCatatGalat ?? "").replace("export function", "function")}\n` +
       `${fnCekDb.replace("export async function", "async function")}\n` +
       `${fnBuat.replace("export function", "function")}\n` +
       `return { ipDariRequest, kunciRateLimit, cekRateLimitDb, buatRateLimiter };`,

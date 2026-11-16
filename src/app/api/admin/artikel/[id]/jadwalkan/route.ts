@@ -1,5 +1,10 @@
 // POST /api/admin/artikel/[id]/jadwalkan — jadwalkan artikel
-// (status='terjadwal', dijadwalkan_pada). Body {dijadwalkan_pada}.
+// (status='terjadwal', dijadwalkan_pada).
+// Body {dijadwalkan_pada, override_kualitas?, alasan_override?}.
+// override_kualitas=true (+ alasan wajib) = override eksplisit
+// editor atas pemeriksaan kualitas draf yang gagal (P2-2);
+// tanpa itu penjadwalan draf yang gagal kualitas ditolak 409.
+// Penjadwalan juga memeriksa gate terbit (P0-2): gagal gate -> 409.
 // Editor/super_admin. Rate limit 30/menit/IP.
 import { NextResponse } from "next/server";
 import {
@@ -12,7 +17,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { buatAdminAdapter } from "@/lib/admin/supabase-adapter";
-import { jadwalkanArtikel } from "@/lib/admin/editorial";
+import { GalatGateTerbit, jadwalkanArtikel } from "@/lib/admin/editorial";
 import { ROLES } from "@/lib/auth/roles";
 
 const lolosRateLimit = buatRateLimiterAdmin();
@@ -39,13 +44,31 @@ export async function POST(
 
   try {
     const adapter = buatAdminAdapter();
-    const artikel = await jadwalkanArtikel(adapter, id, dijadwalkanPada, {
-      id: auth.user.id,
-      email: auth.user.email ?? null,
-      ip: ipDariRequest(req),
-    });
+    const artikel = await jadwalkanArtikel(
+      adapter,
+      id,
+      dijadwalkanPada,
+      {
+        id: auth.user.id,
+        email: auth.user.email ?? null,
+        ip: ipDariRequest(req),
+      },
+      {
+        overrideKualitas: body.override_kualitas === true,
+        alasanOverride:
+          typeof body.alasan_override === "string"
+            ? body.alasan_override
+            : "",
+      },
+    );
     return NextResponse.json({ ok: true, artikel });
   } catch (err) {
+    if (err instanceof GalatGateTerbit) {
+      return NextResponse.json(
+        { ok: false, error: err.message, alasan: err.alasan },
+        { status: 409 },
+      );
+    }
     if (err instanceof Error && err.message === "Artikel tidak ditemukan.") {
       return NextResponse.json(
         { ok: false, error: err.message },

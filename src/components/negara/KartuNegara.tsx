@@ -1,27 +1,29 @@
-import Link from "next/link";
-import { formatAngka, punyaSumber, type PfNegara } from "@/lib/negara";
-
-// Kartu profil negara di halaman daftar /negara.
+// Kartu negara di halaman daftar /negara.
 // Populasi HANYA tampil bila baris negara punya sumber (aturan
 // angka-bersumber); tanpa sumber, kartu menampilkan "belum
 // tersedia" — bukan angka tanpa asal.
+import { punyaSumber, type PfNegara } from "@/lib/negara";
+import { formatAngka } from "@/lib/format";
+import Kartu from "@/components/Kartu";
+
 export default function KartuNegara({ negara }: { negara: PfNegara }) {
   const adaSumber = punyaSumber(negara.sumber);
   return (
-    <Link className="kartu kartu-artikel" href={`/negara/${negara.kode}`}>
-      <span className="kartu-kategori">{negara.kode}</span>
-      <span className="kartu-judul">{negara.nama}</span>
-      {negara.ibu_kota && (
-        <span className="kartu-teks">Ibu kota: {negara.ibu_kota}</span>
-      )}
-      <span className="kartu-meta">
-        {adaSumber && negara.populasi !== null
+    <Kartu
+      href={`/negara/${negara.kode}`}
+      kategori={negara.kode}
+      judul={negara.nama}
+      teks={
+        negara.ibu_kota ? `Ibu kota: ${negara.ibu_kota}` : undefined
+      }
+      meta={
+        adaSumber && negara.populasi !== null
           ? `Populasi: ${formatAngka(negara.populasi)}${negara.periode_referensi ? ` (${negara.periode_referensi})` : ""}`
-          : "Populasi: belum tersedia"}
-      </span>
-      {adaSumber && negara.sumber && (
-        <span className="kartu-meta">Sumber: {negara.sumber}</span>
-      )}
-    </Link>
+          : "Populasi: belum tersedia"
+      }
+      metaTambahan={
+        adaSumber && negara.sumber ? `Sumber: ${negara.sumber}` : undefined
+      }
+    />
   );
 }

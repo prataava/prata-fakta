@@ -9,7 +9,7 @@ import {
   type PfProgresPelajaran,
 } from "@/lib/akademi";
 import { labelTingkat } from "@/lib/explainer";
-import { getKuisHarian, type PfKuisSoalPublik } from "@/lib/lanjutan";
+import { getKuisHarian, KuisBelumTersediaError, type PfKuisSoalPublik } from "@/lib/lanjutan";
 import { createClient } from "@/lib/supabase/server";
 import { urlSitus } from "@/lib/situs";
 
@@ -71,12 +71,41 @@ export default async function AkademiDetail({
   // TIDAK PERNAH dikirim ke klien — hanya soal publik (tanpa kunci).
   // Pelajaran kuis tanpa soal untuk tanggalnya menampilkan pesan
   // jujur di komponen.
+  // P2-11 (B-S12): N+1 dihapus — kumpulkan tanggal kuis UNIK,
+  // satu panggilan per tanggal secara paralel (Promise.all),
+  // lalu petakan ke pelajaran. Bila layanan kuis belum tersedia
+  // (service key / tabel v13 belum ada), tampilkan pesan jujur
+  // "kuis belum tersedia" — bukan kuis kosong diam-diam (P2-14).
   const soalKuis: Record<string, PfKuisSoalPublik[]> = {};
-  for (const m of detail.modul) {
-    for (const p of m.pelajaran) {
-      if (p.jenis !== "kuis" || !p.kuis_tanggal) continue;
-      const soal = await getKuisHarian(p.kuis_tanggal);
-      soalKuis[p.id] = soal.map((s) => ({
+  let kuisBelumTersedia = false;
+  const tanggalUnik = [
+    ...new Set(
+      detail.modul.flatMap((m) =>
+        m.pelajaran
+          .filter((p) => p.jenis === "kuis" && p.kuis_tanggal)
+          .map((p) => p.kuis_tanggal as string),
+      ),
+    ),
+  ];
+  const soalPerTanggal = new Map<string, PfKuisSoalPublik[]>();
+  const hasilTanggal = await Promise.all(
+    tanggalUnik.map(async (tanggal) => {
+      try {
+        const soal = await getKuisHarian(tanggal);
+        return { tanggal, soal, gagal: false };
+      } catch (err) {
+        if (err instanceof KuisBelumTersediaError) {
+          return { tanggal, soal: [], gagal: true };
+        }
+        throw err;
+      }
+    }),
+  );
+  for (const { tanggal, soal, gagal } of hasilTanggal) {
+    if (gagal) kuisBelumTersedia = true;
+    soalPerTanggal.set(
+      tanggal,
+      soal.map((s) => ({
         id: s.id,
         tanggal: s.tanggal,
         pertanyaan: s.pertanyaan,
@@ -85,7 +114,13 @@ export default async function AkademiDetail({
         sumber_url: s.sumber_url,
         sumber_nama: s.sumber_nama,
         artikel_id: s.artikel_id,
-      }));
+      })),
+    );
+  }
+  for (const m of detail.modul) {
+    for (const p of m.pelajaran) {
+      if (p.jenis !== "kuis" || !p.kuis_tanggal) continue;
+      soalKuis[p.id] = soalPerTanggal.get(p.kuis_tanggal) ?? [];
     }
   }
 
@@ -109,6 +144,15 @@ export default async function AkademiDetail({
           </p>
         )}
       </section>
+
+      {kuisBelumTersedia && (
+        <section className="seksi">
+          <EmptyState
+            judul="Kuis pelajaran belum tersedia."
+            pesan="Layanan kuis belum aktif (kunci layanan atau migrasi database belum diatur). Materi kursus tetap bisa dibaca."
+          />
+        </section>
+      )}
 
       {detail.total_pelajaran === 0 ? (
         <section className="seksi">

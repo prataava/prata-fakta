@@ -19,6 +19,7 @@
 //    <definisi>" (konvensi editorial; lihat ambilIstilah).
 // Bila konvensi tidak dipakai editor, seksi itu tidak tampil.
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import type { PfArtikelPengetahuan, PfReferensi } from "@/lib/lanjutan";
 
 export type JenisPengetahuan = "artikel" | "explainer";
@@ -122,35 +123,16 @@ export async function getExplainer(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getExplainer", error)) return null;
+      throw new GalatBaca("getExplainer", error);
+    }
+    if (!data) return null;
     return barisExplainer(data as unknown as Record<string, unknown>);
-  } catch {
-    return null;
-  }
-}
-
-/** Daftar explainer terbit; filter topik opsional. */
-export async function getDaftarExplainer(
-  topik?: string,
-  limit = 24,
-): Promise<ExplainerArtikel[]> {
-  try {
-    const supabase = await createClient();
-    let query = supabase
-      .from("pf_knowledge_articles")
-      .select(KOLOM_EXPLAINER)
-      .eq("status", "terbit")
-      .eq("jenis", "explainer")
-      .order("harian_tanggal", { ascending: false, nullsFirst: false })
-      .limit(limit);
-    if (topik) query = query.eq("topik", topik);
-    const { data, error } = await query;
-    if (error || !data) return [];
-    return (data as unknown as Record<string, unknown>[]).map(
-      barisExplainer,
-    );
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getExplainer", err)) return null;
+    throw new GalatBaca("getExplainer", err);
   }
 }
 
@@ -170,12 +152,18 @@ export async function getSeri(
       .eq("seri_slug", seriSlug)
       .order("harian_tanggal", { ascending: false, nullsFirst: false })
       .order("judul", { ascending: true });
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getSeri", error)) return [];
+      throw new GalatBaca("getSeri", error);
+    }
+    if (!data) return [];
     return (data as unknown as Record<string, unknown>[]).map(
       barisExplainer,
     );
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getSeri", err)) return [];
+    throw new GalatBaca("getSeri", err);
   }
 }
 

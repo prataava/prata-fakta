@@ -30,6 +30,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AWALAN_BELUM_SIAP } from "./types";
+import { catatAuditWajib } from "./audit";
 
 /* ============================================================
    Feature flags (pf_system_settings)
@@ -247,8 +248,14 @@ export async function setFlag(
     );
   if (error) lemparBelumSiap("setFlag", error);
 
+  // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+  // catat -> perubahan flag DITOLAK + compensating restore nilai
+  // sebelumnya (upsert nilai lama, atau hapus baris bila flag
+  // sebelumnya belum pernah disetel). Galat dilempar agar route
+  // menjawab 500/503 (responGalatAdmin), bukan 200 tanpa jejak.
+  // Atomicity penuh (transaksi/RPC) adalah follow-up migrasi.
   try {
-    await klien!.from("pf_audit_logs").insert({
+    await catatAuditWajib({
       aktor_id: aktor.id,
       aktor_email: aktor.email,
       aksi: "sistem.flag",
@@ -258,10 +265,34 @@ export async function setFlag(
       sesudah: { nilai: nilai as NilaiFlag },
       ip: aktor.ip ?? null,
     });
-  } catch {
-    // Audit gagal tidak membatalkan perubahan flag yang sudah
-    // tersimpan; route tetap menjawab berhasil (audit dicatat
-    // bila tabel/CHECK tersedia).
+  } catch (errAudit) {
+    try {
+      if (lama && lama.disetel) {
+        await klien!.from("pf_system_settings").upsert(
+          {
+            kunci,
+            nilai: { nilai: lama.nilai },
+            deskripsi: definisi.deskripsi,
+          },
+          { onConflict: "kunci" },
+        );
+      } else {
+        await klien!.from("pf_system_settings").delete().eq("kunci", kunci);
+      }
+    } catch (errPulih) {
+      console.error(
+        JSON.stringify({
+          event: "audit_compensating_restore_flag_gagal",
+          waktu: new Date().toISOString(),
+          kunci,
+          pesan:
+            errPulih instanceof Error
+              ? errPulih.message
+              : String(errPulih ?? ""),
+        }),
+      );
+    }
+    throw errAudit;
   }
 
   return {
@@ -476,13 +507,42 @@ export async function pemicuJobManual(
       ? ((hasil as { error: string }).error as string)
       : null;
 
-  // Perbarui baris job (F6 — hanya untuk pemicu manual) + audit.
+  // Perbarui baris job (F6 — hanya untuk pemicu manual).
   // Bila baris belum ada (seed hanya 3 job), JANGAN membuat baris
   // baru dengan cron karangan — catat saja sebagai belum tercatat.
+  // Audit 'sistem.job' WAJIB (fail-closed, Gelombang B1, P1-3):
+  // ia dipanggil DI LUAR try status di bawah agar galatnya
+  // TIDAK ditelan — gagal catat -> baris job dipulihkan ke nilai
+  // sebelumnya (compensating) + galat dilempar agar route
+  // menjawab 500/503. Catatan jujur: job internal yang sudah
+  // terlanjur berjalan TIDAK bisa dibatalkan; yang dipulihkan
+  // hanyalah pencatatan statusnya, dan kegagalan audit terlihat
+  // sebagai 500 (operator tahu run itu tidak terekam).
   let barisDiperbarui = false;
+  let barisLama: {
+    terakhir_jalan: string | null;
+    status_terakhir: string;
+    error_terakhir: string | null;
+  } | null = null;
+  let klienStatus: SupabaseClient | null = null;
   try {
-    const klien = createServiceClient();
-    const { data: baris } = await klien
+    klienStatus = createServiceClient();
+    try {
+      const { data: lama } = await klienStatus
+        .from("pf_scheduled_jobs")
+        .select("terakhir_jalan,status_terakhir,error_terakhir")
+        .eq("nama", nama)
+        .maybeSingle();
+      barisLama = (lama as {
+        terakhir_jalan: string | null;
+        status_terakhir: string;
+        error_terakhir: string | null;
+      } | null) ?? null;
+    } catch {
+      // Baris lama gagal dibaca: compensating dilewati, audit
+      // tetap wajib di bawah.
+    }
+    const { data: baris } = await klienStatus
       .from("pf_scheduled_jobs")
       .update({
         terakhir_jalan: new Date().toISOString(),
@@ -493,28 +553,53 @@ export async function pemicuJobManual(
       .select("id")
       .maybeSingle();
     barisDiperbarui = baris !== null && baris !== undefined;
-    try {
-      await klien.from("pf_audit_logs").insert({
-        aktor_id: aktor.id,
-        aktor_email: aktor.email,
-        aksi: "sistem.job",
-        entitas: "pf_scheduled_jobs",
-        entitas_id: nama,
-        sebelum: null,
-        sesudah: {
-          pemicu: "manual",
-          ok,
-          baris_job_diperbarui: barisDiperbarui,
-          error: pesanGalat,
-        },
-        ip: aktor.ip ?? null,
-      });
-    } catch {
-      // Audit gagal tidak membatalkan hasil pemicu.
-    }
   } catch {
     // Service key / tabel belum ada: hasil pemicu tetap dilaporkan
     // apa adanya; pencatatan status dilewati.
+  }
+
+  try {
+    await catatAuditWajib({
+      aktor_id: aktor.id,
+      aktor_email: aktor.email,
+      aksi: "sistem.job",
+      entitas: "pf_scheduled_jobs",
+      entitas_id: nama,
+      sebelum: null,
+      sesudah: {
+        pemicu: "manual",
+        ok,
+        baris_job_diperbarui: barisDiperbarui,
+        error: pesanGalat,
+      },
+      ip: aktor.ip ?? null,
+    });
+  } catch (errAudit) {
+    if (klienStatus && barisLama) {
+      try {
+        await klienStatus
+          .from("pf_scheduled_jobs")
+          .update({
+            terakhir_jalan: barisLama.terakhir_jalan,
+            status_terakhir: barisLama.status_terakhir,
+            error_terakhir: barisLama.error_terakhir,
+          })
+          .eq("nama", nama);
+      } catch (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_restore_job_gagal",
+            waktu: new Date().toISOString(),
+            job: nama,
+            pesan:
+              errPulih instanceof Error
+                ? errPulih.message
+                : String(errPulih ?? ""),
+          }),
+        );
+      }
+    }
+    throw errAudit;
   }
 
   return {

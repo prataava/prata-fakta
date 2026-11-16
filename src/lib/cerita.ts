@@ -12,6 +12,7 @@
 // belum diterapkan, sumber_independen = null dan komponen WAJIB
 // menampilkan jumlah artikel saja, tanpa klaim independen.
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import type { PfTimelineEvent } from "@/lib/lanjutan";
 
 /* ============================================================
@@ -186,6 +187,15 @@ async function hitungJumlahCerita(
         .in("story_id", storyId)
         .limit(5000),
     ]);
+    // Galat hitungan dicatat; hitungan yang gagal = 0 (bukan
+    // melempar — daftar cerita tetap tampil).
+    for (const [nama, res] of [
+      ["event", ev],
+      ["artikel", ar],
+      ["pengikut", fo],
+    ] as const) {
+      if (res.error) catatGalatBaca(`hitungJumlahCerita.${nama}`, res.error);
+    }
     return {
       event: hitungPerCerita(
         (ev.data ?? []) as { story_id: string }[],
@@ -197,7 +207,8 @@ async function hitungJumlahCerita(
         (fo.data ?? []) as { story_id: string }[],
       ),
     };
-  } catch {
+  } catch (err) {
+    catatGalatBaca("hitungJumlahCerita", err);
     return kosong;
   }
 }
@@ -207,7 +218,8 @@ async function hitungJumlahCerita(
    ============================================================ */
 
 /** Daftar cerita TERBIT, terbaru dulu, beserta hitungannya.
- *  [] bila tabel v10 belum ada / query gagal. */
+ *  [] bila tabel v10 belum ada / query gagal.
+ *  P3-5 (B-R5): limit dijepit 1..200. */
 export async function getDaftarCerita(
   limit = 50,
 ): Promise<PfCeritaRingkas[]> {
@@ -218,8 +230,12 @@ export async function getDaftarCerita(
       .select("id, slug, judul, ringkasan, status, status_perkembangan, dibuat_pada")
       .eq("status", "terbit")
       .order("dibuat_pada", { ascending: false })
-      .limit(limit);
-    if (error || !data) return [];
+      .limit(Math.min(200, Math.max(1, limit)));
+    if (error) {
+      if (catatGalatBaca("getDaftarCerita", error)) return [];
+      throw new GalatBaca("getDaftarCerita", error);
+    }
+    if (!data) return [];
     const rows = data as unknown as Record<string, unknown>[];
     const ids = rows.map((r) => String(r.id));
     const hitung = await hitungJumlahCerita(supabase, ids);
@@ -238,8 +254,10 @@ export async function getDaftarCerita(
         dibuat_pada: (r.dibuat_pada as string | null) ?? null,
       };
     });
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getDaftarCerita", err)) return [];
+    throw new GalatBaca("getDaftarCerita", err);
   }
 }
 
@@ -265,7 +283,11 @@ export async function getCerita(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (errCerita || !cerita) return null;
+    if (errCerita) {
+      if (catatGalatBaca("getCerita", errCerita)) return null;
+      throw new GalatBaca("getCerita", errCerita);
+    }
+    if (!cerita) return null;
     const row = cerita as unknown as Record<string, unknown>;
     const storyId = String(row.id);
 
@@ -289,7 +311,11 @@ export async function getCerita(
         .select("id", { count: "exact", head: true })
         .eq("story_id", storyId),
     ]);
-    if (tautanEvent.error || tautanArtikel.error) return null;
+    if (tautanEvent.error || tautanArtikel.error) {
+      if (tautanEvent.error) catatGalatBaca("getCerita.tautanEvent", tautanEvent.error);
+      if (tautanArtikel.error) catatGalatBaca("getCerita.tautanArtikel", tautanArtikel.error);
+      return null;
+    }
 
     // Kronologi (pf_event_timeline) untuk semua event dalam cerita.
     const events: PfCeritaEvent[] = [];
@@ -344,9 +370,14 @@ export async function getCerita(
           for (const e of events) {
             e.timeline = perEvent.get(e.event_id) ?? [];
           }
+        } else if (errTl) {
+          // Timeline gagal dibaca: dicatat, event tetap tampil
+          // tanpa rincian.
+          catatGalatBaca("getCerita.timeline", errTl);
         }
-      } catch {
-        // Timeline gagal dibaca: event tetap tampil tanpa rincian.
+      } catch (err) {
+        // Timeline gagal dibaca: dicatat, event tetap tampil tanpa rincian.
+        catatGalatBaca("getCerita.timeline", err);
       }
     }
 
@@ -374,9 +405,10 @@ export async function getCerita(
           if (typeof r.url === "string" && r.url) daftar.push(r.url);
           urlPerArtikel.set(String(r.artikel_id), daftar);
         }
-      } catch {
+      } catch (err) {
         // Tanpa URL sumber tambahan, RPC tetap dipanggil dengan
         // sumber_url artikel saja.
+        catatGalatBaca("getCerita.sumberArtikel", err);
       }
     }
     let rantaiTersedia = true;
@@ -430,7 +462,8 @@ export async function getCerita(
               rantaiTersedia = false;
             }
           }
-        } catch {
+        } catch (err) {
+          catatGalatBaca("getCerita.rantaiSalinan", err);
           rantaiTersedia = false;
         }
       } else {
@@ -472,7 +505,8 @@ export async function getCerita(
           .eq("story_id", storyId)
           .maybeSingle();
         mengikuti = Boolean(f);
-      } catch {
+      } catch (err) {
+        catatGalatBaca("getCerita.mengikuti", err);
         mengikuti = false;
       }
     }
@@ -494,8 +528,10 @@ export async function getCerita(
       sumber_independen: sumberIndependen,
       rantai_tersedia: rantaiTersedia,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getCerita", err)) return null;
+    throw new GalatBaca("getCerita", err);
   }
 }
 
@@ -524,7 +560,11 @@ export async function getCeritaUntukArtikel(
       .order("dibuat_pada", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getCeritaUntukArtikel", error)) return null;
+      throw new GalatBaca("getCeritaUntukArtikel", error);
+    }
+    if (!data) return null;
     const cerita = (data as unknown as Record<string, unknown>).pf_stories as
       | { slug?: unknown; judul?: unknown; status_perkembangan?: unknown }
       | null;
@@ -537,8 +577,10 @@ export async function getCeritaUntukArtikel(
           ? cerita.status_perkembangan
           : "",
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getCeritaUntukArtikel", err)) return null;
+    throw new GalatBaca("getCeritaUntukArtikel", err);
   }
 }
 
@@ -556,7 +598,11 @@ export async function getCeritaDiikuti(
       .eq("pf_stories.status", "terbit")
       .order("dibuat_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getCeritaDiikuti", error)) return [];
+      throw new GalatBaca("getCeritaDiikuti", error);
+    }
+    if (!data) return [];
     const rows = (data as unknown as Record<string, unknown>[])
       .map((r) => r.pf_stories as Record<string, unknown> | null)
       .filter((s): s is Record<string, unknown> => Boolean(s));
@@ -577,8 +623,10 @@ export async function getCeritaDiikuti(
         dibuat_pada: (r.dibuat_pada as string | null) ?? null,
       };
     });
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getCeritaDiikuti", err)) return [];
+    throw new GalatBaca("getCeritaDiikuti", err);
   }
 }
 
@@ -595,16 +643,26 @@ export async function getEventIdDalamCerita(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (errCerita || !cerita) return null;
+    if (errCerita) {
+      if (catatGalatBaca("getEventIdDalamCerita", errCerita)) return null;
+      throw new GalatBaca("getEventIdDalamCerita", errCerita);
+    }
+    if (!cerita) return null;
     const { data, error } = await supabase
       .from("pf_story_events")
       .select("event_id")
       .eq("story_id", (cerita as { id: string }).id)
       .order("urutan", { ascending: true });
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getEventIdDalamCerita", error)) return [];
+      throw new GalatBaca("getEventIdDalamCerita", error);
+    }
+    if (!data) return [];
     return (data as { event_id: string }[]).map((r) => r.event_id);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getEventIdDalamCerita", err)) return null;
+    throw new GalatBaca("getEventIdDalamCerita", err);
   }
 }
 
@@ -614,27 +672,10 @@ export async function getEventIdDalamCerita(
    Dipakai route /api/cerita/[slug]/ikuti.
    ============================================================ */
 
-/** Apakah pengguna mengikuti cerita ini. */
-export async function isMengikutiCerita(
-  userId: string,
-  storyId: string,
-): Promise<boolean> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_story_followers")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("story_id", storyId)
-      .maybeSingle();
-    if (error || !data) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Ikuti cerita; idempoten (sudah diikuti → sudahDiikuti: true). */
+/** Ikuti cerita; idempoten (sudah diikuti → sudahDiikuti: true).
+ *  CATATAN (P2-32): helper baca isMengikutiCerita DIHAPUS —
+ *  dead code (0 pemakai); status mengikuti dibaca di dalam
+ *  getCerita (userId) atau dicek route dari hasil insert. */
 export async function ikutiCerita(
   userId: string,
   storyId: string,
@@ -653,10 +694,12 @@ export async function ikutiCerita(
             "Layanan cerita belum aktif (tabel database belum dibuat). Coba lagi setelah migrasi v10 dijalankan.",
         };
       }
+      console.error("[baca] ikutiCerita: gagal insert pf_story_followers.", error);
       return { ok: false, error: "Gagal mengikuti cerita. Coba lagi." };
     }
     return { ok: true };
-  } catch {
+  } catch (err) {
+    console.error("[baca] ikutiCerita: gagal mengikuti cerita.", err);
     return { ok: false, error: "Gagal mengikuti cerita. Coba lagi." };
   }
 }
@@ -681,10 +724,12 @@ export async function berhentiIkutiCerita(
             "Layanan cerita belum aktif (tabel database belum dibuat). Coba lagi setelah migrasi v10 dijalankan.",
         };
       }
+      console.error("[baca] berhentiIkutiCerita: gagal delete pf_story_followers.", error);
       return { ok: false, error: "Gagal berhenti mengikuti cerita. Coba lagi." };
     }
     return { ok: true };
-  } catch {
+  } catch (err) {
+    console.error("[baca] berhentiIkutiCerita: gagal berhenti mengikuti cerita.", err);
     return { ok: false, error: "Gagal berhenti mengikuti cerita. Coba lagi." };
   }
 }

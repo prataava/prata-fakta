@@ -1,6 +1,7 @@
-import Link from "next/link";
 import type { PfArtikelRingkas } from "@/lib/data";
+import { formatTanggal } from "@/lib/format";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
+import Kartu from "@/components/Kartu";
 
 // Kartu artikel — server-safe, dipakai beranda / arsip / kategori / cari.
 // Seluruh kartu adalah tautan ke /artikel/[slug]. Tanpa foto dari situs
@@ -13,28 +14,25 @@ export default function KartuArtikel({
   kategoriNama?: string | null;
 }) {
   const kategori = kategoriNama ?? artikel.kategori_slug ?? "Umum";
-  const tanggal = artikel.diterbitkan_pada
-    ? new Date(artikel.diterbitkan_pada).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "Tanggal belum tersedia";
-
   return (
-    <Link className="kartu kartu-artikel" href={`/artikel/${artikel.slug}`}>
-      <div className="placeholder-gambar" aria-hidden="true">
-        <span>{kategori}</span>
-      </div>
-      <span className="kartu-kategori">
-        {kategori} ·{" "}
-        <span className={kelasLencanaStatus(artikel.status_verifikasi)}>
-          {labelStatusVerifikasi(artikel.status_verifikasi)}
-        </span>
-      </span>
-      <span className="kartu-judul">{artikel.judul}</span>
-      {artikel.ringkasan && <span className="kartu-teks">{artikel.ringkasan}</span>}
-      <span className="kartu-meta">{tanggal}</span>
-    </Link>
+    <Kartu
+      href={`/artikel/${artikel.slug}`}
+      gambar={
+        <div className="placeholder-gambar" aria-hidden="true">
+          <span>{kategori}</span>
+        </div>
+      }
+      kategori={
+        <>
+          {kategori} ·{" "}
+          <span className={kelasLencanaStatus(artikel.status_verifikasi)}>
+            {labelStatusVerifikasi(artikel.status_verifikasi)}
+          </span>
+        </>
+      }
+      judul={artikel.judul}
+      teks={artikel.ringkasan ?? undefined}
+      meta={formatTanggal(artikel.diterbitkan_pada, "Tanggal belum tersedia")}
+    />
   );
 }

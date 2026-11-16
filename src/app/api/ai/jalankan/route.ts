@@ -3,9 +3,9 @@ import { buatSupabaseAiAdapter } from "@/lib/ai/supabase-adapter";
 import { jalankanPipelineEditorial } from "@/lib/ai/pipeline";
 import {
   autentikasiPemicuAi,
-  buatRateLimiter,
-  normalisasiDipicuOleh,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
 import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
@@ -16,18 +16,25 @@ import { bacaFlag } from "@/lib/scheduler/flags";
 //  (a) header x-pf-ai-secret == PF_AI_SECRET (pemicu jadwal);
 //  (b) sesi login super_admin/editor.
 // Bila PF_AI_SECRET belum diatur DAN tidak ada sesi -> 503 jujur.
-// Body opsional: { limit?, hanya_item_id?, dipicu_oleh? }.
+// Body opsional: { limit?, hanya_item_id?, rekonsiliasi? }.
 // limit dibatasi 1..50 (bawaan 10) — satu run tidak memproses
 // seluruh antrean sekaligus.
-// Mengembalikan hitungan NYATA pipeline (diproses, draf,
-// terverifikasi, cross_checked, developing, unconfirmed, dilewati,
-// gagal). Artikel yang dihasilkan SELALU status='draft' — tidak
-// pernah auto-terbit.
+// P3-4 (N-R1): dipicu_oleh DITETAPKAN SERVER dari jalur
+// autentikasi (auth.dipicuOleh) — nilai dari body TIDAK PERNAH
+// dipakai (label "cron_muse" tidak bisa lagi diklaim pemanggil).
+// rekonsiliasi=false menonaktifkan job rekonsiliasi akhir run
+// (bawaan aktif). Mengembalikan hitungan NYATA pipeline (diproses,
+// draf, terverifikasi, cross_checked, developing, unconfirmed,
+// dilewati, gagal, rekonsiliasi). Artikel yang dihasilkan SELALU
+// status='draft' — tidak pernah auto-terbit.
 // Rate limiting: 10 req/menit/IP (pola /api/langganan).
-const lolosRateLimit = buatRateLimiter(10);
+const lolosRateLimit = buatRateLimiterKeras(10);
 
 export async function POST(req: Request) {
-  if (!(await lolosRateLimit(req))) return responRateLimit();
+  const hasilRateLimit = await lolosRateLimit(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const auth = await autentikasiPemicuAi(req);
   if (!auth.ok) return auth.respon;
@@ -36,7 +43,7 @@ export async function POST(req: Request) {
   let body: {
     limit?: unknown;
     hanya_item_id?: unknown;
-    dipicu_oleh?: unknown;
+    rekonsiliasi?: unknown;
   } = {};
   try {
     const teks = await req.text();
@@ -56,7 +63,10 @@ export async function POST(req: Request) {
     typeof body.hanya_item_id === "string" && body.hanya_item_id.trim()
       ? body.hanya_item_id.trim()
       : undefined;
-  const dipicuOleh = normalisasiDipicuOleh(body.dipicu_oleh, auth.dipicuOleh);
+  // P3-4 (N-R1): dipicu_oleh HANYA dari jalur autentikasi server.
+  // Nilai dari body (bila dikirim) sengaja diabaikan.
+  const dipicuOleh = auth.dipicuOleh;
+  const jalankanRekonsiliasi = body.rekonsiliasi !== false;
 
   // --- Penegakan flag (Tahap 13C): pipeline_editorial_aktif=false
   // -> 503 jujur. Service client tak tersedia -> lewati cek flag
@@ -119,6 +129,7 @@ export async function POST(req: Request) {
       limit,
       hanyaItemId,
       dipicu_oleh: dipicuOleh,
+      rekonsiliasi: jalankanRekonsiliasi,
     });
     okRun = true;
     return NextResponse.json({

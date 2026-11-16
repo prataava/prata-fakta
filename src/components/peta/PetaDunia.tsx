@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import styles from "./PetaDunia.module.css";
+import { formatTanggal } from "@/lib/format";
 
 export type MarkerPeta = {
   lintang: number;
@@ -12,18 +13,6 @@ export type MarkerPeta = {
   tautan: string;
   labelTautan: string;
 };
-
-function formatTanggal(tanggal: string | null): string {
-  if (!tanggal) return "Tanggal belum tersedia";
-  const d = new Date(tanggal);
-  if (Number.isNaN(d.getTime())) return tanggal;
-  return d.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Asia/Jakarta",
-  });
-}
 
 function escapeHtml(s: string): string {
   return s
@@ -74,7 +63,7 @@ export default function PetaDunia({ marker }: { marker: MarkerPeta[] }) {
       for (const m of marker) {
         const isiPopup =
           `<strong>${escapeHtml(m.judul)}</strong><br>` +
-          `${escapeHtml(formatTanggal(m.tanggal))}` +
+          `${escapeHtml(formatTanggal(m.tanggal, "Tanggal belum tersedia"))}` +
           (m.lokasi ? `<br>${escapeHtml(m.lokasi)}` : "") +
           `<br><a href="${escapeHtml(m.tautan)}">${escapeHtml(m.labelTautan)}</a>`;
         L.marker([m.lintang, m.bujur], { icon: ikon })
@@ -99,7 +88,7 @@ export default function PetaDunia({ marker }: { marker: MarkerPeta[] }) {
     <div
       ref={wadahRef}
       className={styles.peta}
-      role="application"
+      role="region"
       aria-label="Peta peristiwa"
     />
   );

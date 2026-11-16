@@ -1,6 +1,8 @@
 // GET /api/admin/antrean — antrean editorial: artikel draft +
 // terjadwal, masing-masing dengan verifikasi terakhir + review
-// terakhir. Staf mana pun. Rate limit 30/menit/IP.
+// terakhir + pemeriksaan kualitas terakhir (P2-2: editor melihat
+// draf yang gagal kualitas sebelum menjadwalkan). Staf mana pun.
+// Rate limit 30/menit/IP.
 import { NextResponse } from "next/server";
 import {
   autentikasiAdmin,
@@ -9,6 +11,7 @@ import {
   responRateLimit,
 } from "@/lib/admin/guard";
 import { buatAdminAdapter } from "@/lib/admin/supabase-adapter";
+import { periksaKualitasTerakhir } from "@/lib/admin/editorial";
 
 const lolosRateLimit = buatRateLimiterAdmin();
 
@@ -26,11 +29,19 @@ export async function GET(req: Request) {
     const semua = [...draft.artikel, ...terjadwal.artikel];
     const antrean = await Promise.all(
       semua.map(async (artikel) => {
-        const [verifikasi_terakhir, review_terakhir] = await Promise.all([
-          adapter.getVerifikasiTerakhir({ artikel_id: artikel.id }),
-          adapter.getReviewTerakhir({ artikel_id: artikel.id }),
-        ]);
-        return { artikel, verifikasi_terakhir, review_terakhir };
+        const [verifikasi_terakhir, review_terakhir, kualitas_terakhir] =
+          await Promise.all([
+            adapter.getVerifikasiTerakhir({ artikel_id: artikel.id }),
+            adapter.getReviewTerakhir({ artikel_id: artikel.id }),
+            // Best-effort: riwayat run tak terbaca -> null, bukan 500.
+            periksaKualitasTerakhir(adapter, artikel.id),
+          ]);
+        return {
+          artikel,
+          verifikasi_terakhir,
+          review_terakhir,
+          kualitas_terakhir,
+        };
       }),
     );
     return NextResponse.json({

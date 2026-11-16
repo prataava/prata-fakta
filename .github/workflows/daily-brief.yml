@@ -26,7 +26,8 @@
 # 1x/hari, jadi satu kegagalan sementara tidak boleh menghilangkan
 # brief hari itu.
 # Assert respons (F5): job gagal bila `ok != true` atau respons
-# tidak memuat briefId.
+# tidak memuat briefId. Gelombang B1 (P3-1 / N-R3): brief 0 entri
+# juga gagal — brief kosong bukan sukses (`.jumlahEntri >= 1`).
 #
 # Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
 # terlihat di tab Actions (log run + badge workflow) dan di tabel
@@ -61,5 +62,5 @@ jobs:
             -d '{"dipicu_oleh":"github_actions"}' \
             -o "$RESP"
           echo "Respons brief: $(cat "$RESP")"
-          jq -e '.ok == true and (.briefId | type == "string")' "$RESP" >/dev/null \
-            || { echo "ASSERT GAGAL: brief melaporkan ok != true atau tanpa briefId"; exit 1; }
+          jq -e '.ok == true and (.briefId | type == "string") and ((.jumlahEntri // 0) >= 1)' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: brief melaporkan ok != true, tanpa briefId, atau 0 entri"; exit 1; }

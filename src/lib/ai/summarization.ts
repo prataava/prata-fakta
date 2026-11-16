@@ -16,13 +16,33 @@ const BATAS_MIN = 300;
 const BATAS_MAKS = 450;
 
 function bagiKalimat(teks: string): string[] {
+  // Potong pada [.!?] KECUALI titik desimal (digit di kiri DAN
+  // kanan titik, mis. "Rp 16.500") — tanpa ini ringkasan bisa
+  // terpotong di tengah angka.
   const hasil: string[] = [];
-  const pola = /[^.!?]+(?:[.!?]+["”']?|$)/g;
+  let awal = 0;
+  const pola = /[.!?]+["”']?/g;
   let cocok: RegExpExecArray | null;
   while ((cocok = pola.exec(teks)) !== null) {
-    const kalimat = cocok[0].replace(/\s+/g, " ").trim();
+    const akhirTanda = cocok.index + cocok[0].length;
+    const sebelum = teks[cocok.index - 1];
+    const sesudah = teks[akhirTanda];
+    if (
+      cocok[0].startsWith(".") &&
+      /\d/.test(sebelum ?? "") &&
+      /\d/.test(sesudah ?? "")
+    ) {
+      continue;
+    }
+    const kalimat = teks
+      .slice(awal, akhirTanda)
+      .replace(/\s+/g, " ")
+      .trim();
     if (kalimat) hasil.push(kalimat);
+    awal = akhirTanda;
   }
+  const sisa = teks.slice(awal).replace(/\s+/g, " ").trim();
+  if (sisa) hasil.push(sisa);
   return hasil;
 }
 

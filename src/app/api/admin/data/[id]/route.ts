@@ -18,6 +18,7 @@ import {
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { catatAuditWajib, responGalatAudit } from "@/lib/admin/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ROLES } from "@/lib/auth/roles";
 
@@ -55,29 +56,6 @@ const FIELD_PATCH = [
 
 function teks(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-async function catatAudit(
-  aktorId: string,
-  aktorEmail: string | null,
-  aksi: string,
-  entitas: string,
-  entitasId: string | null,
-  ip: string,
-): Promise<void> {
-  try {
-    const service = createServiceClient();
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktorId,
-      aktor_email: aktorEmail,
-      aksi,
-      entitas,
-      entitas_id: entitasId,
-      ip,
-    });
-  } catch {
-    // Audit gagal: jangan gagalkan operasi utama.
-  }
 }
 
 export async function GET(req: Request, { params }: Params) {
@@ -236,6 +214,20 @@ export async function PATCH(req: Request, { params }: Params) {
     return responGalatAdmin(err);
   }
   try {
+    // Baris lama dibaca SEBELUM update — dipakai sebagai `sebelum`
+    // audit dan sebagai bahan compensating restore bila audit gagal.
+    const { data: lama, error: errLama } = await service
+      .from("pf_data_indicators")
+      .select(KOLOM_INDIKATOR)
+      .eq("id", id)
+      .maybeSingle();
+    if (errLama) throw errLama;
+    if (!lama) {
+      return NextResponse.json(
+        { ok: false, error: "Indikator tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     const { data, error } = await service
       .from("pf_data_indicators")
       .update(patch)
@@ -260,14 +252,57 @@ export async function PATCH(req: Request, { params }: Params) {
         { status: 404 },
       );
     }
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "data.indikator",
-      "pf_data_indicators",
-      id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating restore nilai lama
+    // (lihat catatan yang sama di pengetahuan/route.ts POST).
+    // Atomicity penuh (transaksi/RPC) adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "data.indikator",
+        entitas: "pf_data_indicators",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: data,
+        ip,
+      });
+    } catch (errAudit) {
+      const lamaObj = lama as unknown as Record<string, unknown>;
+      const pulih: Record<string, unknown> = {};
+      for (const k of [
+        "nama",
+        "slug",
+        "kategori",
+        "satuan",
+        "sumber_nama",
+        "sumber_url",
+        "metodologi",
+        "tanggal_pembaruan",
+        "ringkasan_tren",
+        "cakupan",
+        "frekuensi_update",
+        "negara_kode",
+      ]) {
+        pulih[k] = lamaObj[k] ?? null;
+      }
+      const { error: errPulih } = await service
+        .from("pf_data_indicators")
+        .update(pulih)
+        .eq("id", id);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_restore_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/data/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, indikator: data });
   } catch (err) {
     return responGalatAdmin(err);
@@ -288,31 +323,79 @@ export async function DELETE(req: Request, { params }: Params) {
     return responGalatAdmin(err);
   }
   try {
-    const { data: ada, error: errAda } = await service
+    // Baris lama + titik datanya dibaca SEBELUM hapus: titik ikut
+    // terhapus via ON DELETE CASCADE, jadi compensating re-insert
+    // wajib mengembalikan keduanya bila audit gagal.
+    const { data: lama, error: errLama } = await service
       .from("pf_data_indicators")
-      .select("id")
+      .select(KOLOM_INDIKATOR)
       .eq("id", id)
       .maybeSingle();
-    if (errAda) throw errAda;
-    if (!ada) {
+    if (errLama) throw errLama;
+    if (!lama) {
       return NextResponse.json(
         { ok: false, error: "Indikator tidak ditemukan." },
         { status: 404 },
       );
     }
+    const { data: titikLama, error: errTitikLama } = await service
+      .from("pf_data_points")
+      .select("id, indikator_id, tanggal, nilai")
+      .eq("indikator_id", id)
+      .limit(10000);
+    if (errTitikLama) throw errTitikLama;
     const { error } = await service
       .from("pf_data_indicators")
       .delete()
       .eq("id", id);
     if (error) throw error;
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "data.indikator",
-      "pf_data_indicators",
-      id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating re-insert indikator
+    // lama (dengan id yang sama) beserta titik datanya.
+    // Atomicity penuh (transaksi/RPC) adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "data.indikator",
+        entitas: "pf_data_indicators",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: null,
+        ip,
+      });
+    } catch (errAudit) {
+      const { error: errPulih } = await service
+        .from("pf_data_indicators")
+        .insert(lama);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_reinsert_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/data/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      } else if (titikLama && titikLama.length > 0) {
+        const { error: errPulihTitik } = await service
+          .from("pf_data_points")
+          .insert(titikLama);
+        if (errPulihTitik) {
+          console.error(
+            JSON.stringify({
+              event: "audit_compensating_reinsert_gagal",
+              waktu: new Date().toISOString(),
+              rute: "admin/data/[id]",
+              entitas_id: id,
+              pesan: `titik: ${errPulihTitik.message}`,
+            }),
+          );
+        }
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return responGalatAdmin(err);
@@ -367,6 +450,16 @@ export async function POST(req: Request, { params }: Params) {
         { status: 404 },
       );
     }
+    // Titik lama (bila tanggal ini sudah ada) dibaca SEBELUM
+    // upsert — upsert menimpa nilai, jadi compensating restore
+    // butuh nilai lama; bila belum ada, compensating-nya hapus.
+    const { data: titikLama, error: errTitikLama } = await service
+      .from("pf_data_points")
+      .select("id, tanggal, nilai")
+      .eq("indikator_id", id)
+      .eq("tanggal", tanggal)
+      .maybeSingle();
+    if (errTitikLama) throw errTitikLama;
     const { data, error } = await service
       .from("pf_data_points")
       .upsert(
@@ -376,14 +469,63 @@ export async function POST(req: Request, { params }: Params) {
       .select("id, tanggal, nilai")
       .single();
     if (error) throw error;
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "data.titik",
-      "pf_data_points",
-      (data as { id: string }).id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating restore nilai lama
+    // (atau hapus titik bila ini titik baru). Atomicity penuh
+    // (transaksi/RPC) adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "data.titik",
+        entitas: "pf_data_points",
+        entitas_id: (data as { id: string }).id,
+        sebelum: titikLama ?? null,
+        sesudah: data,
+        ip,
+      });
+    } catch (errAudit) {
+      if (titikLama) {
+        const { error: errPulih } = await service
+          .from("pf_data_points")
+          .upsert(
+            {
+              indikator_id: id,
+              tanggal,
+              nilai: (titikLama as { nilai: number }).nilai,
+            },
+            { onConflict: "indikator_id,tanggal" },
+          );
+        if (errPulih) {
+          console.error(
+            JSON.stringify({
+              event: "audit_compensating_restore_gagal",
+              waktu: new Date().toISOString(),
+              rute: "admin/data/[id]",
+              entitas_id: (data as { id: string }).id,
+              pesan: errPulih.message,
+            }),
+          );
+        }
+      } else {
+        const { error: errPulih } = await service
+          .from("pf_data_points")
+          .delete()
+          .eq("id", (data as { id: string }).id);
+        if (errPulih) {
+          console.error(
+            JSON.stringify({
+              event: "audit_compensating_delete_gagal",
+              waktu: new Date().toISOString(),
+              rute: "admin/data/[id]",
+              entitas_id: (data as { id: string }).id,
+              pesan: errPulih.message,
+            }),
+          );
+        }
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true, titik: data }, { status: 201 });
   } catch (err) {
     return responGalatAdmin(err);

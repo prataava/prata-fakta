@@ -4,6 +4,10 @@
 // JANGAN pernah menyalin isi penuh artikel media lain ke database.
 import { fetchAman, tolakHostPrivat } from "./ssrf.ts";
 import { tolakHostFeed, tolakHostFeedAman } from "./feed-allowlist.ts";
+import {
+  buatGalatHttp,
+  GalatSementara,
+} from "./retry.ts";
 
 export interface ItemMentah {
   url: string;
@@ -40,6 +44,68 @@ const USER_AGENT =
 
 const BATAS_RINGKASAN = 1000;
 const BATAS_ISI_RINGKAS = 3000;
+
+// Batas ukuran body feed (P3-1 / N-R2): feed 5 MB sudah jauh di atas
+// ukuran wajar (feed berita umumnya < 1 MB). Body lebih besar ditolak
+// sebelum diparse agar satu feed raksasa tidak menghabiskan memori.
+export const BATAS_BODY_RSS_BYTE = 5 * 1024 * 1024;
+
+/**
+ * Baca body respons dengan batas ukuran. Content-Length di atas batas
+ * ditolak tanpa membaca body; stream dibaca bertahap dan dibatalkan
+ * begitu batas terlampaui. Respons mock tanpa body stream (hanya
+ * text()) tetap diperiksa panjangnya sesudah dibaca.
+ */
+export async function bacaTeksTerbatas(
+  respons: Response,
+  batasByte: number = BATAS_BODY_RSS_BYTE,
+): Promise<string> {
+  const panjangHeader = respons.headers?.get("content-length");
+  if (panjangHeader !== null && panjangHeader !== undefined) {
+    const panjang = Number(panjangHeader);
+    if (Number.isFinite(panjang) && panjang > batasByte) {
+      throw new Error(
+        `Body respons ${panjang} byte melebihi batas ${batasByte} byte`,
+      );
+    }
+  }
+  const stream = (respons as Response & { body?: ReadableStream<Uint8Array> | null }).body;
+  if (stream && typeof stream.getReader === "function") {
+    const pembaca = stream.getReader();
+    const potongan: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await pembaca.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > batasByte) {
+          try {
+            await pembaca.cancel();
+          } catch {
+            // Abaikan: pembatalan stream best-effort.
+          }
+          throw new Error(
+            `Body respons melebihi batas ${batasByte} byte`,
+          );
+        }
+        potongan.push(value);
+      }
+    }
+    const gabung = new Uint8Array(total);
+    let geser = 0;
+    for (const p of potongan) {
+      gabung.set(p, geser);
+      geser += p.byteLength;
+    }
+    return new TextDecoder("utf-8").decode(gabung);
+  }
+  const teks = await respons.text();
+  if (new TextEncoder().encode(teks).byteLength > batasByte) {
+    throw new Error(`Body respons melebihi batas ${batasByte} byte`);
+  }
+  return teks;
+}
 
 // ---------- Pembersih teks ----------
 
@@ -163,13 +229,17 @@ function parseSatuItem(blok: string): ItemMentah | null {
   const ringkasan = potong(bersihkanHtml(deskripsiMentah), BATAS_RINGKASAN);
   const isiRingkas = potong(bersihkanHtml(kontenMentah), BATAS_ISI_RINGKAS);
 
+  // Tanggal terbit HANYA dari pubDate / published / dc:date (P2-6 / N-S10).
+  // <updated> Atom adalah tanggal REVISI terakhir — bisa berhari-hari
+  // sesudah terbit — jadi TIDAK BOLEH dipakai sebagai tanggal terbit.
+  // Revisi disimpan terpisah di metadata.waktu_revisi.
   const tanggalMentah =
     ambilTag(blok, "pubDate") ??
     ambilTag(blok, "published") ??
-    ambilTag(blok, "updated") ??
     ambilTag(blok, "dc:date") ??
     null;
   const waktuTerbit = parseTanggal(tanggalMentah);
+  const waktuRevisi = parseTanggal(ambilTag(blok, "updated"));
 
   const penulisMentah =
     ambilTag(blok, "dc:creator") ?? ambilTag(blok, "author") ?? null;
@@ -202,6 +272,9 @@ function parseSatuItem(blok: string): ItemMentah | null {
     guid: guidBersih,
     gambarUrl,
     kategoriFeed,
+    ...(waktuRevisi
+      ? { metadata: { waktu_revisi: waktuRevisi.toISOString() } }
+      : {}),
   };
 }
 
@@ -266,15 +339,27 @@ export async function fetchRss(
           },
     );
   } catch (err) {
+    // GalatSementara (429/5xx/jaringan) diteruskan apa adanya agar
+    // retry per-sumber (engine) bisa membaca status + Retry-After.
+    // Penolakan keamanan (allowlist/SSRF) TIDAK boleh dicoba ulang.
+    if (err instanceof GalatSementara) throw err;
     const pesan = err instanceof Error ? err.message : String(err);
-    throw new Error(`Gagal mengambil feed ${url}: ${pesan}`);
+    if (
+      pesan.startsWith("Feed ditolak:") ||
+      pesan.startsWith("URL ditolak:")
+    ) {
+      throw err instanceof Error ? err : new Error(pesan);
+    }
+    throw new GalatSementara(`Gagal mengambil feed ${url}: ${pesan}`);
   }
   if (!respons.ok) {
-    throw new Error(
+    throw buatGalatHttp(
+      respons.status,
+      respons,
       `Gagal mengambil feed ${url}: HTTP ${respons.status}`,
     );
   }
-  const xml = await respons.text();
+  const xml = await bacaTeksTerbatas(respons);
   const items = parseRss(xml);
   return { items, httpStatus: respons.status };
 }

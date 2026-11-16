@@ -11,12 +11,15 @@
 // id + keadaan sesudah) dan MEMBIARKAN galatnya naik ke penangkap
 // route (responGalatAdmin → 500, atau 503 bila service key /
 // tabel belum siap). Respons gagal berarti "operasi dilaporkan
-// gagal" — catatan jujur: baris yang sudah terlanjur tersisip
-// SEBELUM audit gagal tetap ada di database (tidak ada transaksi
-// lintas dua klien), persis seperti pola buatArtikel Fase 7.
-// Yang DIJAMIN: tidak ada operasi tulis yang lolos diam-diam tanpa
-// jejak audit; kegagalan audit selalu terlihat sebagai 500/503,
-// bukan 200/201.
+// gagal" — route WAJIB melakukan compensating delete/restore
+// sesudah audit gagal (hapus-balik baris yang baru dibuat /
+// kembalikan nilai lama; lihat pengetahuan/riset/data route +
+// kendali.ts) agar tidak ada baris tanpa jejak audit.
+// CATATAN JUJUR: compensating BUKAN transaksi atomik — bila
+// delete/restore-nya sendiri gagal, baris yatim tanpa audit masih
+// mungkin (dicatat keras di log server). Atomicity penuh
+// (transaksi/RPC lintas tulis+audit) adalah follow-up migrasi;
+// JANGAN klaim atomik.
 //
 // JANGAN pakai pola lama di route baru:
 //   try { await insertAudit(...) } catch (err) { console.error(...) }

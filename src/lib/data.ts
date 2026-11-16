@@ -1,9 +1,12 @@
 // Lapisan akses data PRATA FAKTA (server).
-// Prinsip: tidak ada data palsu. Bila tabel pf_* belum dibuat (migrasi Fase 1
-// masih menunggu dijalankan di SQL Editor) atau query gagal, fungsi-fungsi
-// ini mengembalikan array kosong dan pemanggil menampilkan empty state
-// jujur — bukan angka atau artikel karangan.
+// Prinsip (diperbarui Gelombang B1, P2-14): tidak ada data palsu;
+// galat SELALU dicatat dengan konteks fungsi (lib/galat.ts).
+// "Tabel belum ada" (migrasi belum dijalankan) → empty state
+// jujur; galat lain → dilempar (bukan ditelan menjadi [] diam-diam),
+// kecuali fungsi dengan flag `tersedia` (agregat yang memang
+// dirancang degradasi parsial — galat tetap dicatat + flag false).
 import { createClient } from "@/lib/supabase/server";
+import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import { KATEGORI_UTAMA, type Kategori } from "@/lib/categories";
 import type { IsiBrief } from "@/lib/ai/brief";
 import {
@@ -41,9 +44,17 @@ export async function getKategori(): Promise<PfCategoryRow[]> {
       .select("id, slug, nama, deskripsi, induk_id, urutan, aktif")
       .eq("aktif", true)
       .order("urutan", { ascending: true });
-    if (error || !data || data.length === 0) return taksonomiKeBaris();
+    if (error) {
+      // Kategori gagal dibaca: dicatat, fallback ke taksonomi
+      // statis (perilaku lama yang disengaja — taksonomi statis
+      // adalah data nyata, bukan karangan).
+      catatGalatBaca("getKategori", error);
+      return taksonomiKeBaris();
+    }
+    if (!data || data.length === 0) return taksonomiKeBaris();
     return data as PfCategoryRow[];
-  } catch {
+  } catch (err) {
+    catatGalatBaca("getKategori", err);
     return taksonomiKeBaris();
   }
 }
@@ -83,11 +94,19 @@ export async function getSumber(): Promise<PfSourceRow[]> {
       .from("pf_sources")
       .select("id, nama, jenis, url, aktif, prioritas, terakhir_cek, status_terakhir")
       .eq("aktif", true)
-      .order("prioritas", { ascending: false });
-    if (error || !data) return [];
+      .order("prioritas", { ascending: false })
+      // P3-5 (B-R5): daftar dibatasi 200.
+      .limit(200);
+    if (error) {
+      if (catatGalatBaca("getSumber", error)) return [];
+      throw new GalatBaca("getSumber", error);
+    }
+    if (!data) return [];
     return data as PfSourceRow[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getSumber", err)) return [];
+    throw new GalatBaca("getSumber", err);
   }
 }
 
@@ -164,12 +183,18 @@ export async function getArtikel(filter: FilterArsip): Promise<PfArtikelRingkas[
       query = query.eq("pf_article_sources.sumber_id", filter.sumber as string);
     }
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikel", error)) return [];
+      throw new GalatBaca("getArtikel", error);
+    }
+    if (!data) return [];
     // Select memakai string dinamis (join sumber opsional), jadi tipe
     // Supabase tidak terinferensi — cast lewat unknown.
     return data as unknown as PfArtikelRingkas[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikel", err)) return [];
+    throw new GalatBaca("getArtikel", err);
   }
 }
 
@@ -203,9 +228,12 @@ export async function cariKonten(q: string): Promise<HasilCari> {
         .limit(10),
     ]);
     if (!kat.error && kat.data) hasil.kategori = kat.data as PfCategoryRow[];
+    else if (kat.error) catatGalatBaca("cariKonten.kategori", kat.error);
     if (!sum.error && sum.data) hasil.sumber = sum.data as PfSourceRow[];
-  } catch {
+    else if (sum.error) catatGalatBaca("cariKonten.sumber", sum.error);
+  } catch (err) {
     // Tabel belum ada: hasil tetap kosong dan jujur.
+    catatGalatBaca("cariKonten", err);
   }
   // Bila tabel kategori di DB belum ada, cari juga di taksonomi statis.
   if (hasil.kategori.length === 0) {
@@ -296,6 +324,8 @@ function namaDariUrl(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
+    // Bukan galat DB: URL tidak valid → nama generik. Bukan
+    // "catch penelan" P2-14 (tidak ada operasi I/O di sini).
     return "Sumber";
   }
 }
@@ -312,7 +342,11 @@ export async function getArtikelLengkap(
       .eq("slug", slug)
       .eq("status", "terbit")
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getArtikelLengkap", error)) return null;
+      throw new GalatBaca("getArtikelLengkap", error);
+    }
+    if (!data) return null;
 
     const row = data as Record<string, unknown>;
     const artikelId = String(row.id);
@@ -347,6 +381,13 @@ export async function getArtikelLengkap(
     ]);
 
     const tags: { slug: string; nama: string }[] = [];
+    // Pengayaan opsional (tag/sumber/koreksi/nama kategori):
+    // galat hanya dicatat, bagian artikel tetap ditampilkan
+    // tanpa pengayaan itu (pengecualian terdokumentasi P2-14).
+    if (tag.error) catatGalatBaca("getArtikelLengkap.tag", tag.error);
+    if (kat.error) catatGalatBaca("getArtikelLengkap.kategori", kat.error);
+    if (sum.error) catatGalatBaca("getArtikelLengkap.sumber", sum.error);
+    if (kor.error) catatGalatBaca("getArtikelLengkap.koreksi", kor.error);
     if (!tag.error && tag.data) {
       for (const r of tag.data as unknown as {
         pf_tags: { slug: string; nama: string } | null;
@@ -421,8 +462,10 @@ export async function getArtikelLengkap(
       tags,
       sumber_list,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelLengkap", err)) return null;
+    throw new GalatBaca("getArtikelLengkap", err);
   }
 }
 
@@ -442,10 +485,16 @@ export async function getArtikelTerkait(
       .neq("id", artikel.id)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelTerkait", error)) return [];
+      throw new GalatBaca("getArtikelTerkait", error);
+    }
+    if (!data) return [];
     return data as PfArtikelRingkas[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelTerkait", err)) return [];
+    throw new GalatBaca("getArtikelTerkait", err);
   }
 }
 
@@ -461,10 +510,16 @@ export async function getArtikelTerbaru(
       .eq("status", "terbit")
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelTerbaru", error)) return [];
+      throw new GalatBaca("getArtikelTerbaru", error);
+    }
+    if (!data) return [];
     return data as PfArtikelRingkas[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelTerbaru", err)) return [];
+    throw new GalatBaca("getArtikelTerbaru", err);
   }
 }
 
@@ -482,10 +537,16 @@ export async function getArtikelPerKategori(
       .eq("kategori_slug", slug)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelPerKategori", error)) return [];
+      throw new GalatBaca("getArtikelPerKategori", error);
+    }
+    if (!data) return [];
     return data as PfArtikelRingkas[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelPerKategori", err)) return [];
+    throw new GalatBaca("getArtikelPerKategori", err);
   }
 }
 
@@ -502,7 +563,11 @@ export async function getArtikelPopuler(
       .from("pf_reading_history")
       .select("artikel_id")
       .limit(2000);
-    if (error || !data || data.length === 0) return [];
+    if (error) {
+      if (catatGalatBaca("getArtikelPopuler", error)) return [];
+      throw new GalatBaca("getArtikelPopuler", error);
+    }
+    if (!data || data.length === 0) return [];
 
     const hitung = new Map<string, number>();
     for (const r of data as { artikel_id: string }[]) {
@@ -519,15 +584,21 @@ export async function getArtikelPopuler(
       .select(KOLOM_ARTIKEL_RINGKAS)
       .eq("status", "terbit")
       .in("id", teratas);
-    if (errArtikel || !artikel) return [];
+    if (errArtikel) {
+      if (catatGalatBaca("getArtikelPopuler.artikel", errArtikel)) return [];
+      throw new GalatBaca("getArtikelPopuler", errArtikel);
+    }
+    if (!artikel) return [];
     const peta = new Map(
       (artikel as PfArtikelRingkas[]).map((a) => [a.id, a]),
     );
     return teratas
       .map((id) => peta.get(id))
       .filter((a): a is PfArtikelRingkas => Boolean(a));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getArtikelPopuler", err)) return [];
+    throw new GalatBaca("getArtikelPopuler", err);
   }
 }
 
@@ -554,9 +625,16 @@ export async function cariArtikel(
       .or(`judul.ilike.${pola},ringkasan.ilike.${pola},isi.ilike.${pola}`)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
-    if (error) return { artikel: [], tersedia: false };
+    if (error) {
+      // Pencarian memang punya flag tersedia=false: dicatat
+      // sebagai galat baca (bila tabel belum ada → kosong),
+      // pemanggil menampilkan status jujur.
+      catatGalatBaca("cariArtikel", error);
+      return { artikel: [], tersedia: false };
+    }
     return { artikel: (data ?? []) as PfArtikelRingkas[], tersedia: true };
-  } catch {
+  } catch (err) {
+    catatGalatBaca("cariArtikel", err);
     return { artikel: [], tersedia: false };
   }
 }
@@ -574,7 +652,11 @@ export async function getBookmarkPengguna(
       .eq("user_id", userId)
       .eq("pf_articles.status", "terbit")
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getBookmarkPengguna", error)) return [];
+      throw new GalatBaca("getBookmarkPengguna", error);
+    }
+    if (!data) return [];
     const hasil: PfArtikelRingkas[] = [];
     for (const r of data as unknown as {
       pf_articles: PfArtikelRingkas | null;
@@ -582,8 +664,10 @@ export async function getBookmarkPengguna(
       if (r.pf_articles) hasil.push(r.pf_articles);
     }
     return hasil;
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getBookmarkPengguna", err)) return [];
+    throw new GalatBaca("getBookmarkPengguna", err);
   }
 }
 
@@ -600,10 +684,16 @@ export async function isBookmarked(
       .eq("user_id", userId)
       .eq("artikel_id", artikelId)
       .maybeSingle();
-    if (error || !data) return false;
+    if (error) {
+      if (catatGalatBaca("isBookmarked", error)) return false;
+      throw new GalatBaca("isBookmarked", error);
+    }
+    if (!data) return false;
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("isBookmarked", err)) return false;
+    throw new GalatBaca("isBookmarked", err);
   }
 }
 
@@ -620,10 +710,16 @@ export async function getVersiArtikel(
       .eq("artikel_id", artikelId)
       .order("versi", { ascending: false })
       .limit(limit);
-    if (error || !data) return [];
+    if (error) {
+      if (catatGalatBaca("getVersiArtikel", error)) return [];
+      throw new GalatBaca("getVersiArtikel", error);
+    }
+    if (!data) return [];
     return data as PfVersiArtikel[];
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getVersiArtikel", err)) return [];
+    throw new GalatBaca("getVersiArtikel", err);
   }
 }
 
@@ -651,7 +747,11 @@ export async function getBriefTerbit(): Promise<BriefTerbit | null> {
       .order("tanggal", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error || !data) return null;
+    if (error) {
+      if (catatGalatBaca("getBriefTerbit", error)) return null;
+      throw new GalatBaca("getBriefTerbit", error);
+    }
+    if (!data) return null;
     const isi = data.isi as IsiBrief | null;
     if (
       !isi ||
@@ -662,8 +762,10 @@ export async function getBriefTerbit(): Promise<BriefTerbit | null> {
       return null;
     }
     return { id: data.id as string, tanggal: data.tanggal as string, isi };
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof GalatBaca) throw err;
+    if (catatGalatBaca("getBriefTerbit", err)) return null;
+    throw new GalatBaca("getBriefTerbit", err);
   }
 }
 
@@ -727,13 +829,21 @@ export async function getJejakFakta(
       .eq("id", artikelId)
       .eq("status", "terbit")
       .maybeSingle();
-    if (errArtikel || !artikel) return kosong;
+    if (errArtikel) {
+      catatGalatBaca("getJejakFakta.artikel", errArtikel);
+      return kosong;
+    }
+    if (!artikel) return kosong;
     const { data: klaim, error: errKlaim } = await supabase
       .from("pf_claims")
       .select("id, teks, jenis, status, dibuat_pada")
       .eq("artikel_id", artikelId)
       .order("dibuat_pada", { ascending: true });
-    if (errKlaim || !klaim) return kosong;
+    if (errKlaim) {
+      catatGalatBaca("getJejakFakta.klaim", errKlaim);
+      return kosong;
+    }
+    if (!klaim) return kosong;
 
     const klaimId = (klaim as { id: string }[]).map((k) => k.id);
     const [buktiRes, verRes] = await Promise.all([
@@ -750,7 +860,14 @@ export async function getJejakFakta(
         .eq("artikel_id", artikelId)
         .order("dibuat_pada", { ascending: false }),
     ]);
-    if (buktiRes.error || verRes.error) return kosong;
+    if (buktiRes.error || verRes.error) {
+      // Fungsi ini memakai flag tersedia=false, jadi galat
+      // dicatat di sini (bukan dilempar) — pemanggil menampilkan
+      // empty state jujur, bukan jejak karangan.
+      if (buktiRes.error) catatGalatBaca("getJejakFakta.bukti", buktiRes.error);
+      if (verRes.error) catatGalatBaca("getJejakFakta.verifikasi", verRes.error);
+      return kosong;
+    }
 
     const buktiPerKlaim = new Map<string, JejakBukti[]>();
     for (const b of (buktiRes.data ?? []) as unknown as Record<string, unknown>[]) {
@@ -786,7 +903,8 @@ export async function getJejakFakta(
       })),
       tersedia: true,
     };
-  } catch {
+  } catch (err) {
+    catatGalatBaca("getJejakFakta", err);
     return kosong;
   }
 }
@@ -1200,20 +1318,32 @@ export async function getPerbandinganSumber(
       .eq("id", artikelId)
       .eq("status", "terbit")
       .maybeSingle();
-    if (errArtikel || !artikel) return kosong;
+    if (errArtikel) {
+      catatGalatBaca("getPerbandinganSumber.artikel", errArtikel);
+      return kosong;
+    }
+    if (!artikel) return kosong;
 
     const { data: klaim, error: errKlaim } = await supabase
       .from("pf_claims")
       .select("id, teks, jenis, status, dibuat_pada")
       .eq("artikel_id", artikelId)
       .order("dibuat_pada", { ascending: true });
-    if (errKlaim || !klaim) return kosong;
+    if (errKlaim) {
+      catatGalatBaca("getPerbandinganSumber.klaim", errKlaim);
+      return kosong;
+    }
+    if (!klaim) return kosong;
 
     const { data: tautan, error: errTautan } = await supabase
       .from("pf_article_sources")
       .select("id, url, peran, kutipan, pf_sources(nama, url, prioritas)")
       .eq("artikel_id", artikelId);
-    if (errTautan || !tautan) return kosong;
+    if (errTautan) {
+      catatGalatBaca("getPerbandinganSumber.tautan", errTautan);
+      return kosong;
+    }
+    if (!tautan) return kosong;
 
     const klaimId = (klaim as { id: string }[]).map((k) => k.id);
     const { data: bukti, error: errBukti } =
@@ -1223,7 +1353,11 @@ export async function getPerbandinganSumber(
             .select("id, klaim_id, sumber_url, sumber_nama, kutipan, arah, dibuat_pada")
             .in("klaim_id", klaimId)
         : { data: [], error: null };
-    if (errBukti || !bukti) return kosong;
+    if (errBukti) {
+      catatGalatBaca("getPerbandinganSumber.bukti", errBukti);
+      return kosong;
+    }
+    if (!bukti) return kosong;
 
     // ---- Rantai salinan via RPC SECURITY DEFINER (v9) ----
     // pf_raw_items hanya boleh dibaca staf, jadi klien anon di sini
@@ -1263,7 +1397,12 @@ export async function getPerbandinganSumber(
         "pf_akar_salinan",
         { p_artikel_id: artikelId, p_url: urlUnik },
       );
-      if (!errRantai && Array.isArray(rantai)) {
+      if (errRantai) {
+        // RPC belum diterapkan / gagal: rantaiTersedia=false
+        // dan hitungan memakai kunci kolom (ditandai belum
+        // terverifikasi di komponen) — dicatat, bukan diam.
+        catatGalatBaca("getPerbandinganSumber.rantai", errRantai);
+      } else if (Array.isArray(rantai)) {
         rantaiTersedia = true;
         for (const r of rantai as unknown as Record<string, unknown>[]) {
           const kunci = normalisasiUrl(String(r.url ?? ""));
@@ -1529,7 +1668,8 @@ export async function getPerbandinganSumber(
       buktiTakTercocokkan: hasil.buktiTakTercocokkan,
       parafrase: hasil.parafrase,
     };
-  } catch {
+  } catch (err) {
+    catatGalatBaca("getPerbandinganSumber", err);
     return kosong;
   }
 }

@@ -14,38 +14,41 @@ const DAFTAR: {
   deskripsi: string;
 }[] = [
   {
-    href: "/rutin/pagi",
-    judul: "Morning Intelligence",
+    // F-S3: /rutin/pagi dilebur ke /brief — indeks menaut langsung
+    // ke permukaan sumbernya.
+    href: "/brief",
+    judul: "Ringkasan Pagi",
     deskripsi:
       "Ringkasan pagi dari Daily Brief terbaru: berita terpenting Indonesia dan dunia untuk memulai hari.",
   },
   {
     href: "/rutin/mingguan",
-    judul: "Weekly Recap",
+    judul: "Ringkasan Mingguan",
     deskripsi:
       "Artikel terbit dan Daily Brief dalam 7 hari terakhir — daftar dan tautan saja, tanpa ringkasan karangan.",
   },
   {
     href: "/rutin/bulanan",
-    judul: "Monthly Review",
+    judul: "Rekap Bulanan",
     deskripsi:
       "Artikel terbit dan Daily Brief dalam 30 hari terakhir — rekap sebulan dalam satu halaman.",
   },
   {
     href: "/rutin/dunia",
-    judul: "World Explained",
+    judul: "Dunia Dijelaskan",
     deskripsi:
       "Pengetahuan tentang negara dan geografi, ditambah artikel terbaru kategori Dunia.",
   },
   {
-    href: "/rutin/angka",
-    judul: "Indonesia in Numbers",
+    // F-S3: /rutin/angka dilebur ke /data?cakupan=indonesia.
+    href: "/data?cakupan=indonesia",
+    judul: "Indonesia dalam Angka",
     deskripsi:
       "Indikator nasional dari data resmi: nilai terakhir, tren yang dihitung agen Data Analysis, sumber, dan metodologi.",
   },
   {
     href: "/rutin/hari-ini",
-    judul: "What Happened Today",
+    judul: "Hari Ini",
     deskripsi:
       "Peristiwa yang dimulai hari ini dan artikel yang terbit hari ini (waktu Indonesia Barat).",
   },

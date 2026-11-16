@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  buatRateLimiter,
+  buatRateLimiterKeras,
   responRateLimit,
+  responRateLimitBelumSiap,
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 
@@ -17,7 +18,7 @@ import {
 // instance, Tahap 13A, T3). 401 bila belum login;
 // 503 jujur bila tabel pf_quiz_scores belum ada (migrasi v7 belum
 // dijalankan).
-const batasi = buatRateLimiter(5);
+const batasi = buatRateLimiterKeras(5);
 
 function tanggalWibHariIni(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -35,7 +36,10 @@ function kemarinWib(tanggal: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!(await batasi(req))) return responRateLimit();
+  const hasilRateLimit = await batasi(req);
+  if (!hasilRateLimit.lolos && hasilRateLimit.alasan === "rpc-gagal")
+    return responRateLimitBelumSiap(hasilRateLimit.jenisGalat);
+  if (!hasilRateLimit.lolos) return responRateLimit();
 
   const supabase = await createClient();
   const {

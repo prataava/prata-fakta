@@ -6,6 +6,7 @@ import KuisHarian from "@/components/lanjutan/KuisHarian";
 import {
   getKuisHarian,
   getRiwayatSkor,
+  KuisBelumTersediaError,
   type PfKuisSoalPublik,
 } from "@/lib/lanjutan";
 import { createClient } from "@/lib/supabase/server";
@@ -51,7 +52,22 @@ export default async function Kuis() {
   // membuat prerender gagal.
   await connection();
   const hariIni = tanggalHariIniJakarta();
-  const soal = await getKuisHarian(hariIni);
+  // P0-4 (B-T3, v13): getKuisHarian melempar KuisBelumTersediaError
+  // bila service key belum diatur / tabel jawaban v13 belum dibuat —
+  // tampilkan pesan jujur "kuis belum tersedia" (EmptyState), BUKAN
+  // halaman error Next. Galat lain tetap dilempar (jangan menutupi
+  // bug nyata). Pola sama dipakai akademi/[slug]/page.tsx.
+  let soal: Awaited<ReturnType<typeof getKuisHarian>> = [];
+  let kuisBelumTersedia = false;
+  try {
+    soal = await getKuisHarian(hariIni);
+  } catch (err) {
+    if (err instanceof KuisBelumTersediaError) {
+      kuisBelumTersedia = true;
+    } else {
+      throw err;
+    }
+  }
   // Kunci jawaban TIDAK PERNAH dikirim ke klien (T1, Fase 7):
   // petakan ke tipe publik yang menghilangkan field `kunci`.
   // Pemeriksaan jawaban dilakukan server via POST /api/kuis/jawab.
@@ -101,7 +117,19 @@ export default async function Kuis() {
         </p>
       </section>
 
-      {soalPublik.length === 0 ? (
+      {kuisBelumTersedia ? (
+        <section className="seksi">
+          <EmptyState
+            judul="Kuis belum tersedia."
+            pesan="Layanan kuis sedang belum siap (konfigurasi server belum lengkap). Silakan kembali lagi nanti."
+            aksi={
+              <Link className="tombol" href="/pengetahuan">
+                Baca Pengetahuan
+              </Link>
+            }
+          />
+        </section>
+      ) : soalPublik.length === 0 ? (
         <section className="seksi">
           <EmptyState
             judul="Belum ada kuis hari ini."

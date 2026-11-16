@@ -125,7 +125,14 @@ if (mati.length > 0) {
 // halaman artikel merender kedua komponen itu. Admin sengaja tidak
 // ada di nav publik (masuk staf lewat /masuk; /saya redirect ke
 // /masuk bila belum login — diperiksa di bawah).
-const header = fs.readFileSync(path.join(DIR_SRC, "components/Header.tsx"), "utf8");
+// Nav publik tinggal di HeaderNav.tsx (F-S6, Gelombang B1): Header
+// hanya me-render <HeaderNav />. Periksa sumber kebenaran nav di
+// sana, plus Header benar-benar memakainya.
+const header = fs.readFileSync(path.join(DIR_SRC, "components/HeaderNav.tsx"), "utf8");
+cek(
+  "Header me-render <HeaderNav />",
+  fs.readFileSync(path.join(DIR_SRC, "components/Header.tsx"), "utf8").includes("<HeaderNav />"),
+);
 const tautanArea = {
   "Story Tracker (cerita)": "/cerita",
   "Explain the World (pengetahuan)": "/pengetahuan",

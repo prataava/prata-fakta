@@ -1,0 +1,63 @@
+# PRATA FAKTA — Backup otomatis harian (GitHub Actions)
+#
+# Secret yang dibutuhkan (repo Settings -> Secrets and variables -> Actions):
+#   PF_SUPABASE_URL        = URL proyek Supabase, mis. https://xyz.supabase.co
+#   PF_SERVICE_ROLE_KEY    = service-role key proyek Supabase (JANGAN
+#                            pakai anon key — ekspor butuh bypass RLS).
+#
+# Catatan keamanan: artefak backup berisi ISI PENUH database termasuk
+# data pengguna (pf_profiles, pf_quiz_answers, dsb.). Artefak hanya
+# terlihat oleh kolaborator repo; retensi dibatasi 7 hari dan
+# diunduh hanya bila diperlukan. JANGAN jadikan artefak publik.
+# Backup server Supabase (harian, sisi server) tetap lapis utama;
+# workflow ini adalah lapis kedua yang dimiliki redaksi.
+#
+# Jadwal: setiap hari 03.00 UTC (≈10.00 WIB) + manual dispatch.
+# Uji restore berkala: PROSEDUR di supabase/README.md §v13 — BUKAN
+# klaim sudah diuji (restore belum pernah dijalankan terhadap
+# database produksi; uji restore hanya di staging).
+#
+# Concurrency: satu run pada satu waktu (cancel-in-progress false).
+# Job gagal bila ada tabel yang gagal diekspor (skrip exit 1) atau
+# artefak gagal diunggah.
+
+name: Backup Harian PRATA FAKTA
+
+on:
+  schedule:
+    # Backup harian 03.00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: prata-fakta-backup-harian
+  cancel-in-progress: false
+
+jobs:
+  backup-harian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Ekspor semua tabel pf_* ke JSON
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.PF_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PF_SERVICE_ROLE_KEY }}
+        run: |
+          node scripts/backup-pf.mjs --out backup
+          echo "Manifest:"
+          cat backup/backup-*/manifest.json
+
+      - name: Unggah artefak backup (retensi 7 hari)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-pf-${{ github.run_number }}
+          path: backup/backup-*/
+          retention-days: 7

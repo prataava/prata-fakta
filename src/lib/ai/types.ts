@@ -21,7 +21,7 @@ export type AgenAi =
 
 export type StatusRunAi = "berjalan" | "berhasil" | "gagal" | "dilewati";
 
-export type DipicuOleh = "manual" | "jadwal" | "github_actions" | "cron_muse";
+export type DipicuOleh = "manual" | "jadwal" | "github_actions";
 
 export type InputJenisAi =
   | "raw_item"
@@ -217,8 +217,14 @@ export interface KlaimSerupa {
 
 export interface AiAdapter {
   // Item mentah berstatus UNCONFIRMED, urut prioritas sumber DESC lalu
-  // waktu terbit DESC.
-  ambilAntrean(limit: number): Promise<RawItemAntrean[]>;
+  // waktu terbit DESC. mode "terlama" (P2-8): urut waktu_diambil ASC
+  // (item tertua dulu) — dipakai pipeline bila antrean tertua sudah
+  // berumur > 7 hari, agar item lama tidak kelaparan selamanya.
+  ambilAntrean(limit: number, mode?: "terbaru" | "terlama"): Promise<RawItemAntrean[]>;
+  // Waktu diambil item UNCONFIRMED tertua (ISO) atau null bila
+  // antrean kosong — dipakai pipeline memutuskan mode kejar.
+  ambilWaktuAntreanTertua(): Promise<string | null>;
+  ambilSumber(id: string): Promise<SumberRingkas | null>;
   ambilSumber(id: string): Promise<SumberRingkas | null>;
   // Item lain dengan hash_judul yang sama (judul identik), kecuali id
   // yang diberikan — dipakai verifikasi silang.

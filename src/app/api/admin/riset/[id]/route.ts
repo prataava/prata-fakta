@@ -16,6 +16,7 @@ import {
   responGalatAdmin,
   responRateLimit,
 } from "@/lib/admin/guard";
+import { catatAuditWajib, responGalatAudit } from "@/lib/admin/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { JENIS_DOKUMEN } from "@/lib/riset";
 import { ROLES } from "@/lib/auth/roles";
@@ -62,29 +63,6 @@ function tipeDari(req: Request): "riset" | "dokumen" {
   return new URL(req.url).searchParams.get("tipe") === "dokumen"
     ? "dokumen"
     : "riset";
-}
-
-async function catatAudit(
-  aktorId: string,
-  aktorEmail: string | null,
-  aksi: string,
-  entitas: string,
-  entitasId: string | null,
-  ip: string,
-): Promise<void> {
-  try {
-    const service = createServiceClient();
-    await service.from("pf_audit_logs").insert({
-      aktor_id: aktorId,
-      aktor_email: aktorEmail,
-      aksi,
-      entitas,
-      entitas_id: entitasId,
-      ip,
-    });
-  } catch {
-    // Audit gagal: jangan gagalkan operasi utama.
-  }
 }
 
 function galatDuplikat(err: unknown): boolean {
@@ -288,6 +266,21 @@ export async function PATCH(req: Request, { params }: Params) {
     return responGalatAdmin(err);
   }
   try {
+    // Baris lama dibaca SEBELUM update — dipakai sebagai `sebelum`
+    // audit dan sebagai bahan compensating restore bila audit gagal.
+    const kolomLama = tipe === "dokumen" ? KOLOM_DOKUMEN : KOLOM_RISET;
+    const { data: lama, error: errLama } = await service
+      .from(tipe === "dokumen" ? "pf_documents" : "pf_research_reports")
+      .select(kolomLama)
+      .eq("id", id)
+      .maybeSingle();
+    if (errLama) throw errLama;
+    if (!lama) {
+      return NextResponse.json(
+        { ok: false, error: "Tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     const { data, error } = await service
       .from(tipe === "dokumen" ? "pf_documents" : "pf_research_reports")
       .update(patch)
@@ -309,14 +302,46 @@ export async function PATCH(req: Request, { params }: Params) {
         { status: 404 },
       );
     }
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "riset.ubah",
-      tipe === "dokumen" ? "pf_documents" : "pf_research_reports",
-      id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating restore nilai lama
+    // (lihat catatan yang sama di pengetahuan/route.ts POST).
+    // Atomicity penuh (transaksi/RPC) adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "riset.ubah",
+        entitas: tipe === "dokumen" ? "pf_documents" : "pf_research_reports",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: data,
+        ip,
+      });
+    } catch (errAudit) {
+      const lamaObj = lama as unknown as Record<string, unknown>;
+      const kolomPulih =
+        tipe === "dokumen"
+          ? ["jenis", "judul", "penerbit", "tanggal", "url_sumber", "kategori", "metadata", "status"]
+          : ["slug", "judul", "ringkasan", "isi", "metodologi", "penerbit", "tanggal", "status"];
+      const pulih: Record<string, unknown> = {};
+      for (const k of kolomPulih) pulih[k] = lamaObj[k] ?? null;
+      const { error: errPulih } = await service
+        .from(tipe === "dokumen" ? "pf_documents" : "pf_research_reports")
+        .update(pulih)
+        .eq("id", id);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_restore_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/riset/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({
       ok: true,
       [tipe === "dokumen" ? "dokumen" : "riset"]: data,
@@ -347,15 +372,16 @@ export async function DELETE(req: Request, { params }: Params) {
     return responGalatAdmin(err);
   }
   try {
-    // Pastikan baris ada dulu agar DELETE baris tak ada menjawab 404
-    // jujur (bukan "berhasil" palsu).
-    const { data: ada, error: errAda } = await service
+    // Baris lama dibaca SEBELUM hapus — dipakai sebagai `sebelum`
+    // audit dan sebagai bahan compensating re-insert bila audit gagal.
+    const kolomLama = tipe === "dokumen" ? KOLOM_DOKUMEN : KOLOM_RISET;
+    const { data: lama, error: errLama } = await service
       .from(tipe === "dokumen" ? "pf_documents" : "pf_research_reports")
-      .select("id")
+      .select(kolomLama)
       .eq("id", id)
       .maybeSingle();
-    if (errAda) throw errAda;
-    if (!ada) {
+    if (errLama) throw errLama;
+    if (!lama) {
       return NextResponse.json(
         { ok: false, error: "Tidak ditemukan." },
         { status: 404 },
@@ -366,14 +392,51 @@ export async function DELETE(req: Request, { params }: Params) {
       .delete()
       .eq("id", id);
     if (error) throw error;
-    await catatAudit(
-      auth.user.id,
-      auth.user.email ?? null,
-      "riset.hapus",
-      tipe === "dokumen" ? "pf_documents" : "pf_research_reports",
-      id,
-      ip,
-    );
+    // Audit FAIL-CLOSED (Gelombang B1, P1-3/B-T2/S-16): gagal
+    // catat -> operasi ditolak + compensating re-insert baris lama
+    // (dengan id yang sama). Atomicity penuh (transaksi/RPC)
+    // adalah follow-up migrasi.
+    try {
+      await catatAuditWajib({
+        aktor_id: auth.user.id,
+        aktor_email: auth.user.email ?? null,
+        aksi: "riset.hapus",
+        entitas: tipe === "dokumen" ? "pf_documents" : "pf_research_reports",
+        entitas_id: id,
+        sebelum: lama,
+        sesudah: null,
+        ip,
+      });
+    } catch (errAudit) {
+      // Re-insert memakai objek per tipe (bukan `lama` mentah):
+      // `lama` adalah gabungan dua tipe baris (riset punya
+      // diperbarui_pada, dokumen tidak) sehingga insert langsung
+      // ditolak pemeriksa tipe.
+      const lamaObj = lama as unknown as Record<string, unknown>;
+      const pulihBaris: Record<string, unknown> = { id: lamaObj.id };
+      for (const k of (
+        tipe === "dokumen"
+          ? ["jenis", "judul", "penerbit", "tanggal", "url_sumber", "kategori", "metadata", "status", "dibuat_pada"]
+          : ["slug", "judul", "ringkasan", "isi", "metodologi", "penerbit", "tanggal", "status", "dibuat_pada", "diperbarui_pada"]
+      ) as string[]) {
+        pulihBaris[k] = lamaObj[k] ?? null;
+      }
+      const { error: errPulih } = await service
+        .from(tipe === "dokumen" ? "pf_documents" : "pf_research_reports")
+        .insert(pulihBaris as never);
+      if (errPulih) {
+        console.error(
+          JSON.stringify({
+            event: "audit_compensating_reinsert_gagal",
+            waktu: new Date().toISOString(),
+            rute: "admin/riset/[id]",
+            entitas_id: id,
+            pesan: errPulih.message,
+          }),
+        );
+      }
+      return responGalatAudit(errAudit);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return responGalatAdmin(err);

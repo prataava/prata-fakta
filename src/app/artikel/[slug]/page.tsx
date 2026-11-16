@@ -261,11 +261,20 @@ export default async function HalamanArtikel({
         )}
 
         {artikel.gambar_url ? (
+          // F-R5: width/height dicantumkan agar ruang gambar
+          // dicadangkan sebelum dimuat (mengurangi geser tata letak).
+          // next/image tidak dipakai: gambar_url berasal dari host
+          // eksternal mana pun dan next.config.ts tidak punya
+          // images.remotePatterns (di luar cakupan perbaikan ini);
+          // CSS .artikel-gambar (width 100%, height auto) memakai
+          // rasio atribut ini tanpa pernah mendistorsi gambar.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             className="artikel-gambar"
             src={artikel.gambar_url}
             alt={`Ilustrasi: ${artikel.judul}`}
+            width={1200}
+            height={675}
             loading="lazy"
             decoding="async"
           />

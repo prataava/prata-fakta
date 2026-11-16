@@ -1,27 +1,38 @@
 // POST /api/tanya/[id]/membantu — vote "membantu" +1 untuk satu
 // pertanyaan arsip. Tanpa login boleh; satu vote per IP per
-// pertanyaan per hari (peta in-memory, pola rate limiter yang
-// ada — kunci ip + id + tanggal WIB). Update via service role
-// (tanpa policy UPDATE pengguna di pf_questions; T5). 503 jujur
-// bila service key belum diatur; 404 bila pertanyaan tidak ada
-// atau belum publik+terjawab (vote hanya untuk arsip publik).
+// pertanyaan per hari. Update via service role (tanpa policy
+// UPDATE pengguna di pf_questions; T5). 503 jujur bila service
+// key belum diatur; 404 bila pertanyaan tidak ada atau belum
+// publik+terjawab (vote hanya untuk arsip publik).
 // Tahap 13A (T3): IP diambil dari ipDariRequest — JANGAN pakai
 // entri kiri x-forwarded-for (ditulis klien; satu header palsu =
-// vote tanpa batas). SISA: dedup vote ini tetap per instance
-// (Map in-memory); di dua instance berbeda, satu IP bisa tercatat
-// dua kali dalam sehari — celah integritas ringan, bukan bypass
-// limit; bila butuh ketat lintas instance, pindahkan kunci vote
-// ke RPC pf_rate_limit_check (batas 1 / jendela 86400 dtk).
+// vote tanpa batas).
+// Gelombang B1 (P1-5/B-S1/B-S2): dedup vote PINDAH ke RPC
+// pf_rate_limit_check (kunci vote-membantu:<ip>:<id>, batas 1 /
+// jendela 86400 dtk) — Map in-memory per instance DIHAPUS, jadi
+// dedup kini berlaku lintas instance. RPC gagal -> 503 jujur
+// (fail-closed), bukan vote ganda diam-diam.
+// Increment memakai CAS (baca -> update bersyarat nilai lama,
+// ulang maks 3x) agar dua IP berbeda yang vote bersamaan tidak
+// saling menimpa (satu vote hilang). Increment atomik SEJATI
+// (satu pernyataan UPDATE ... SET membantu = membantu + 1) BUTUH
+// RPC baru — follow-up migrasi (lihat laporan Gelombang B1);
+// CAS di sini mencegah kehilangan vote sampai RPC itu ada.
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { ipDariRequest } from "@/lib/ai/route-auth";
+import {
+  cekOrigin,
+  cekRateLimitDbKeras,
+  ipDariRequest,
+  responRateLimitBelumSiap,
+} from "@/lib/ai/route-auth";
 
-const SUDAH_VOTE = new Map<string, true>();
-const BATAS_PETA_VOTE = 10_000;
+const BATAS_VOTE_HARIAN = 1;
+const JENDELA_VOTE_DETIK = 86_400;
+const MAKS_ULANG_CAS = 3;
 
-function tanggalWibHariIni(): string {
-  const kini = new Date(Date.now() + 7 * 60 * 60 * 1000);
-  return kini.toISOString().slice(0, 10);
+function kunciVote(ip: string, id: string): string {
+  return `vote-membantu:${ip}:${id}`;
 }
 
 export async function POST(
@@ -35,23 +46,9 @@ export async function POST(
       { status: 404 },
     );
   }
-  const ip = ipDariRequest(req);
-  const hariIni = tanggalWibHariIni();
-  const kunci = `${ip}:${id}:${hariIni}`;
-  // Batasi pertumbuhan peta (tanpa eviction, kunci lama menumpuk
-  // selamanya): bila penuh, buang kunci hari lain — kunci hari ini
-  // tidak pernah dibuang, jadi vote hari ini tetap terhitung.
-  if (SUDAH_VOTE.size >= BATAS_PETA_VOTE) {
-    for (const k of SUDAH_VOTE.keys()) {
-      if (!k.endsWith(`:${hariIni}`)) SUDAH_VOTE.delete(k);
-    }
-  }
-  if (SUDAH_VOTE.has(kunci)) {
-    return NextResponse.json(
-      { ok: false, error: "Anda sudah menandai pertanyaan ini membantu hari ini." },
-      { status: 429 },
-    );
-  }
+  // P0-8: tolak permintaan lintas situs.
+  const tolakOrigin = cekOrigin(req);
+  if (tolakOrigin) return tolakOrigin;
 
   let service;
   try {
@@ -89,19 +86,71 @@ export async function POST(
       { status: 404 },
     );
   }
-  const membantuBaru = (typeof (soal as { membantu: unknown }).membantu === "number"
-    ? (soal as { membantu: number }).membantu
-    : 0) + 1;
-  const { error } = await service
-    .from("pf_questions")
-    .update({ membantu: membantuBaru })
-    .eq("id", id);
-  if (error) {
+
+  // Dedup lintas instance (fail-closed): RPC gagal -> 503 jujur.
+  const ip = ipDariRequest(req);
+  const batas = await cekRateLimitDbKeras(
+    kunciVote(ip, id),
+    BATAS_VOTE_HARIAN,
+    JENDELA_VOTE_DETIK,
+  );
+  if (!batas.lolos) {
+    if (batas.alasan === "rpc-gagal") {
+      return responRateLimitBelumSiap(batas.jenisGalat);
+    }
+    return NextResponse.json(
+      { ok: false, error: "Anda sudah menandai pertanyaan ini membantu hari ini." },
+      { status: 429 },
+    );
+  }
+
+  // Increment CAS: update hanya bila nilai masih sama dengan yang
+  // dibaca; bila vote lain masuk di antaranya, baca ulang + coba
+  // lagi (maks 3x) — tanpa ini satu vote bisa hilang diam-diam.
+  let terakhir =
+    typeof (soal as { membantu: unknown }).membantu === "number"
+      ? (soal as { membantu: number }).membantu
+      : 0;
+  let membantuBaru: number | null = null;
+  for (let percobaan = 0; percobaan < MAKS_ULANG_CAS; percobaan++) {
+    const { data: diubah, error: errUbah } = await service
+      .from("pf_questions")
+      .update({ membantu: terakhir + 1 })
+      .eq("id", id)
+      .eq("membantu", terakhir)
+      .select("membantu")
+      .maybeSingle();
+    if (errUbah) {
+      return NextResponse.json(
+        { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
+        { status: 500 },
+      );
+    }
+    if (diubah) {
+      membantuBaru = (diubah as { membantu: number }).membantu;
+      break;
+    }
+    const { data: segar, error: errSegar } = await service
+      .from("pf_questions")
+      .select("membantu")
+      .eq("id", id)
+      .maybeSingle();
+    if (errSegar || !segar) {
+      return NextResponse.json(
+        { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
+        { status: 500 },
+      );
+    }
+    terakhir =
+      typeof (segar as { membantu: unknown }).membantu === "number"
+        ? (segar as { membantu: number }).membantu
+        : 0;
+  }
+  if (membantuBaru === null) {
     return NextResponse.json(
       { ok: false, error: "Gagal menyimpan vote. Coba lagi." },
       { status: 500 },
     );
   }
-  SUDAH_VOTE.set(kunci, true);
   return NextResponse.json({ ok: true, membantu: membantuBaru });
 }
