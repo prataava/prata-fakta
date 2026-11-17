@@ -36,18 +36,24 @@ import {
   useSaranCari,
   type SaranCari,
 } from "@/components/SaranPencarian";
+import { t, type KunciBahasa } from "@/lib/i18n";
+import { useBahasa } from "@/lib/useBahasa";
 
-/** Perintah cepat — SEMUA rute nyata yang sudah ada. */
+/** Perintah cepat — SEMUA rute nyata yang sudah ada. Label dari
+ *  kamus (P3-3); "Data Live" sama di kedua bahasa sehingga tetap
+ *  literal. Deskripsi item SENGAJA tetap Indonesia (di luar
+ *  cakupan minimal P3-3). */
 const AKSI_CEPAT: {
   href: string;
-  label: string;
+  kunci?: KunciBahasa;
+  label?: string;
   deskripsi: string;
   ikon: LucideIcon;
 }[] = [
-  { href: "/", label: "Beranda", deskripsi: "Halaman utama", ikon: Home },
+  { href: "/", kunci: "nav.beranda", deskripsi: "Halaman utama", ikon: Home },
   {
     href: "/kategori",
-    label: "Kategori",
+    kunci: "nav.kategori",
     deskripsi: "Jelajahi semua kategori berita",
     ikon: LayoutGrid,
   },
@@ -59,29 +65,34 @@ const AKSI_CEPAT: {
   },
   {
     href: "/brief",
-    label: "Daily Brief",
+    kunci: "nav.brief",
     deskripsi: "Ringkasan berita harian",
     ikon: Sunrise,
   },
   {
     href: "/arsip",
-    label: "Arsip",
+    kunci: "nav.arsip",
     deskripsi: "Semua artikel terdahulu",
     ikon: Archive,
   },
   {
     href: "/jelajahi",
-    label: "Jelajahi",
+    kunci: "nav.jelajahi",
     deskripsi: "Topik, negara, dan lainnya",
     ikon: Compass,
   },
   {
     href: "/masuk",
-    label: "Masuk",
+    kunci: "auth.masuk",
     deskripsi: "Masuk ke akun Anda",
     ikon: LogIn,
   },
 ];
+
+/** Label tampil sebuah aksi cepat dalam bahasa aktif. */
+function labelAksi(bahasa: "id" | "en", aksi: (typeof AKSI_CEPAT)[number]): string {
+  return aksi.kunci ? t(bahasa, aksi.kunci) : (aksi.label ?? "");
+}
 
 type BarisPalette =
   | {
@@ -107,6 +118,7 @@ type ItemRender =
 
 export default function CommandPalette() {
   const router = useRouter();
+  const bahasa = useBahasa();
   const [terbuka, setTerbuka] = useState(false);
   const [query, setQuery] = useState("");
   const [riwayat, setRiwayat] = useState<string[]>([]);
@@ -172,13 +184,13 @@ export default function CommandPalette() {
       indeks += 1;
     };
     if (q.length === 0) {
-      hasil.push({ jenis: "judul", judul: "Perintah cepat", kunci: "j-aksi" });
+      hasil.push({ jenis: "judul", judul: t(bahasa, "palette.aksiCepat"), kunci: "j-aksi" });
       for (const aksi of AKSI_CEPAT) {
         dorong({
           macam: "aksi",
           kunci: `aksi:${aksi.href}`,
           href: aksi.href,
-          label: aksi.label,
+          label: labelAksi(bahasa, aksi),
           deskripsi: aksi.deskripsi,
           ikon: aksi.ikon,
         });
@@ -186,7 +198,7 @@ export default function CommandPalette() {
       if (riwayat.length > 0) {
         hasil.push({
           jenis: "judul",
-          judul: "Terakhir dicari",
+          judul: t(bahasa, "palette.terakhirDicari"),
           kunci: "j-riwayat",
         });
         for (const teks of riwayat) {
@@ -195,7 +207,7 @@ export default function CommandPalette() {
       }
     } else {
       if (saran.length > 0) {
-        hasil.push({ jenis: "judul", judul: "Saran", kunci: "j-saran" });
+        hasil.push({ jenis: "judul", judul: t(bahasa, "palette.saran"), kunci: "j-saran" });
         for (const item of saran) {
           dorong({
             macam: "saran",
@@ -208,13 +220,13 @@ export default function CommandPalette() {
       }
       const aksiCocok = AKSI_CEPAT.filter(
         (aksi) =>
-          aksi.label.toLowerCase().includes(q) ||
+          labelAksi(bahasa, aksi).toLowerCase().includes(q) ||
           aksi.deskripsi.toLowerCase().includes(q),
       );
       if (aksiCocok.length > 0) {
         hasil.push({
           jenis: "judul",
-          judul: "Perintah cepat",
+          judul: t(bahasa, "palette.aksiCepat"),
           kunci: "j-aksi",
         });
         for (const aksi of aksiCocok) {
@@ -222,7 +234,7 @@ export default function CommandPalette() {
             macam: "aksi",
             kunci: `aksi:${aksi.href}`,
             href: aksi.href,
-            label: aksi.label,
+            label: labelAksi(bahasa, aksi),
             deskripsi: aksi.deskripsi,
             ikon: aksi.ikon,
           });
@@ -230,7 +242,7 @@ export default function CommandPalette() {
       }
     }
     return hasil;
-  }, [query, saran, riwayat]);
+  }, [query, saran, riwayat, bahasa]);
 
   const jumlahBaris = useMemo(
     () =>
@@ -431,10 +443,9 @@ export default function CommandPalette() {
             inputRef.current?.focus();
           }}
         >
-          <Dialog.Title className="sr-only">Palet perintah</Dialog.Title>
+          <Dialog.Title className="sr-only">{t(bahasa, "palette.judul")}</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Cari berita, topik, atau sumber, atau lompat ke halaman
-            PRATA FAKTA.
+            {t(bahasa, "palette.deskripsi")}
           </Dialog.Description>
 
           <div className="palette-kepala">
@@ -449,9 +460,9 @@ export default function CommandPalette() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={saatTombolInput}
-              placeholder="Cari berita, topik, atau perintah…"
+              placeholder={t(bahasa, "palette.placeholder")}
               autoComplete="off"
-              aria-label="Cari di PRATA FAKTA"
+              aria-label={t(bahasa, "palette.judul")}
               role="combobox"
               aria-expanded={terbuka}
               aria-controls="palette-daftar"
@@ -467,7 +478,7 @@ export default function CommandPalette() {
               <button
                 type="button"
                 className="palette-tutup"
-                aria-label="Tutup palet perintah"
+                aria-label={t(bahasa, "palette.tutup")}
               >
                 <X size={18} aria-hidden="true" />
               </button>
@@ -494,7 +505,7 @@ export default function CommandPalette() {
                       }}
                     >
                       <Trash2 size={13} aria-hidden="true" />
-                      Hapus semua
+                      {t(bahasa, "palette.hapusSemua")}
                     </button>
                   ) : null}
                 </div>
@@ -504,13 +515,12 @@ export default function CommandPalette() {
             )}
             {memuat && saran.length === 0 && !qKosong ? (
               <div className="palette-kosong" role="status">
-                Memuat saran…
+                {t(bahasa, "palette.memuat")}
               </div>
             ) : null}
             {!qKosong && jumlahBaris === 0 && !memuat ? (
               <div className="palette-kosong">
-                Tidak ada hasil untuk “{query.trim()}”. Tekan Enter
-                untuk mencari.
+                {t(bahasa, "palette.tidakAdaHasil", { q: query.trim() })}
               </div>
             ) : null}
           </div>
@@ -518,13 +528,13 @@ export default function CommandPalette() {
           <div className="palette-kaki" aria-hidden="true">
             <span>
               <kbd>↑</kbd>
-              <kbd>↓</kbd> navigasi
+              <kbd>↓</kbd> {t(bahasa, "palette.kakiNavigasi")}
             </span>
             <span>
-              <kbd>Enter</kbd> buka
+              <kbd>Enter</kbd> {t(bahasa, "palette.kakiBuka")}
             </span>
             <span>
-              <kbd>Esc</kbd> tutup
+              <kbd>Esc</kbd> {t(bahasa, "palette.kakiTutup")}
             </span>
           </div>
         </Dialog.Content>
@@ -539,6 +549,7 @@ export default function CommandPalette() {
  *  terpasang SEKALI di layout. Desktop: ikon + hint "Ctrl+K";
  *  seluler: ikon saja (hint disembunyikan CSS). */
 export function TombolPalette() {
+  const bahasa = useBahasa();
   function buka() {
     window.dispatchEvent(new Event("pf:buka-palette"));
   }
@@ -547,8 +558,8 @@ export function TombolPalette() {
       type="button"
       className="tombol tombol-ikon tombol-hantu tombol-palette"
       onClick={buka}
-      aria-label="Buka palet perintah (Ctrl+K)"
-      title="Palet perintah (Ctrl+K)"
+      aria-label={t(bahasa, "palette.buka")}
+      title={t(bahasa, "palette.buka")}
     >
       <Search size={20} aria-hidden="true" />
       <kbd className="palette-pintasan-tombol" aria-hidden="true">

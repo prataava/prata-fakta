@@ -12,9 +12,12 @@ import SaranPencarian, {
   simpanRiwayatCari,
   type SaranCari,
 } from "@/components/SaranPencarian";
+import { t } from "@/lib/i18n";
+import { useBahasa } from "@/lib/useBahasa";
 
 export default function SearchBar({ nilaiAwal = "" }: { nilaiAwal?: string }) {
   const router = useRouter();
+  const bahasa = useBahasa();
   const idUnik = useId();
   const idInput = `cari-q-${idUnik}`;
   const idDaftar = `saran-cari-${idUnik}`;
@@ -50,7 +53,7 @@ export default function SearchBar({ nilaiAwal = "" }: { nilaiAwal?: string }) {
       onSubmit={saatSubmit}
     >
       <label htmlFor={idInput} className="sr-only">
-        Cari berita, topik, atau sumber
+        {t(bahasa, "cari.label")}
       </label>
       <div className="saran-pembungkus" ref={pembungkusRef}>
         <input
@@ -59,7 +62,7 @@ export default function SearchBar({ nilaiAwal = "" }: { nilaiAwal?: string }) {
           type="search"
           name="q"
           defaultValue={nilaiAwal}
-          placeholder="Cari berita, topik, atau sumber…"
+          placeholder={t(bahasa, "cari.placeholder")}
           autoComplete="off"
           role="combobox"
           aria-expanded="false"
@@ -76,7 +79,7 @@ export default function SearchBar({ nilaiAwal = "" }: { nilaiAwal?: string }) {
         />
       </div>
       <button className="tombol tombol-primer" type="submit">
-        Cari
+        {t(bahasa, "cari.tombol")}
       </button>
     </form>
   );

@@ -9,6 +9,11 @@
 // Mobile (<768px): nav ini disembunyikan (CSS) — navigasi HP lewat
 // dock bawah + /jelajahi (Lainnya), sesuai brief Fase 4–5.
 // Ikon: SATU library (lucide-react), ukuran konsisten 17–18px.
+// P3-3 (17 Nov 2026): label 8 pintu + "Semua kategori" dari kamus
+// (src/lib/i18n.ts, cookie pf-bahasa via useBahasa). Label item
+// submenu + deskripsinya dan nama kategori SENGAJA tetap Indonesia
+// (nama resmi; di luar cakupan minimal P3-3). PemilihBahasa TIDAK
+// dipasang di sini (tersembunyi di HP) — ia ada di AuthArea.
 "use client";
 
 import Link from "next/link";
@@ -45,6 +50,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { KATEGORI_UTAMA } from "@/lib/categories";
+import { t } from "@/lib/i18n";
+import { useBahasa } from "@/lib/useBahasa";
 
 type ItemMenu = {
   href: string;
@@ -122,13 +129,17 @@ function DropdownGrup({
   lebar?: boolean;
   children: React.ReactNode;
 }) {
+  // DropdownGrup komponen tersendiri: baca bahasa sendiri lewat
+  // hook yang sama (bukan prop) agar HeaderNav tidak perlu
+  // meneruskan bahasa ke tiap grup.
+  const bahasa = useBahasa();
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
           className={`nav-pemicu${aktif ? " aktif" : ""}`}
-          aria-label={`${label} — buka submenu`}
+          aria-label={`${label} — ${t(bahasa, "nav.submenu")}`}
         >
           <Ikon size={17} aria-hidden="true" />
           <span>{label}</span>
@@ -151,6 +162,7 @@ function DropdownGrup({
 
 export default function HeaderNav() {
   const pathname = usePathname();
+  const bahasa = useBahasa();
   const aktif = (href: string): boolean =>
     href === "/"
       ? pathname === "/"
@@ -184,13 +196,13 @@ export default function HeaderNav() {
 
   return (
     <nav className="nav-utama" aria-label="Navigasi utama">
-      {tautan("/", "Beranda", Home)}
+      {tautan("/", t(bahasa, "nav.beranda"), Home)}
 
-      <DropdownGrup label="Kategori" ikon={LayoutGrid} aktif={aktifKategori} lebar>
+      <DropdownGrup label={t(bahasa, "nav.kategori")} ikon={LayoutGrid} aktif={aktifKategori} lebar>
         <ItemMenuTautan
           item={{
             href: "/kategori",
-            label: "Semua kategori",
+            label: t(bahasa, "nav.semuaKategori"),
             deskripsi: "Jelajahi semua kategori berita.",
             ikon: LayoutGrid,
           }}
@@ -208,27 +220,27 @@ export default function HeaderNav() {
         ))}
       </DropdownGrup>
 
-      <DropdownGrup label="Fakta & Data" ikon={Database} aktif={aktifFaktaData}>
+      <DropdownGrup label={t(bahasa, "nav.faktaData")} ikon={Database} aktif={aktifFaktaData}>
         {FAKTA_DATA.map((item) => (
           <ItemMenuTautan key={item.href} item={item} />
         ))}
       </DropdownGrup>
 
-      <DropdownGrup label="Wawasan" ikon={Lightbulb} aktif={aktifWawasan}>
+      <DropdownGrup label={t(bahasa, "nav.wawasan")} ikon={Lightbulb} aktif={aktifWawasan}>
         {WAWASAN.map((item) => (
           <ItemMenuTautan key={item.href} item={item} />
         ))}
       </DropdownGrup>
 
-      <DropdownGrup label="Belajar" ikon={GraduationCap} aktif={aktifBelajar}>
+      <DropdownGrup label={t(bahasa, "nav.belajar")} ikon={GraduationCap} aktif={aktifBelajar}>
         {BELAJAR.map((item) => (
           <ItemMenuTautan key={item.href} item={item} />
         ))}
       </DropdownGrup>
 
-      {tautan("/brief", "Daily Brief", Sunrise)}
-      {tautan("/arsip", "Arsip", Archive)}
-      {tautan("/jelajahi", "Jelajahi", Compass)}
+      {tautan("/brief", t(bahasa, "nav.brief"), Sunrise)}
+      {tautan("/arsip", t(bahasa, "nav.arsip"), Archive)}
+      {tautan("/jelajahi", t(bahasa, "nav.jelajahi"), Compass)}
     </nav>
   );
 }
