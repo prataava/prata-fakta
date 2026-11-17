@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
+import CommandPalette from "@/components/CommandPalette";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -61,6 +62,7 @@ export default async function RootLayout({
         <main className="konten">{children}</main>
         <Footer />
         <BottomNav />
+        <CommandPalette />
       </body>
     </html>
   );
