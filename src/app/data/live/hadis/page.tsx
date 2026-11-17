@@ -1,64 +1,66 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
+import { connection } from "next/server";
 import EmptyState from "@/components/EmptyState";
-import { getDaftarKitab, getHadis } from "@/lib/data-live";
+import { LABEL_SUMBER_HADIS, getHadisArbain } from "@/lib/data-live";
 
 export const metadata: Metadata = {
-  title: "Hadis — Data Live",
+  title: "Hadis Arbain Nawawi — Data Live",
   description:
-    "Kitab-kitab hadis dan isi hadis per nomor dari api.hadith.gading.dev.",
+    "42 hadis Arbain Nawawi dari MyQuran API — teks Arab beserta terjemahannya.",
 };
 
 // Halaman data live: dibaca per request (pola cacheComponents).
 export const instant = false;
 
-async function DaftarKitab() {
-  const hasil = await getDaftarKitab();
+async function DaftarHadis() {
+  // Baca waktu HANYA sesudah connection() — aturan cacheComponents
+  // (pola halaman sholat): getHadisArbain() mengisi diambilPada
+  // dengan new Date(), dan tanpa connection() build gagal di
+  // prerender /data/live/hadis (temuan integrator 17 Nov 2026).
+  await connection();
+  const hasil = await getHadisArbain();
   if (!hasil.ok) {
     return (
       <EmptyState
         varian="tak-tersedia"
-        judul="Kitab hadis belum tersedia"
-        pesan="Sumber api.hadith.gading.dev sedang tidak dapat dijangkau (diperiksa 16 November 2026 dari dua jalur — host tidak menjawab). Halaman ini akan berfungsi otomatis begitu sumber pulih; tidak ada isi hadis yang ditampilkan dari sumber lain."
+        judul="Hadis Arbain belum tersedia"
+        pesan="MyQuran API sedang menjawab dengan bentuk yang tidak dikenali saat ini. Coba muat lagi beberapa saat lagi — tidak ada isi hadis yang ditampilkan dari sumber lain."
       />
     );
   }
-  return (
-    <div className="grid-berita">
-      {hasil.data.map((k) => (
-        <Link key={k.slug} className="kartu" href={`/data/live/hadis?kitab=${k.slug}`}>
-          <span className="kartu-kategori">
-            {k.jumlahHadis > 0 ? `${k.jumlahHadis} hadis` : "Kitab hadis"}
-          </span>
-          <span className="kartu-judul">{k.nama}</span>
-          {k.namaArab && (
-            <span className="kartu-teks" lang="ar" dir="rtl">
-              {k.namaArab}
-            </span>
-          )}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-async function IsiKitab({ kitab, dari }: { kitab: string; dari: number }) {
-  const sampai = dari + 19;
-  const hasil = await getHadis(kitab, dari, sampai);
-  if (!hasil.ok) {
-    return (
-      <EmptyState
-        varian="tak-tersedia"
-        judul="Hadis belum tersedia"
-        pesan="Sumber api.hadith.gading.dev sedang tidak dapat dijangkau saat ini. Coba muat lagi beberapa saat lagi."
-      />
-    );
-  }
+  const { hadis, sumber, diambilPada } = hasil.data;
+  const diambil = diambilPada
+    ? new Date(diambilPada).toLocaleString("id-ID", {
+        timeZone: "Asia/Jakarta",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
   return (
     <div>
+      <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+        Sumber: {LABEL_SUMBER_HADIS[sumber]}
+        {diambil ? ` · diambil ${diambil} WIB` : " · korpus statis"}
+      </p>
+      {sumber === "korpus" && (
+        <p
+          role="status"
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: "12px 16px",
+          }}
+        >
+          MyQuran API tidak dapat dijangkau saat ini — menampilkan korpus
+          terverifikasi (3 hadis) sampai sumber pulih.
+        </p>
+      )}
       <div className="prosa">
-        {hasil.data.hadis.map((h) => (
+        {hadis.map((h) => (
           <article
             key={h.nomor}
             style={{
@@ -68,7 +70,7 @@ async function IsiKitab({ kitab, dari }: { kitab: string; dari: number }) {
             }}
           >
             <p style={{ color: "var(--muted)", marginBottom: 4 }}>
-              Hadis nomor {h.nomor}
+              Hadis Arbain nomor {h.nomor} — {h.judul}
             </p>
             <p
               lang="ar"
@@ -77,89 +79,49 @@ async function IsiKitab({ kitab, dari }: { kitab: string; dari: number }) {
             >
               {h.arab}
             </p>
-            {h.terjemahan && <p>{h.terjemahan}</p>}
+            <p>{h.terjemahan}</p>
           </article>
         ))}
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {dari > 1 && (
-          <Link
-            className="tombol"
-            href={`/data/live/hadis?kitab=${encodeURIComponent(kitab)}&dari=${Math.max(1, dari - 20)}`}
-          >
-            ← 20 sebelumnya
-          </Link>
-        )}
-        <Link
-          className="tombol tombol-primer"
-          href={`/data/live/hadis?kitab=${encodeURIComponent(kitab)}&dari=${dari + 20}`}
-        >
-          20 berikutnya →
-        </Link>
-        <Link className="tombol" href="/data/live/hadis">
-          Daftar kitab
-        </Link>
       </div>
     </div>
   );
 }
 
-export default async function Hadis({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const sp = await searchParams;
-  const kitab = typeof sp.kitab === "string" ? sp.kitab : "";
-  const dariMentah = typeof sp.dari === "string" ? Number(sp.dari) : NaN;
-  const dari =
-    Number.isInteger(dariMentah) && dariMentah >= 1 ? dariMentah : 1;
-
+export default function Hadis() {
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-hadis">
-        <p className="hero-label">Data Live · api.hadith.gading.dev</p>
+        <p className="hero-label">Data Live · MyQuran API</p>
         <h1 id="judul-hadis">
-          Hadis <em>{kitab ? `— ${kitab}` : "per kitab."}</em>
+          Hadis <em>Arbain Nawawi.</em>
         </h1>
         <p className="hero-teks">
-          Kitab-kitab hadis dan isi hadis per nomor. Teks Arab beserta
-          terjemahannya, langsung dari sumbernya.
+          42 hadis Arbain Nawawi — teks Arab beserta terjemahannya, langsung
+          dari sumbernya. Bila sumber sedang tidak dapat dijangkau, halaman
+          menampilkan korpus terverifikasi (3 hadis) dan mengatakannya dengan
+          jujur.
         </p>
       </section>
 
-      {kitab === "" ? (
-        <Suspense
-          fallback={
-            <div>
-              <div className="kerangka" role="status" aria-label="Memuat…" />
-              <p role="status">Memuat daftar kitab…</p>
-            </div>
-          }
-        >
-          <DaftarKitab />
-        </Suspense>
-      ) : (
-        <Suspense
-          fallback={
-            <div>
-              <div className="kerangka" role="status" aria-label="Memuat…" />
-              <p role="status">Memuat hadis…</p>
-            </div>
-          }
-        >
-          <IsiKitab kitab={kitab} dari={dari} />
-        </Suspense>
-      )}
+      <Suspense
+        fallback={
+          <div>
+            <div className="kerangka" role="status" aria-label="Memuat…" />
+            <p role="status">Memuat hadis…</p>
+          </div>
+        }
+      >
+        <DaftarHadis />
+      </Suspense>
 
       <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
         Sumber:{" "}
         <a
-          href="https://api.hadith.gading.dev/"
+          href="https://api.myquran.com/v2/hadits/arbain/semua"
           target="_blank"
           rel="noopener noreferrer"
         >
-          api.hadith.gading.dev
+          api.myquran.com — Hadis Arbain Nawawi
         </a>
         .
       </p>
