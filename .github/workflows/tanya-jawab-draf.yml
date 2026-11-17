@@ -62,7 +62,7 @@ jobs:
           RESP="$(mktemp)"
           curl --fail-with-body --retry 2 --retry-delay 10 -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/tanya/draf" \
-            -H "x-pf-ai-secret: <redacted>" \
+            -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
             -H "Content-Type: application/json" \
             -d "{\"limit\":$LIMIT}" \
             -o "$RESP"
