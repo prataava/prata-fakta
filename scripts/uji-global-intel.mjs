@@ -843,6 +843,31 @@ console.log("\n--- §I push notifications (v26) ---");
     libKlien.includes("/api/notifications/subscribe") &&
       !libKlien.includes("/api/push/langganan"),
   );
+  // Form broadcast admin (17 Nov 2026, lanjut Tugas 1): sebelum ini
+  // broadcast HANYA bisa lewat API — tidak ada UI sama sekali, jadi
+  // admin tidak bisa mengirim broadcast tanpa curl.
+  const formBroadcast = baca("src/components/admin/FormBroadcast.tsx");
+  cek(
+    "I16 form broadcast POST ke /api/admin/notifikasi/kirim + uji ke /api/push/uji, konfirmasi Radix (tanpa window.confirm)",
+    formBroadcast.includes("/api/admin/notifikasi/kirim") &&
+      formBroadcast.includes("/api/push/uji") &&
+      formBroadcast.includes("DialogKonfirmasi") &&
+      !formBroadcast.includes("window.confirm") &&
+      formBroadcast.includes("broadcasted"),
+  );
+  const halamanNotifikasi = baca("src/app/admin/notifikasi/page.tsx");
+  cek(
+    "I17 halaman /admin/notifikasi guard super_admin + hitung langganan via service client + instant=false",
+    halamanNotifikasi.includes("super_admin") &&
+      halamanNotifikasi.includes("cobaServiceClient") &&
+      halamanNotifikasi.includes("pf_push_subscriptions") &&
+      halamanNotifikasi.includes("instant = false"),
+  );
+  const navAdmin = baca("src/components/admin/NavAdmin.tsx");
+  cek(
+    "I18 NavAdmin menautkan /admin/notifikasi (grup Kendali)",
+    navAdmin.includes('"/admin/notifikasi"'),
+  );
 }
 
 console.log(`\nRINGKASAN global-intel: ${lolos} lolos, ${gagal} gagal.`);
