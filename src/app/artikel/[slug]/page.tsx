@@ -17,6 +17,11 @@ import { getCeritaUntukArtikel } from "@/lib/cerita";
 import { getNegara } from "@/lib/negara";
 import { hitungFactScore, type HasilFactScore } from "@/lib/fact-score";
 import { createClient } from "@/lib/supabase/server";
+import {
+  DEFAULT_PREFERENSI_BACA,
+  dariBarisPreferensiBaca,
+  type PreferensiBaca,
+} from "@/lib/preferensi-baca";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import { urlSitus } from "@/lib/situs";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
@@ -92,17 +97,37 @@ export default async function HalamanArtikel({
   const artikel = await getArtikelLengkap(slug);
   if (!artikel) notFound();
 
-  const [terkait, versi, pengguna, jejak, perbandingan, cerita, negara, koreksiTerbuka] =
+  const [terkait, versi, sesi, jejak, perbandingan, cerita, negara, koreksiTerbuka] =
     await Promise.all([
       getArtikelTerkait(artikel, 4),
       getVersiArtikel(artikel.id, 5),
-      (async () => {
+      (async (): Promise<{
+        pengguna: { id: string } | null;
+        preferensiBaca: PreferensiBaca;
+      }> => {
         try {
           const supabase = await createClient();
           const { data } = await supabase.auth.getUser();
-          return data.user ?? null;
+          const pengguna = data.user ?? null;
+          if (!pengguna) {
+            return { pengguna: null, preferensiBaca: DEFAULT_PREFERENSI_BACA };
+          }
+          // P3-2: preferensi baca awal untuk PembacaArtikel
+          // (tanpa fetch baru dari klien). Kolom v21 belum ada /
+          // baris belum ada → default (pola fallback v14).
+          const { data: baris } = await supabase
+            .from("pf_user_preferences")
+            .select("mode_baca, ukuran_font, kepadatan, bahasa")
+            .eq("user_id", pengguna.id)
+            .maybeSingle();
+          return {
+            pengguna,
+            preferensiBaca: dariBarisPreferensiBaca(
+              baris as Record<string, unknown> | null,
+            ),
+          };
         } catch {
-          return null;
+          return { pengguna: null, preferensiBaca: DEFAULT_PREFERENSI_BACA };
         }
       })(),
       // Jejak Fakta (Area 1) + Multi-Source View (Area 3), Fase 8 Gel. 1.
@@ -117,6 +142,8 @@ export default async function HalamanArtikel({
       getJumlahKoreksiTerbuka(artikel.id),
     ]);
 
+  const pengguna = sesi.pengguna;
+  const preferensiBaca = sesi.preferensiBaca;
   const loggedIn = Boolean(pengguna);
   const bookmarkAwal = pengguna
     ? await isBookmarked(pengguna.id, artikel.id)
@@ -381,6 +408,7 @@ export default async function HalamanArtikel({
           versi={versi}
           loggedIn={loggedIn}
           bookmarkAwal={bookmarkAwal}
+          preferensiAwal={loggedIn ? preferensiBaca : undefined}
         />
 
         <CatatanPribadi
