@@ -13,22 +13,58 @@
 //                        `npx web-push generate-vapid-keys`)
 //   VAPID_PRIVATE_KEY — kunci privat base64url (format yang sama)
 //   VAPID_SUBJECT     — kontak pemilik, mis. "mailto:admin@prata.id"
-// Bila ketiganya belum diatur, pengiriman push dilewati diam-diam
-// (notifikasi in-app tetap jalan) dan GET /api/push/langganan
-// melaporkan terkonfigurasi: false. Generate kunci sekali di
-// mesin deploy — butuh `npx web-push generate-vapid-keys`
-// (instalasi sekali di sisi koordinator, bukan di repo ini).
+// Nama publik punya ALTERNATIF (v26, 17 Nov 2026):
+// NEXT_PUBLIC_VAPID_PUBLIC_KEY — varian yang sama, dipakai klien
+// browser (PengalihPush) dan sudah tersimpan di .env.local.
+// Server menerima salah satu dari keduanya (ambilKunciPublikVapid
+// di bawah) agar kunci yang sama tidak perlu diduplikasi di
+// deploy; Bila ketiganya belum diatur, pengiriman push dilewati
+// diam-diam (notifikasi in-app tetap jalan) dan GET
+// /api/push/langganan melaporkan terkonfigurasi: false. Generate
+// kunci sekali di mesin deploy — butuh
+// `npx web-push generate-vapid-keys` (instalasi sekali di sisi
+// koordinator, bukan di repo ini).
 import { createPrivateKey, sign } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const ENV_VAPID_PUBLIC = "VAPID_PUBLIC_KEY";
+export const ENV_VAPID_PUBLIC_ALTERNATIF = "NEXT_PUBLIC_VAPID_PUBLIC_KEY";
 export const ENV_VAPID_PRIVATE = "VAPID_PRIVATE_KEY";
 export const ENV_VAPID_SUBJECT = "VAPID_SUBJECT";
+
+/**
+ * Kunci publik VAPID yang dipakai server: nama kanonik
+ * VAPID_PUBLIC_KEY, jatuh ke NEXT_PUBLIC_VAPID_PUBLIC_KEY bila
+ * tidak ada (kunci yang sama — varian NEXT_PUBLIC_ dibaca server
+ * Next.js juga). null bila keduanya kosong.
+ */
+export function ambilKunciPublikVapid(): string | null {
+  return (
+    process.env[ENV_VAPID_PUBLIC] ||
+    process.env[ENV_VAPID_PUBLIC_ALTERNATIF] ||
+    null
+  );
+}
+
+/**
+ * Nama env VAPID yang kurang (untuk pesan 503 yang jujur —
+ * tanpa membocorkan nilai). Kunci publik dianggap ada bila salah
+ * satu dari dua namanya terisi.
+ */
+export function daftarEnvVapidKurang(): string[] {
+  const kurang: string[] = [];
+  if (!ambilKunciPublikVapid()) {
+    kurang.push(`${ENV_VAPID_PUBLIC} (atau ${ENV_VAPID_PUBLIC_ALTERNATIF})`);
+  }
+  if (!process.env[ENV_VAPID_PRIVATE]) kurang.push(ENV_VAPID_PRIVATE);
+  if (!process.env[ENV_VAPID_SUBJECT]) kurang.push(ENV_VAPID_SUBJECT);
+  return kurang;
+}
 
 /** true bila ketiga env VAPID terisi (push bisa dikirim). */
 export function apakahPushTerkonfigurasi(): boolean {
   return Boolean(
-    process.env[ENV_VAPID_PUBLIC] &&
+    ambilKunciPublikVapid() &&
       process.env[ENV_VAPID_PRIVATE] &&
       process.env[ENV_VAPID_SUBJECT],
   );
@@ -49,7 +85,7 @@ function bufferKeBase64url(buf: Buffer): string {
  * Mengembalikan null bila kunci tidak valid / tidak terkonfigurasi.
  */
 export function buatJwtVapid(aud: string): string | null {
-  const publik = process.env[ENV_VAPID_PUBLIC];
+  const publik = ambilKunciPublikVapid();
   const privat = process.env[ENV_VAPID_PRIVATE];
   const subject = process.env[ENV_VAPID_SUBJECT];
   if (!publik || !privat || !subject) return null;
@@ -127,7 +163,7 @@ export async function kirimPushKePengguna(
     return { ...kosong, terkonfigurasi: true };
   }
   if (langganan.length === 0) return { ...kosong, terkonfigurasi: true };
-  const publik = process.env[ENV_VAPID_PUBLIC] as string;
+  const publik = ambilKunciPublikVapid() as string;
   let terkirim = 0;
   let dihapus = 0;
   for (const s of langganan) {
