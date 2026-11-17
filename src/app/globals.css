@@ -1,65 +1,83 @@
 /* ============================================================
-   PRATA FAKTA — Design System "Aurora Glass Editorial"
-   (Fase 2 redesign, 16 Nov 2026 — menggantikan "Hybrid
-   Editorial Premium"; nama token LAMA dipertahankan agar 96
-   class pemakai tidak berubah, nilainya dipetakan ulang ke
-   palet Aurora; token BARU ditandai "Aurora").
+   PRATA FAKTA — Design System "Swiss Archival Editorial"
+   (17 Nov 2026 — menggantikan sistem kaca sebelumnya:
+   re-skin token + header, BUKAN tulis ulang halaman.
+   Nama token LAMA dipertahankan agar semua class pemakai
+   tidak berubah; nilainya dipetakan ulang ke palet Swiss
+   (kertas arsip hangat, tinta karbon, aksen crimson).
    JANGAN hardcode warna di komponen: selalu pakai var(--token).
    Aturan AGENTS: jangan pernah membuat definisi token menunjuk
    dirinya sendiri (self-ref).
-   Mode: DUA — gelap Aurora (default identitas) + terang yang
-   diadaptasi dari palet yang sama (keputusan pengguna 22.25 WIB).
+   Mode: DUA — terang kertas arsip (default identitas) + gelap
+   karbon slate kontras tinggi.
+   Permukaan SOLID tajam, tanpa glassmorphism: tidak ada
+   backdrop-filter / gradien warna di luar blok BottomNav
+   (dock mobile dibekukan 16 Nov 2026 — JANGAN disentuh).
    ============================================================ */
 
 :root {
-  /* Token merek (identik di kedua mode) — kanon Aurora */
-  --midnight: #080d18;
-  --mint: #68e4c1;
-  --cyan: #77d8f0;
-  --purple: #a58bff; /* Aurora — baru */
-  --border: #e4e8ee;
+  /* Token merek (identik di kedua mode) — kanon Swiss.
+   * --mint/--cyan/--purple dipakai ulang secara semantik:
+   * mint = sinyal terverifikasi (emerald), cyan = info (biru),
+   * purple = izin/violet. Nilai terang = versi gelap yang
+   * lolos WCAG AA di atas permukaan putih (≥4.5:1, terukur
+   * scripts/uji-swiss.mjs); nilai gelap = versi terang. */
+  --midnight: #111315;
+  --mint: #065f46;
+  --cyan: #1d4ed8;
+  --purple: #6d28d9;
+  --border: #e3e0d8;
 
-  /* Mode terang (default) — Aurora diadaptasi */
-  --bg: #f7f8fa;
+  /* Mode terang (default) — kertas arsip hangat */
+  --bg: #f9f8f5;
   --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --elevated: #ffffff; /* Aurora — baru */
-  --ink: #101827;
-  --ink-2: #334155;
-  --muted: #5b6b80; /* turunan lebih gelap dari #8492A6 agar kontras di terang */
-  --glass-bg: rgba(255, 255, 255, 0.75); /* Aurora — baru */
-  --glass-border: rgba(16, 24, 39, 0.12); /* Aurora — baru */
-  --accent: #0e7a5f; /* mint yang digelapkan untuk kontras di terang */
+  --surface-2: #f0eee8;
+  --elevated: #ffffff;
+  --ink: #111315;
+  --ink-2: #33383d;
+  --muted: #565d64; /* ≥4.5:1 di atas --surface dan --bg */
+  --glass-bg: #ffffff; /* Swiss: solid (nama dipertahankan agar
+    17 pemakai tidak berubah; bukan lagi kaca transparan) */
+  --glass-border: #e3e0d8; /* Swiss: garis solid 1px */
+  --accent: #b91c1c; /* crimson editorial */
   --accent-ink: #ffffff;
   --danger: #b3261e;
-  --shadow: 0 1px 2px rgba(16, 24, 39, 0.06), 0 4px 16px rgba(16, 24, 39, 0.06);
-  --shadow-glass: 0 12px 32px rgba(16, 24, 39, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6); /* Aurora — baru */
+  --warn: #92400e; /* amber — sinyal peringatan (teks aman) */
+  --shadow: 0 1px 2px rgba(17, 19, 21, 0.06), 0 4px 16px rgba(17, 19, 21, 0.06);
+  --shadow-glass: 0 1px 2px rgba(17, 19, 21, 0.08), 0 8px 24px rgba(17, 19, 21, 0.1); /* Swiss: bayangan datar, tanpa inner highlight */
 
   --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --radius: 12px;
-  --radius-lg: 16px; /* Aurora — baru */
-  --radius-xl: 20px; /* Aurora — baru */
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --maxw: 1200px;
 }
 
 [data-theme="dark"] {
-  --bg: #080d18;
-  --surface: #111b2a;
-  --surface-2: #0d1422;
-  --elevated: #172235;
-  --ink: #f1f5f9;
-  --ink-2: #a0aec0;
-  --muted: #7a8aa0; /* brief #738197 → dicerahkan agar kontras AA
-    pada --surface (4.38:1 → 4.92:1; diukur Fase 11, 16 Nov 2026) */
-  --border: rgba(255, 255, 255, 0.1);
-  --glass-bg: rgba(17, 27, 42, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.18);
-  --accent: #68e4c1;
-  --accent-ink: #080d18;
-  --danger: #ff8a80;
+  /* Token merek versi gelap: varian TERANG dari sinyal yang sama
+   * (diwarisi dari :root bila tidak ditulis ulang — di sini
+   * ditulis eksplisit agar tiap mode terbaca mandiri). */
+  --midnight: #0e1113;
+  --mint: #34d399; /* emerald terang — lencana + GarisWaktu */
+  --cyan: #7dd3fc; /* info terang */
+  --purple: #c4b5fd; /* violet terang */
+  --bg: #0e1113;
+  --surface: #171b1e;
+  --surface-2: #202529;
+  --elevated: #1c2125;
+  --ink: #f5f4f0;
+  --ink-2: #c9cdd2;
+  --muted: #a9b1b8; /* ≥4.5:1 di atas --surface dan --bg */
+  --border: rgba(255, 255, 255, 0.14);
+  --glass-bg: #171b1e; /* Swiss: solid */
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --accent: #f87171; /* crimson terang — teks aman di karbon */
+  --accent-ink: #111315;
+  --danger: #fca5a5;
+  --warn: #fbbf24; /* amber terang */
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
-  --shadow-glass: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --shadow-glass: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -118,16 +136,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Aurora ambient: cahaya sekitar yang halus di mode gelap saja
- * (mint/cyan/ungu, alpha 5–7% — selektif, bukan gradient besar).
- * Mode terang tetap polos agar tidak keruh. */
-[data-theme="dark"] body {
-  background:
-    radial-gradient(1100px 520px at 85% -10%, rgba(104, 228, 193, 0.07), transparent 60%),
-    radial-gradient(900px 480px at 8% 0%, rgba(119, 216, 240, 0.06), transparent 60%),
-    radial-gradient(760px 520px at 50% 108%, rgba(165, 139, 255, 0.05), transparent 62%),
-    var(--bg);
-}
+/* Swiss: tanpa ambient gradient — kedua mode berlatar solid
+ * tajam (var(--bg)) agar teks tidak pernah kabur. */
 
 a {
   color: inherit;
@@ -167,41 +177,32 @@ img {
 }
 
 ::selection {
-  background: var(--mint);
-  color: var(--midnight);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
-/* ---------- Aurora Glass — permukaan kaca reusable ----------
- * Satu sistem kaca untuk seluruh situs. Pakai sebagai pembungkus
- * class, mis. class="kaca kaca-kartu" — JANGAN ubah markup atau
- * logika komponen saat memakai class ini.
- * Karakter: blur 18–24px + saturasi, lapisan semi-transparan,
- * border tipis, inner highlight, bayangan lembut. Untuk panel
- * berisi banyak teks pakai .kaca-padat (lebih solid).
- * Blur hanya pada permukaan; keterbacaan tidak boleh turun. */
+/* ---------- Swiss — permukaan solid reusable ----------
+ * Nama class .kaca* DIPERTAHANKAN agar markup pemakai tidak
+ * berubah, tapi isinya kini SOLID (bukan kaca): latar
+ * var(--surface), garis 1px var(--border), bayangan datar.
+ * TIDAK ADA backdrop-filter / gradien di sini — blur berat
+ * bertumpuk di HP menyebabkan frame drop + teks kabur.
+ * Pakai sebagai pembungkus class, mis. class="kaca kaca-kartu". */
 .kaca {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
-    var(--glass-bg);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  backdrop-filter: blur(22px) saturate(150%);
-  border: 1px solid var(--glass-border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
 }
 
-/* Panel berisi banyak teks — lebih solid agar nyaman dibaca. */
+/* Panel berisi banyak teks — permukaan elevated. */
 .kaca-padat {
-  background: var(--surface);
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
-  backdrop-filter: blur(12px) saturate(130%);
+  background: var(--elevated);
 }
 
 /* Kartu — radius besar + angkat halus saat hover (pointer saja). */
 .kaca-kartu {
   border-radius: var(--radius-xl);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  backdrop-filter: blur(18px) saturate(145%);
   transition: transform 260ms ease, box-shadow 260ms ease;
 }
 
@@ -214,8 +215,6 @@ img {
 /* Panel/section — radius sedang. */
 .kaca-panel {
   border-radius: var(--radius-lg);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
 }
 
 /* Tombol kaca — pil, tekan mengecil sedikit. */
@@ -225,8 +224,6 @@ img {
   justify-content: center;
   gap: 8px;
   border-radius: 999px;
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  backdrop-filter: blur(18px) saturate(150%);
   transition: transform 200ms ease, box-shadow 200ms ease;
 }
 
@@ -234,31 +231,25 @@ img {
   transform: scale(0.97);
 }
 
-/* Input/pencarian kaca — fokus bercahaya aksen. */
+/* Input/pencarian — fokus bercahaya aksen. */
 .kaca-input {
   border-radius: 999px;
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
   transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .kaca-input:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), var(--shadow-glass);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), var(--shadow);
 }
 
-/* Dropdown/laci — blur lebih dalam, bayangan lebih kuat. */
+/* Dropdown/laci — bayangan lebih kuat. */
 .kaca-laci {
   border-radius: var(--radius-lg);
-  -webkit-backdrop-filter: blur(24px) saturate(155%);
-  backdrop-filter: blur(24px) saturate(155%);
 }
 
 /* Modal — permukaan paling dalam. */
 .kaca-modal {
   border-radius: var(--radius-xl);
-  -webkit-backdrop-filter: blur(26px) saturate(155%);
-  backdrop-filter: blur(26px) saturate(155%);
 }
 
 /* Chip kecil — pil ringkas. */
@@ -267,26 +258,6 @@ img {
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-}
-
-/* Fallback bila browser tanpa backdrop-filter: permukaan solid. */
-@supports not (
-  (backdrop-filter: blur(20px)) or
-  (-webkit-backdrop-filter: blur(20px))
-) {
-  .kaca,
-  .kaca-padat,
-  .kaca-kartu,
-  .kaca-panel,
-  .kaca-tombol,
-  .kaca-input,
-  .kaca-laci,
-  .kaca-modal,
-  .kaca-chip {
-    background: var(--surface);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -330,37 +301,32 @@ main.konten {
 }
 
 /* ---------- Header ---------- */
-/* Aurora Fase 3: permukaan kaca mengambang (blur 22px), sticky.
- * Struktur tidak berubah: logo + cari + aksi + strip kategori. */
+/* Swiss 17 Nov 2026: masthead sticky — bar solid penuh lebar
+ * (tanpa pil mengambang, tanpa blur), menempel di top: 0.
+ * Struktur tidak berubah: logo + cari + aksi di baris atas,
+ * nav di sub-bar berbatas 1px (.header-subbar, di Header.tsx).
+ * overflow-x: clip pada html/body DIPERTAHANKAN (bukan hidden)
+ * agar sticky tetap menempel (perbaikan Fase 5). */
 .header {
   position: sticky;
   top: 0;
   z-index: 50;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)),
-    var(--glass-bg);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  backdrop-filter: blur(22px) saturate(150%);
-  border-bottom: 1px solid var(--glass-border);
-  box-shadow: 0 8px 24px rgba(2, 6, 16, 0.08);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(17, 19, 21, 0.05);
 }
 
-/* V3 Fase 5 — header mengambang (desktop ≥768px): bar kaca bulat
- * yang melayang 12px dari tepi atas, selebar kolom konten
- * (var(--maxw)) dan terpusat; saat digulir tetap menempel 12px
- * dari atas. HP (<768px) tetap bar penuh ringkas seperti semula
- * (logo, ikon cari, tema, profil) — tanpa pil mengambang yang
- * memakan lebar layar. Sticky + margin in-flow = tanpa layout
- * shift, konten tidak tertutup, tidak bentrok dengan dock bawah. */
-@media (min-width: 768px) {
-  .header {
-    top: 12px;
-    width: calc(100% - 24px);
-    max-width: var(--maxw);
-    margin: 12px auto 0;
-    border: 1px solid var(--glass-border);
-    border-radius: 20px;
-    box-shadow: 0 12px 32px rgba(2, 6, 16, 0.14);
+/* Sub-bar navigasi: garis batas 1px di atas sebagai pemisah
+ * dari baris masthead — lebar penuh, isi tetap dalam kolom
+ * .wadah. Di HP nav disembunyikan (CSS .nav-utama), sub-bar
+ * ikut disembunyikan agar tidak menyisakan garis kosong. */
+.header-subbar {
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 767px) {
+  .header-subbar {
+    display: none;
   }
 }
 
@@ -520,7 +486,7 @@ main.konten {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 0 0 10px;
+    padding: 8px 0;
   }
 }
 
@@ -570,18 +536,17 @@ main.konten {
   transform: rotate(180deg);
 }
 
-/* Panel dropdown (portal Radix — di luar header, tidak terpotong). */
+/* Panel dropdown (portal Radix — di luar header, tidak terpotong).
+ * Swiss: permukaan solid, garis 1px, bayangan datar. */
 .menu-panel {
   z-index: 100;
   min-width: 300px;
   max-width: min(92vw, 340px);
   padding: 6px;
   border-radius: 16px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  backdrop-filter: blur(22px) saturate(150%);
-  box-shadow: 0 16px 40px rgba(2, 6, 16, 0.22);
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  box-shadow: var(--shadow);
 }
 
 /* Kategori: panel lebar 2 kolom (11 entri: Semua + 10 kategori). */
@@ -726,11 +691,9 @@ main.konten {
   flex: 1;
   min-width: 0;
   padding: 10px 14px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: var(--surface);
   outline: none;
 }
 
@@ -788,7 +751,7 @@ main.konten {
 }
 
 /* ---------- Hero & seksi ---------- */
-/* Aurora Fase 4: hero editorial — "fakta." beraksen mint selaras
+/* Swiss: hero editorial — "fakta." beraksen crimson selaras
  * logo; CTA nyata (Daily Brief + Kategori); ritme seksi lebih lega. */
 .hero {
   padding: 36px 0 8px;
@@ -892,12 +855,11 @@ main.konten {
   text-decoration: underline;
 }
 
-/* Aurora Fase 4: kartu newsletter memakai kaca bernuansa mint
- * (satu-satunya aksen permukaan di beranda — selektif). */
+/* Swiss: kartu newsletter memakai permukaan kertas kedua
+ * (var(--surface-2)) — satu-satunya aksen permukaan di
+ * beranda, datar tanpa gradien. */
 .seksi-newsletter .kartu {
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--mint) 14%, transparent), color-mix(in srgb, var(--cyan) 8%, transparent)),
-    var(--glass-bg);
+  background: var(--surface-2);
 }
 
 .grid-berita {
@@ -956,19 +918,16 @@ main.konten {
 }
 
 /* ---------- Kartu ---------- */
-/* Aurora Fase 4: kartu menjadi permukaan kaca (blur 18px, border
- * kaca, radius besar, bayangan kaca). Berlaku untuk semua kartu
- * daftar di situs — satu sistem, bukan gaya per halaman. */
+/* Swiss: kartu menjadi permukaan solid (latar --surface,
+ * garis 1px, radius besar, bayangan datar). Berlaku untuk
+ * semua kartu daftar di situs — satu sistem, bukan gaya
+ * per halaman. */
 .kartu {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-    var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  backdrop-filter: blur(18px) saturate(145%);
-  border: 1px solid var(--glass-border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 18px;
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   display: flex;
   flex-direction: column;
@@ -1077,15 +1036,13 @@ a.kartu:hover {
 }
 
 /* ---------- Empty state / skeleton / error ---------- */
-/* Aurora Fase 4: empty state premium — panel kaca, bukan kotak
- * polos; garis putus-putus dipertahankan sebagai penanda "kosong". */
+/* Swiss: empty state — panel solid, bukan kotak polos;
+ * garis putus-putus dipertahankan sebagai penanda "kosong". */
 .kosong {
-  border: 1px dashed var(--glass-border);
+  border: 1px dashed var(--border);
   border-radius: var(--radius-lg);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: var(--shadow-glass);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   padding: 36px 24px;
   text-align: center;
   color: var(--muted);
@@ -1161,26 +1118,12 @@ a.kartu:hover {
   font-size: 0.95rem;
 }
 
+/* Skeleton: blok solid yang berdenyut (tanpa gradien geser). */
 .kerangka {
   border-radius: var(--radius);
-  background: linear-gradient(
-    90deg,
-    var(--surface-2) 25%,
-    var(--border) 50%,
-    var(--surface-2) 75%
-  );
-  background-size: 200% 100%;
-  animation: pindah 1.2s ease-in-out infinite;
+  background: var(--surface-2);
+  animation: denyut 1.4s ease-in-out infinite;
   min-height: 120px;
-}
-
-@keyframes pindah {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
 }
 
 .pesan-error {
@@ -1204,8 +1147,8 @@ a.kartu:hover {
 }
 
 /* ---------- Formulir ---------- */
-/* Aurora Fase 5: input kaca; panel form memakai permukaan
- * elevated yang lebih solid (teks banyak — keterbacaan dulu). */
+/* Swiss: input solid; panel form memakai permukaan
+ * elevated (teks banyak — keterbacaan dulu). */
 .formulir {
   display: flex;
   flex-direction: column;
@@ -1224,11 +1167,9 @@ a.kartu:hover {
 
 .formulir input {
   padding: 11px 14px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: var(--surface);
   outline: none;
 }
 
@@ -1239,9 +1180,9 @@ a.kartu:hover {
 
 .kartu-form {
   background: var(--elevated);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
   padding: 28px 24px;
   margin: 32px auto;
   max-width: 520px;
@@ -1297,12 +1238,14 @@ a.kartu:hover {
   margin-bottom: 10px;
 }
 
-/* Aurora: "FAKTA" pada wordmark footer memakai aksen mint,
- * selaras dengan logo header. Footer selalu gelap di kedua mode,
- * jadi warna literal terangnya dipertahankan (bukan token tema). */
+/* Swiss: "FAKTA" pada wordmark footer memakai emerald terang
+ * #34d399 — footer SELALU gelap di kedua mode, jadi warna
+ * literal terangnya dipertahankan (bukan token tema: --mint
+ * terang kini #065f46 dan tidak terbaca di atas karbon).
+ * Hal yang sama berlaku untuk hover tautan footer. */
 .footer h4 em {
   font-style: normal;
-  color: var(--mint);
+  color: #34d399;
 }
 
 .footer p,
@@ -1319,7 +1262,7 @@ a.kartu:hover {
 }
 
 .footer a:hover {
-  color: var(--mint);
+  color: #34d399;
 }
 
 .footer-bawah {
@@ -1660,10 +1603,8 @@ a.kartu:hover {
 .chip {
   padding: 9px 16px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border);
+  background: var(--surface);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--ink-2);
@@ -1720,17 +1661,16 @@ a.kartu:hover {
 }
 
 /* ---------- Placeholder gambar editorial (tanpa foto berita) ---------- */
-/* Aurora Fase 4: tint aksen sangat halus (mint/cyan/ungu) di atas
- * permukaan — tetap blok editorial, bukan foto palsu. */
+/* Swiss: blok solid kertas kedua + garis 1px — tetap blok
+ * editorial, bukan foto palsu. */
 .placeholder-gambar {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 120px;
   border-radius: 10px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--mint) 14%, transparent), color-mix(in srgb, var(--cyan) 10%, transparent) 55%, color-mix(in srgb, var(--purple) 12%, transparent)),
-    var(--surface-2);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;
@@ -1871,12 +1811,10 @@ a.kartu:hover {
 }
 
 .artikel-ajakan {
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: var(--shadow-glass);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   padding: 18px;
   margin-top: 18px;
 }
@@ -1905,11 +1843,9 @@ a.kartu:hover {
 
 .mode-baca {
   display: inline-flex;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1941,21 +1877,22 @@ a.kartu:hover {
 
 .progress-baca > div {
   height: 100%;
-  background: linear-gradient(90deg, var(--mint), var(--cyan));
+  background: var(--accent);
   transition: width 0.15s ease;
 }
 
 /* ---------- Tabel data pendukung ---------- */
-/* Aurora Fase 5: panel kaca; kepala tabel memakai --elevated;
- * baris genap redup, hover bernuansa mint. */
+/* Swiss: panel solid; kepala tabel memakai --elevated;
+ * baris genap redup, hover bernuansa emerald. Wrapper
+ * .tabel-gulir (overflow-x: auto) SUDAH dipakai semua tabel
+ * di /admin, /observatorium, /data/live — tidak ada tabel
+ * tanpa wrapper di area itu (diperiksa 17 Nov 2026). */
 .tabel-gulir {
   overflow-x: auto;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  backdrop-filter: blur(18px) saturate(145%);
-  border: 1px solid var(--glass-border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
 }
 
 .tabel-data {
@@ -1969,7 +1906,7 @@ a.kartu:hover {
 .tabel-data td {
   text-align: left;
   padding: 10px 12px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   vertical-align: top;
 }
 
@@ -1987,8 +1924,8 @@ a.kartu:hover {
 }
 
 /* ---------- Dialog laporan ---------- */
-/* Aurora Fase 5: modal kaca (elevated, lebih solid — teks banyak);
- * latar belakang diburamkan. */
+/* Swiss: modal solid (elevated); latar belakang redup solid
+ * tanpa blur. */
 .dialog-laporan-latar {
   position: fixed;
   inset: 0;
@@ -1998,8 +1935,6 @@ a.kartu:hover {
   justify-content: center;
   padding: 20px;
   background: rgba(10, 16, 26, 0.55);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
 }
 
 .dialog-laporan {
@@ -2008,9 +1943,9 @@ a.kartu:hover {
   max-height: 90vh;
   overflow-y: auto;
   background: var(--elevated);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
   padding: 24px;
 }
 
@@ -2031,11 +1966,9 @@ a.kartu:hover {
 .formulir textarea,
 .formulir select {
   padding: 11px 14px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: var(--surface);
   outline: none;
   width: 100%;
   resize: vertical;
@@ -2068,11 +2001,9 @@ a.kartu:hover {
 .arsip-filter-tanggal input,
 .arsip-filter-tanggal select {
   padding: 9px 12px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: var(--surface);
   outline: none;
 }
 
@@ -2093,8 +2024,8 @@ a.kartu:hover {
    ============================================================ */
 
 /* ---------- Navigasi admin ---------- */
-/* Aurora Fase 7: nav admin memakai chip kaca (pola yang sama
- * dengan chip filter arsip); pil aktif beraksen + glow. */
+/* Swiss: nav admin memakai chip solid (pola yang sama
+ * dengan chip filter arsip); pil aktif beraksen. */
 .admin-nav {
   display: flex;
   flex-wrap: wrap;
@@ -2105,10 +2036,8 @@ a.kartu:hover {
 .admin-nav a {
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border);
+  background: var(--surface);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--ink-2);
@@ -2224,7 +2153,8 @@ td details summary {
 /* ---------- Pengumuman pemeliharaan (Tahap 13C) ---------- */
 .pengumuman-pemeliharaan {
   background: var(--danger);
-  color: #ffffff;
+  color: var(--accent-ink); /* terang: putih di atas merah gelap;
+    gelap: karbon di atas merah terang — keduanya ≥4.5:1 */
   text-align: center;
   font-weight: 700;
   font-size: 0.92rem;
@@ -2279,9 +2209,9 @@ td details summary {
   max-height: 320px;
   overflow-y: auto;
   background: var(--elevated);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
 }
 
 .saran-item a {
@@ -2361,9 +2291,9 @@ td details summary {
   flex-direction: column;
   overflow: hidden;
   background: var(--elevated);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow);
   color: var(--ink);
   outline: none;
 }
@@ -2405,18 +2335,32 @@ td details summary {
   padding: 2px 6px;
 }
 
+/* Tombol tutup palette — target sentuh ≥44px (WCAG 2.5.8):
+ * tombol 44×44px agar nyaman ditekan di HP. */
 .palette-tutup {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 10px;
   border: none;
   border-radius: 8px;
   background: transparent;
   color: var(--ink-2);
   font-family: inherit;
   cursor: pointer;
+}
+
+/* Hint "Esc" disembunyikan di layar sempit (<480px) agar
+ * kolom input palette tidak terhimpit tombol tutup 44px. */
+@media (max-width: 479px) {
+  .palette-pintasan {
+    display: none;
+  }
 }
 
 .palette-tutup:hover {
