@@ -587,7 +587,10 @@ async function statusRunTerakhir(sumberId) {
     jedaAwalMs: 100,
     tidur: async (ms) => { jeda.push(ms); },
   });
-  cek("A1 retry: 429 + Retry-After 2 dtk dihormati (jeda 2000, 2000)", hasil.nilai === "lolos" && hasil.percobaan === 3 && jeda[0] === 2000 && jeda[1] === 2000, `jeda=${JSON.stringify(jeda)}`);
+  // Fase 3 (jitter): jeda retry TIDAK LAGI persis 2000 ms — jitter
+  // ±25–50% (1500–3000 ms). Yang diuji tetap propertinya: Retry-After
+  // 2 dtk mendominasi backoff 100 ms (jeda ~2000, bukan ~100).
+  cek("A1 retry: 429 + Retry-After 2 dtk dihormati (jeda ~2000, ~2000)", hasil.nilai === "lolos" && hasil.percobaan === 3 && jeda[0] >= 1500 && jeda[0] <= 3000 && jeda[1] >= 1500 && jeda[1] <= 3000, `jeda=${JSON.stringify(jeda)}`);
   cek("A1 retry: backoff tanpa Retry-After berlipat (100 -> 200)", await (async () => {
     const j = [];
     let p = 0;
@@ -596,7 +599,7 @@ async function statusRunTerakhir(sumberId) {
       if (p < 3) throw new GalatSementara("503", { status: 503 });
       return "ok";
     }, { percobaanMaks: 3, jedaAwalMs: 100, pengali: 2, tidur: async (ms) => { j.push(ms); } });
-    return j[0] === 100 && j[1] === 200;
+    return j[0] >= 75 && j[0] <= 150 && j[1] >= 150 && j[1] <= 300;
   })());
 }
 
@@ -624,7 +627,7 @@ async function statusRunTerakhir(sumberId) {
   });
   const per = hasil.perSumber[0];
   cek("A2 engine: feed gagal 2x lalu lolos -> baru=2, percobaan_fetch=3", per.baru === 2 && per.percobaan_fetch === 3 && per.gagal === 0, `baru=${per.baru} percobaan=${per.percobaan_fetch} jeda=${JSON.stringify(jeda)}`);
-  cek("A2 engine: Retry-After 2 dtk dipakai pada percobaan ke-2", jeda[1] === 2000, `jeda=${JSON.stringify(jeda)}`);
+  cek("A2 engine: Retry-After 2 dtk dipakai pada percobaan ke-2 (jeda ~2000, jitter Fase 3)", jeda[1] >= 1500 && jeda[1] <= 3000, `jeda=${JSON.stringify(jeda)}`);
 }
 
 // A3: GDELT 429 dua kali lalu 200 (pola flake nyata, FINAL §8).

@@ -1086,7 +1086,13 @@ const adminF = new AdapterF(dbF);
 {
   const berkasAdmin = jalanSemua(path.join(DIR_SRC, "app/api/admin"), [".ts"]).filter((f) => f.endsWith("/route.ts"));
   const tanpaGuard = berkasAdmin.filter((f) => !fs.readFileSync(f, "utf8").includes("autentikasiAdmin"));
-  cek("F12 semua 45 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 45, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
+  // Integrasi Global News 24/7 (17 Nov 2026): 45 -> 49 route —
+  // Worker G menambah 4 route admin (alerts/[id]/akui,
+  // alerts/evaluasi, kendali/kontrol, publish-verified), semuanya
+  // memakai autentikasiAdmin (tanpaGuard tetap kosong — itu yang
+  // diperiksa; angka 49 hanya tripwire bila route baru masuk
+  // tanpa diperiksa).
+  cek("F12 semua 49 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 49, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
   // Tiap handler mutasi (POST/PATCH/DELETE/PUT) wajib punya cek
   // peran (argumen ROLES di autentikasiAdmin) — kecuali
   // terbitkan-terjadwal (otentikasi ganda: secret ATAU sesi

@@ -100,6 +100,32 @@ const TABEL_PF = [
   // (jawaban kuis harian tersimpan; skor harian dihitung
   // server). Total sesudah v15: 62 tabel.
   "pf_quiz_daily_answers",
+  // v18 + v21 (Ekspansi P0/P3) — TANPA tabel baru (hanya kolom
+  // di pf_article_sources / pf_user_preferences). Total tetap 62.
+  // v19 (Ekspansi P1-1) — tabel baru: pf_notes (catatan pribadi
+  // pengguna). Total sesudah v19/v21: 63 tabel.
+  "pf_notes",
+  // v22 (Global News Intelligence) — 2 tabel baru:
+  // pf_article_comparisons + pf_editorial_locks.
+  // Total sesudah v22: 65 tabel. Angka ini DIHITUNG dari
+  // CREATE TABLE di semua berkas supabase/migrations/*.sql
+  // (17 Nov 2026: 63 dari v1–v21 + 2 dari v22) — bukan angka
+  // asumsi. Bila migrasi lanjutan menambah tabel pf_* baru,
+  // TAMBAHKAN namanya di sini agar backup tetap mencakup semuanya.
+  "pf_article_comparisons",
+  "pf_editorial_locks",
+  // v23 (lock diproses) — TANPA tabel baru (hanya kolom/status).
+  // v24 (klaster item) — 2 tabel baru: pf_item_clusters +
+  // pf_item_cluster_members. v25 (alerts) — 1 tabel baru:
+  // pf_alerts. Total sesudah v25: 68 tabel (dihitung ulang dari
+  // CREATE TABLE di semua berkas migrasi, 17 Nov 2026).
+  // Catatan: tabel yang migrasinya belum diterapkan di produksi
+  // akan tercatat GAGAL (404) dan membuat skrip exit 1 — perilaku
+  // yang sama seperti tabel lain sebelum migrasinya jalan (lihat
+  // CUTOVER.md §2.3); bukan alasan mengeluarkan tabel dari daftar.
+  "pf_item_clusters",
+  "pf_item_cluster_members",
+  "pf_alerts",
 ];
 
 function bacaEnvLocal() {
