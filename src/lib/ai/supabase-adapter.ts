@@ -96,8 +96,18 @@ export class SupabaseAiAdapter implements AiAdapter {
       "waktu_terbit_asli, waktu_diambil, status, disalin_dari_id, " +
       "metadata, pf_sources(nama, prioritas)";
     // 1. Pilih kandidat (id saja, urutan antrean dipertahankan).
+    // PGRST108 (run #27/#28, 17 Nov 2026): PostgREST MENOLAK
+    // .order("prioritas", { foreignTable: "pf_sources" }) bila
+    // pf_sources TIDAK ikut di-embed di select — "is not an
+    // embedded resource in this request" (HTTP 500). Karena
+    // kueriAntrean mode "terbaru" mengurutkan berdasarkan
+    // prioritas sumber, select kandidat WAJIB meng-embed
+    // pf_sources(prioritas); kolom tambahannya diabaikan di bawah
+    // (hanya .id yang dipakai). Embed-nya sendiri sah — FK
+    // pf_raw_items.sumber_id -> pf_sources(id) ada sejak migrasi v3
+    // (terbukti: select dengan embed tidak error di produksi).
     const { data: kandidat, error: errKandidat } = await this.kueriAntrean(
-      "id",
+      "id, pf_sources(prioritas)",
       mode,
     ).limit(limit);
     if (errKandidat)
