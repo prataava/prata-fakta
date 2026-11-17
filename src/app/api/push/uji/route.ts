@@ -14,9 +14,7 @@ import {
 import { cobaServiceClient } from "@/lib/supabase/service";
 import {
   apakahPushTerkonfigurasi,
-  ENV_VAPID_PRIVATE,
-  ENV_VAPID_PUBLIC,
-  ENV_VAPID_SUBJECT,
+  daftarEnvVapidKurang,
   kirimPushKePengguna,
 } from "@/lib/notifikasi/push";
 import { ROLES } from "@/lib/auth/roles";
@@ -35,9 +33,7 @@ export async function POST(req: Request) {
   );
   if (auth instanceof NextResponse) return auth;
   if (!apakahPushTerkonfigurasi()) {
-    const kurang = [ENV_VAPID_PUBLIC, ENV_VAPID_PRIVATE, ENV_VAPID_SUBJECT]
-      .filter((nama) => !process.env[nama])
-      .join(", ");
+    const kurang = daftarEnvVapidKurang().join(", ");
     return NextResponse.json(
       {
         ok: false,
