@@ -21,7 +21,15 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            // 17 Nov 2026 (fitur izin browser): geolocation=(self)
+            // — tombol "Lokasi saya" (/peta), "Cuaca di lokasiku"
+            // (/data/live/cuaca) dan "Cek lokasi saya" (/saya)
+            // memakai navigator.geolocation; dengan geolocation=()
+            // ketiganya SELALU ditolak di semua browser (terbukti
+            // sapuan CDP). Kamera & mikrofon tetap () — tidak ada
+            // fitur situs yang memakainya (audit menyeluruh 17 Nov:
+            // 0 getUserMedia di repo).
+            value: "camera=(), microphone=(), geolocation=(self)",
           },
           // HSTS (Gelombang B1, P2-28/S-22): paksa HTTPS 2 tahun
           // + semua subdomain + preload. Hanya bermakna lewat

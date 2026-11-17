@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav";
 import CommandPalette from "@/components/CommandPalette";
 import PendaftaranSW from "@/components/pwa/PendaftaranSW";
 import BannerPembaruan from "@/components/pwa/BannerPembaruan";
+import PromptInstalasi from "@/components/pwa/PromptInstalasi";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -74,6 +75,7 @@ export default async function RootLayout({
         <CommandPalette />
         <PendaftaranSW />
         <BannerPembaruan />
+        <PromptInstalasi />
       </body>
     </html>
   );

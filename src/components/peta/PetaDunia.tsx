@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import styles from "./PetaDunia.module.css";
 import { formatTanggal } from "@/lib/format";
+import { mintaLokasi, pesanGagalLokasi } from "@/lib/geolokasi";
 
 export type MarkerPeta = {
   lintang: number;
@@ -28,6 +29,51 @@ function escapeHtml(s: string): string {
 export default function PetaDunia({ marker }: { marker: MarkerPeta[] }) {
   const wadahRef = useRef<HTMLDivElement | null>(null);
   const petaRef = useRef<import("leaflet").Map | null>(null);
+  // Penanda "Lokasi Anda" — disimpan agar penekanan tombol
+  // berikutnya mengganti penanda lama, bukan menumpuk.
+  const penandaLokasiRef = useRef<import("leaflet").Layer | null>(null);
+  const [pesanLokasi, setPesanLokasi] = useState<string | null>(null);
+  const [memuatLokasi, setMemuatLokasi] = useState(false);
+
+  // "Lokasi saya": minta geolocation sekali, pusatkan peta ke
+  // koordinat pengguna dengan penanda biru yang jelas berbeda
+  // dari pin artikel (merah). Lokasi TIDAK dikirim ke mana pun —
+  // semuanya terjadi di perangkat ini. Bila gagal, tampilkan
+  // pesan jujur dan JANGAN minta ulang otomatis.
+  async function tampilkanLokasiSaya() {
+    if (memuatLokasi) return;
+    setMemuatLokasi(true);
+    setPesanLokasi(null);
+    const hasil = await mintaLokasi();
+    if (!hasil.ok) {
+      setPesanLokasi(pesanGagalLokasi(hasil.alasan, "peta"));
+      setMemuatLokasi(false);
+      return;
+    }
+    const peta = petaRef.current;
+    if (!peta) {
+      setPesanLokasi("Peta belum siap — coba lagi sebentar lagi.");
+      setMemuatLokasi(false);
+      return;
+    }
+    const L = (await import("leaflet")).default;
+    penandaLokasiRef.current?.remove();
+    const penanda = L.circleMarker([hasil.lintang, hasil.bujur], {
+      radius: 9,
+      color: "#ffffff",
+      weight: 3,
+      fillColor: "#2563eb",
+      fillOpacity: 0.95,
+    }).addTo(peta);
+    penanda.bindTooltip("Lokasi Anda", {
+      permanent: true,
+      direction: "top",
+      offset: [0, -12],
+    });
+    penandaLokasiRef.current = penanda;
+    peta.setView([hasil.lintang, hasil.bujur], 13);
+    setMemuatLokasi(false);
+  }
 
   useEffect(() => {
     let batal = false;
@@ -85,11 +131,43 @@ export default function PetaDunia({ marker }: { marker: MarkerPeta[] }) {
   }, []);
 
   return (
-    <div
-      ref={wadahRef}
-      className={styles.peta}
-      role="region"
-      aria-label="Peta peristiwa"
-    />
+    <div>
+      {/* Bilah kontrol DI ATAS peta (bukan menimpa peta) agar tombol
+          tidak pernah menutupi pin peristiwa. */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <button
+          type="button"
+          className="tombol"
+          style={{ color: "var(--ink)" }}
+          onClick={() => void tampilkanLokasiSaya()}
+          disabled={memuatLokasi}
+        >
+          {memuatLokasi ? "Mencari lokasi…" : "◎ Lokasi saya"}
+        </button>
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem", margin: 0 }}>
+          Lokasi hanya dipakai di perangkat ini untuk memusatkan peta —
+          tidak dikirim atau disimpan ke server.
+        </p>
+      </div>
+      {pesanLokasi && (
+        <p role="status" style={{ color: "var(--muted)", marginBottom: 12 }}>
+          {pesanLokasi}
+        </p>
+      )}
+      <div
+        ref={wadahRef}
+        className={styles.peta}
+        role="region"
+        aria-label="Peta peristiwa"
+      />
+    </div>
   );
 }

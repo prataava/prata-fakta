@@ -1,97 +1,30 @@
-"use client";
+import { connection } from "next/server";
+import FormMasuk from "./FormMasuk";
 
-import { useState, type FormEvent } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+// Halaman dirender per request (`instant = false`), BUKAN prerender
+// statis — 17 Nov 2026: sebagai halaman "use client" murni, SELURUH
+// konten ikut ter-prerender di build, sehingga skrip bootstrap $RC
+// React ikut terpanggang TANPA nonce ke shell statis. CSP
+// (script-src nonce+hash) memblokir skrip itu → $RC undefined →
+// hidrasi gagal (#419) → React me-render ulang → h1 "Masuk" ganda
+// di DOM (sapuan CDP 17 Nov 2026, juga via /saya tanpa login yang
+// redirect ke sini). Dengan `instant = false` + `await connection()`
+// di bawah, render terjadi per request dalam konteks nonce proxy,
+// skrip $RC membawa nonce seperti halaman dinamis lain dan hidrasi
+// berhasil — pola yang sama dengan /jelajahi, /kebijakan/metodologi,
+// /data/live. Biaya: nyaris nol (form statis tanpa DB). JANGAN hapus
+// baris ini tanpa menguji ulang /masuk di CDP (h1 harus = 1, tanpa
+// $RC error). Form login sendiri dipindah verbatim ke FormMasuk.tsx
+// (client component) — tidak satu baris logika auth pun berubah.
+// Metadata tetap di layout.tsx segmen ini (tidak dipindah).
+export const instant = false;
 
-export default function Masuk() {
-  const [email, setEmail] = useState("");
-  const [sandi, setSandi] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [pesan, setPesan] = useState("");
-  const router = useRouter();
-
-  async function kirim(e: FormEvent) {
-    e.preventDefault();
-    setStatus("loading");
-    setPesan("");
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password: sandi });
-    if (error) {
-      setStatus("error");
-      setPesan(
-        error.message === "Invalid login credentials"
-          ? "Email atau kata sandi salah. Periksa kembali."
-          : `Gagal masuk: ${error.message}`,
-      );
-      return;
-    }
-    // Akun nonaktif (dibatasi super_admin) tidak boleh lanjut: keluar
-    // lagi dan tampilkan pesan. Bila endpoint status belum tersedia /
-    // gagal dibaca, login tetap dilanjutkan (fail-open untuk login).
-    try {
-      const res = await fetch("/api/akun/status");
-      if (res.ok) {
-        const data = (await res.json()) as { ok?: boolean; nonaktif?: boolean };
-        if (data.nonaktif === true) {
-          await supabase.auth.signOut();
-          setStatus("error");
-          setPesan("Akun Anda dibatasi. Hubungi admin.");
-          return;
-        }
-      }
-    } catch {
-      // Endpoint belum tersedia: lanjut seperti biasa.
-    }
-    router.push("/profil");
-    router.refresh();
-  }
-
-  return (
-    <div className="wadah">
-      <div className="kartu-form">
-        <h1>Masuk</h1>
-        <p>Masuk ke akun PRATA FAKTA Anda untuk bookmark, mengikuti topik, dan rekomendasi personal.</p>
-        <form className="formulir" onSubmit={kirim}>
-          {status === "error" && (
-            <p className="pesan-error" role="alert">
-              {pesan}
-            </p>
-          )}
-          <label>
-            Email
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              placeholder="alamat@email.com"
-            />
-          </label>
-          <label>
-            Kata sandi
-            <input
-              type="password"
-              required
-              value={sandi}
-              onChange={(e) => setSandi(e.target.value)}
-              autoComplete="current-password"
-              placeholder="Kata sandi Anda"
-            />
-          </label>
-          <button className="tombol tombol-primer" type="submit" disabled={status === "loading"}>
-            {status === "loading" ? "Memeriksa…" : "Masuk"}
-          </button>
-        </form>
-        <p style={{ marginTop: 16, fontSize: "0.92rem", color: "var(--muted)" }}>
-          Belum punya akun?{" "}
-          <Link href="/daftar" style={{ color: "var(--accent)", fontWeight: 600 }}>
-            Daftar gratis
-          </Link>
-        </p>
-      </div>
-    </div>
-  );
+export default async function Masuk() {
+  // Render per request (bukan prerender statis): connection()
+  // memaksa halaman dirender dalam konteks request sehingga skrip
+  // bootstrap $RC React membawa nonce proxy (lihat komentar
+  // `instant = false` di atas — tanpa ini saja halaman tetap
+  // ter-prerender dan $RC tetap tanpa nonce).
+  await connection();
+  return <FormMasuk />;
 }
