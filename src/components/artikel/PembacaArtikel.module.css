@@ -1,0 +1,98 @@
+/* PembacaArtikel — gaya lokal komponen (globals.css tidak diubah).
+   Mode fokus: atribut data-mode-fokus="aktif" pada <body> menyembunyikan
+   chrome non-bacaan (header situs, footer, BottomNav, seksi samping
+   Jejak Fakta / Perbandingan Sumber / Berita Terkait) selama aktif.
+   Semua warna memakai token Aurora agar mode gelap/terang tetap benar. */
+
+/* Tombol baca baru: warna eksplisit (button tidak mewarisi andal). */
+.tombolBaca {
+  color: var(--ink);
+}
+
+/* Lencana "Sudah dibaca" — teks nyata dari status riwayat. */
+.lencanaSelesai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* Panel "Jelaskan sederhana" (ringkasan ekstraktif). */
+.panelSederhana {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.panelSederhana h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.panelSederhana .labelJujur {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.panelSederhana blockquote {
+  margin: 0 0 8px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--border);
+  color: var(--ink);
+}
+
+.panelSederhana blockquote:last-child {
+  margin-bottom: 0;
+}
+
+/* Tombol keluar mode fokus: selalu terlihat (fixed, z-index tinggi),
+   warna eksplisit di kedua mode. */
+.tombolKeluarFokus {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+/* --- Mode fokus: sembunyikan chrome non-bacaan --- */
+:global(body[data-mode-fokus="aktif"] .header) {
+  display: none !important;
+}
+
+:global(body[data-mode-fokus="aktif"] .footer) {
+  display: none !important;
+}
+
+:global(body[data-mode-fokus="aktif"] .prata-glass-dock) {
+  display: none !important;
+}
+
+/* Seksi samping di halaman artikel (Jejak Fakta, Perbandingan Sumber,
+   Berita Terkait): semuanya memakai kelas .seksi, sementara isi bacaan
+   memakai .artikel-seksi — jadi hanya .seksi yang disembunyikan. */
+:global(body[data-mode-fokus="aktif"] .artikel .seksi) {
+  display: none !important;
+}

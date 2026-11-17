@@ -156,7 +156,14 @@ export default function PerbandinganSumber({
                         <>
                           <br />
                           <span style={{ fontWeight: 400, fontSize: "0.85rem" }}>
-                            Peran: {s.peran}
+                            Peran:{" "}
+                            {(
+                              {
+                                koroborasi: "Koroborasi",
+                                konteks: "Konteks",
+                                bantahan: "Bantahan",
+                              } as Record<string, string>
+                            )[s.peran] ?? s.peran}
                           </span>
                         </>
                       )}

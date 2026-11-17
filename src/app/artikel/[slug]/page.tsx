@@ -7,17 +7,21 @@ import {
   getArtikelLengkap,
   getArtikelTerkait,
   getJejakFakta,
+  getJumlahKoreksiTerbuka,
   getPerbandinganSumber,
   getVersiArtikel,
   isBookmarked,
 } from "@/lib/data";
 import { getCeritaUntukArtikel } from "@/lib/cerita";
 import { getNegara } from "@/lib/negara";
+import { hitungFactScore, type HasilFactScore } from "@/lib/fact-score";
 import { createClient } from "@/lib/supabase/server";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import { urlSitus } from "@/lib/situs";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
+import LencanaFactScore from "@/components/artikel/LencanaFactScore";
 import JejakFakta from "@/components/artikel/JejakFakta";
+import MetodeVerifikasi from "@/components/artikel/MetodeVerifikasi";
 import PerbandinganSumber from "@/components/artikel/PerbandinganSumber";
 
 // Halaman artikel: data dibaca per request (slug dinamis) — rute diblokir
@@ -85,7 +89,7 @@ export default async function HalamanArtikel({
   const artikel = await getArtikelLengkap(slug);
   if (!artikel) notFound();
 
-  const [terkait, versi, pengguna, jejak, perbandingan, cerita, negara] =
+  const [terkait, versi, pengguna, jejak, perbandingan, cerita, negara, koreksiTerbuka] =
     await Promise.all([
       getArtikelTerkait(artikel, 4),
       getVersiArtikel(artikel.id, 5),
@@ -105,6 +109,9 @@ export default async function HalamanArtikel({
       // profil negara artikel (bila negara_kode tercatat).
       getCeritaUntukArtikel(artikel.id),
       artikel.negara_kode ? getNegara(artikel.negara_kode) : Promise.resolve(null),
+      // FACT SCORE (P0 Worker F): hitungan laporan koreksi terbuka
+      // (komponen D) — 1 query agregat, tanpa isi laporan.
+      getJumlahKoreksiTerbuka(artikel.id),
     ]);
 
   const loggedIn = Boolean(pengguna);
@@ -112,6 +119,58 @@ export default async function HalamanArtikel({
     ? await isBookmarked(pengguna.id, artikel.id)
     : false;
   const estimasi = hitungEstimasiBaca(artikel);
+
+  // Hitungan sumber untuk MetodeVerifikasi — dari perbandingan
+  // yang SUDAH diambil di atas (tanpa query baru). "Independen"
+  // = akar rantai salinan berbeda; bila rantai belum terverifikasi
+  // (akarId null), tiap kolom dihitung sendiri, sama seperti
+  // fallback di getPerbandinganSumber.
+  const kunciAkarPerSumber = new Set(
+    perbandingan.sumber.map((s) =>
+      s.akarId ? `akar:${s.akarId}` : `kolom:${s.id}`,
+    ),
+  );
+  const jumlahSumberIndependen = kunciAkarPerSumber.size;
+
+  // FACT SCORE (P0 Worker F) — dihitung dari perbandingan yang
+  // SUDAH diambil di atas (tanpa query baru kecuali hitungan
+  // koreksi terbuka):
+  //   A: gabungan kunci akar pendukung semua klaim (satu akar
+  //      dihitung sekali) — dari bobot[].akarPendukung.
+  //   B: skor kredibilitas tertinggi antar klaim — dari
+  //      bobot[].skorTertinggi (tier AKAR, 90/75/60).
+  //   C: klaim dengan >= 1 bukti 'mendukung' DAN 0 bukti
+  //      'menentang' — dari bobot[].mendukung/menentang (arah
+  //      pf_evidence sudah ada di select getPerbandinganSumber).
+  //   D: laporan koreksi terbuka — dari getJumlahKoreksiTerbuka.
+  // Bila perbandingan.tersedia = false (data klaim/sumber tak
+  // terbaca): JANGAN karang angka — lencana "Belum dinilai".
+  const hasilFactScore: HasilFactScore = perbandingan.tersedia
+    ? hitungFactScore({
+        jumlahAkarPendukung: new Set(
+          perbandingan.bobot.flatMap((b) => b.akarPendukung),
+        ).size,
+        skorKredibilitasTertinggi: perbandingan.bobot.reduce<number | null>(
+          (maks, b) =>
+            b.skorTertinggi !== null && (maks === null || b.skorTertinggi > maks)
+              ? b.skorTertinggi
+              : maks,
+          null,
+        ),
+        jumlahKlaim: perbandingan.klaim.length,
+        jumlahKlaimDidukungTanpaMenentang: perbandingan.bobot.filter(
+          (b) => b.mendukung >= 1 && b.menentang === 0,
+        ).length,
+        laporanKoreksiTerbuka: koreksiTerbuka ?? 0,
+      })
+    : {
+        skor: null,
+        label: null,
+        komponen: { independen: 0, kredibilitas: 0, konsistensi: 0, koreksi: 0 },
+        dinilai: false,
+        alasanTidakDinilai:
+          "Belum dinilai — data klaim dan sumber belum dapat dibaca",
+      };
 
   // Structured data JSON-LD (Fase 7): NewsArticle + BreadcrumbList
   // agar mesin pencari memahami artikel ini sebagai berita. Data
@@ -214,6 +273,12 @@ export default async function HalamanArtikel({
             </>
           )}
           <h1>{artikel.judul}</h1>
+          <div style={{ marginTop: 12 }}>
+            <LencanaFactScore
+              hasil={hasilFactScore}
+              koreksiDiketahui={koreksiTerbuka !== null}
+            />
+          </div>
           {artikel.subjudul && <p className="artikel-subjudul">{artikel.subjudul}</p>}
           <p className="artikel-meta">
             {artikel.penulis_nama ? `Oleh ${artikel.penulis_nama}` : "Redaksi PRATA FAKTA"}
@@ -292,7 +357,13 @@ export default async function HalamanArtikel({
           bookmarkAwal={bookmarkAwal}
         />
 
-        <JejakFakta jejak={jejak} />
+        <JejakFakta jejak={jejak} peranSumber={perbandingan.sumber} />
+        <MetodeVerifikasi
+          statusVerifikasi={artikel.status_verifikasi}
+          jumlahSumber={perbandingan.sumber.length}
+          jumlahSumberIndependen={jumlahSumberIndependen}
+          tersedia={perbandingan.tersedia}
+        />
         <PerbandinganSumber perbandingan={perbandingan} />
       </article>
     </div>

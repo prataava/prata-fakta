@@ -2216,3 +2216,337 @@ td details summary {
   font-size: 0.88rem;
   color: var(--muted);
 }
+
+/* ---------- Saran pencarian (Worker C — P0) ---------- */
+/* Pembungkus relatif di dalam form .cari: input tetap flex:1,
+ * dropdown .saran-daftar menempel di bawah input. */
+.saran-pembungkus {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.saran-daftar {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-glass);
+}
+
+.saran-item a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.saran-item.aktif a {
+  background: var(--surface-2);
+}
+
+.saran-teks {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.saran-jenis {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---------- Command Palette (Worker C — P0) ---------- */
+/* Tombol pemicu di header: ikon + hint "Ctrl+K" di desktop,
+ * ikon saja di seluler (hint disembunyikan <768px). */
+.tombol-palette {
+  color: var(--ink-2);
+  gap: 6px;
+}
+
+.palette-pintasan-tombol {
+  display: none;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+@media (min-width: 768px) {
+  .palette-pintasan-tombol {
+    display: inline-block;
+  }
+}
+
+.palette-lapisan {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(2, 6, 16, 0.55);
+}
+
+.palette-konten {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 201;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(68vh, 560px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+  color: var(--ink);
+  outline: none;
+}
+
+.palette-kepala {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.palette-kepala-ikon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.palette-kepala input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 4px 0;
+}
+
+.palette-pintasan {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.palette-tutup {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.palette-tutup:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.palette-daftar {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.palette-judul-seksi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.palette-hapus-semua {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.palette-hapus-semua:hover {
+  color: var(--danger);
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.palette-item.aktif {
+  background: var(--surface-2);
+}
+
+.palette-item-ikon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.palette-item.aktif .palette-item-ikon {
+  color: var(--accent);
+}
+
+.palette-item-teks {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.palette-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.palette-item-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.palette-item-enter {
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.palette-item.aktif .palette-item-enter {
+  opacity: 1;
+}
+
+.palette-baris-riwayat {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.palette-baris-riwayat.aktif {
+  background: var(--surface-2);
+}
+
+.palette-baris-riwayat .palette-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-hapus {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.palette-hapus:hover {
+  color: var(--danger);
+  background: var(--surface-2);
+}
+
+.palette-kosong {
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.palette-kaki {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.palette-kaki kbd {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-right: 4px;
+}
