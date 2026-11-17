@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import EmptyState from "@/components/EmptyState";
 import { getGempaTerbaru } from "@/lib/data-live";
 
@@ -9,9 +10,18 @@ export const metadata: Metadata = {
 };
 
 // Halaman data live: dibaca per request (pola cacheComponents).
+// + connection() di bawah (17 Nov 2026, perbaikan CSP $RT/$RV):
+// getGempaTerbaru() memakai fetch ter-cache, jadi TANPA connection()
+// segmen halaman selesai di shell prerender dan skrip definisi
+// $RV/$RC React terpanggang TANPA nonce → CSP memblokir → $RC
+// undefined → hidrasi gagal (#419) → isi ganda (h1=2). connection()
+// menunda segmen sampai request, jadi definisi $RV/$RC diterbitkan
+// saat resume DENGAN nonce. JANGAN hapus connection() tanpa menguji
+// ulang halaman ini di CDP.
 export const instant = false;
 
 export default async function Gempa() {
+  await connection();
   const hasil = await getGempaTerbaru();
 
   return (

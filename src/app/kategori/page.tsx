@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 
@@ -8,7 +9,20 @@ export const metadata: Metadata = {
     "Jelajahi berita berdasarkan kategori: Indonesia, Dunia, Ekonomi, Teknologi, Sains, Pendidikan, Lingkungan & Energi, Fakta & Mitos, Data, dan Pengetahuan.",
 };
 
-export default function DaftarKategori() {
+// Halaman dirender per request (`instant = false` + connection() di
+// bawah), BUKAN prerender statis — 17 Nov 2026 (perbaikan CSP
+// $RT/$RV): sebagai halaman statis murni, boundary loading.tsx root
+// selesai di shell prerender sehingga skrip definisi $RV/$RC React
+// ikut terpanggang TANPA nonce; CSP (script-src nonce+hash)
+// memblokirnya → $RC undefined → hidrasi gagal (#419) → isi halaman
+// ganda di DOM (h1=2). connection() menunda segmen halaman sampai
+// request, jadi definisi $RV/$RC diterbitkan saat resume DENGAN
+// nonce. JANGAN hapus connection() tanpa menguji ulang /kategori di
+// CDP (definisi $RV/$RC harus ber-nonce, h1 harus = 1).
+export const instant = false;
+
+export default async function DaftarKategori() {
+  await connection();
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-kategori">

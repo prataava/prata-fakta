@@ -30,7 +30,7 @@ import {
   tolakHostFeedAman,
 } from "../src/lib/ingestion/feed-allowlist.ts";
 import { fetchRss } from "../src/lib/ingestion/rss.ts";
-import { buatHeaderCsp, buatNonce, bacaNonceDariHeaders, HASH_SKRIP_TEMA } from "../src/lib/csp.ts";
+import { buatHeaderCsp, buatNonce, bacaNonceDariHeaders, HASH_SKRIP_TEMA, HASH_SKRIP_RT } from "../src/lib/csp.ts";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url)) + "/..";
 
@@ -423,6 +423,74 @@ console.log("\n--- (K) /jelajahi render per request ---");
   cek("/jelajahi memanggil connection() (render per request)", jelajahi.includes("await connection()"), "connection() tidak ditemukan — risiko regresi $RC tanpa nonce");
   cek("/jelajahi mengimpor connection dari next/server", jelajahi.includes('from "next/server"') && jelajahi.includes("connection"), "impor connection tidak ditemukan");
   cek("/jelajahi tetap instant=false (pola halaman dinamis repo)", jelajahi.includes("export const instant = false"), "instant=false tidak ditemukan");
+}
+
+// ---------- (K2) 20 rute $RT/$RV tanpa nonce — render per request ----------
+// 17 Nov 2026 (sapuan penuh 104 rute prerender): 20 rute cacat —
+// skrip definisi $RV/$RC React terpanggang TANPA nonce di shell
+// statis (boundary loading.tsx root selesai saat prerender) → CSP
+// memblokir → $RC undefined → hidrasi gagal (#419) → isi ganda.
+// Akar + bukti: skrip $RT selalu tanpa nonce di SEMUA halaman —
+// diizinkan lewat hash HASH_SKRIP_RT (§K3; isinya konstan —
+// BUKAN seperti $RV yang hash-nya berbeda per halaman);
+// yang menentukan sehat/rusak hanyalah definisi $RV/$RC: ber-nonce
+// → h1=1, tanpa nonce → h1=2 (korelasi sempurna). Perbaikan:
+// connection() di komponen halaman SERVER (bukan di dalam Suspense
+// anak — /hadis membuktikan itu tidak cukup — dan bukan di halaman
+// "use client" — /tanya/arsip dipecah jadi wrapper server +
+// ArsipTanyaClient.tsx). Penjaga sumber: tiap halaman di daftar ini
+// WAJIB memanggil connection() + instant=false; bila dihapus,
+// halaman kembali statis dan bug kembali.
+console.log("\n--- (K2) 20 rute $RT/$RV tanpa nonce: render per request ---");
+{
+  const baca = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+  const HALAMAN_CSP_RV = [
+    "src/app/data/live/gempa/page.tsx",
+    "src/app/data/live/hadis/page.tsx",
+    "src/app/kategori/page.tsx",
+    "src/app/kategori/[slug]/page.tsx",
+    "src/app/kebijakan/koreksi/page.tsx",
+    "src/app/kebijakan/privasi/page.tsx",
+    "src/app/kebijakan/redaksi/page.tsx",
+    "src/app/kebijakan/syarat/page.tsx",
+    "src/app/laporkan/page.tsx",
+    "src/app/rutin/page.tsx",
+    "src/app/tanya/arsip/page.tsx",
+  ];
+  for (const rel of HALAMAN_CSP_RV) {
+    const isi = baca(rel);
+    cek(`${rel} memanggil connection() di komponen halaman (bukan hanya di anak Suspense)`, isi.includes("await connection()"), "connection() tidak ditemukan — risiko regresi $RV/$RC tanpa nonce");
+    cek(`${rel} tetap instant=false (pola halaman dinamis repo)`, isi.includes("export const instant = false"), "instant=false tidak ditemukan");
+    cek(`${rel} bukan halaman "use client" (connection() hanya bisa di server)`, !isi.includes('"use client"'), 'halaman "use client" tidak bisa await connection() — pecah jadi wrapper server + komponen klien');
+  }
+  const arsipKlien = baca("src/app/tanya/arsip/ArsipTanyaClient.tsx");
+  cek("tanya/arsip punya ArsipTanyaClient.tsx (komponen klien terpisah)", arsipKlien.includes('"use client"') && arsipKlien.includes("ArsipTanyaClient"), "ArsipTanyaClient.tsx hilang — page.tsx server tidak punya isi klien untuk dirender");
+  cek("tanya/arsip/page.tsx merender ArsipTanyaClient", baca("src/app/tanya/arsip/page.tsx").includes("<ArsipTanyaClient"), "wrapper server tidak merender komponen klien");
+}
+
+// ---------- (K3) skrip $RT diizinkan lewat hash (konstan) ----------
+// 17 Nov 2026: $RT (shellTimeRuntimeScript Next) ditulis di akhir
+// shell prerender TANPA nonce di semua halaman PPR — 1 entri
+// pelanggaran CSP per muat (jinak karena $RV menugaskan $RT
+// sendiri saat berjalan, tapi konsol kotor). Isinya KONSTAN di
+// semua halaman (terbukti: 1 nilai hash di 5 halaman + 104
+// kemunculan sapuan penuh), jadi diizinkan lewat hash seperti
+// HASH_SKRIP_TEMA — BUKAN seperti $RV yang hash-nya berbeda per
+// halaman dan tidak bisa di-hash. Bila Next.js mengubah isi skrip
+// ini, hash tidak lagi cocok (kembali ke 1 entri log, tanpa
+// kerusakan lain).
+console.log("\n--- (K3) skrip $RT diizinkan lewat hash ---");
+{
+  const baca = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+  const csp = baca("src/lib/csp.ts");
+  const ISI_SKIRP_RT = "requestAnimationFrame(function(){$RT=performance.now()});";
+  const hashRt = `'sha256-${createHash("sha256").update(ISI_SKIRP_RT, "utf8").digest("base64")}'`;
+  cek("HASH_SKRIP_RT diekspor csp.ts", typeof HASH_SKRIP_RT === "string" && HASH_SKRIP_RT.startsWith("'sha256-"));
+  cek("hash skrip $RT (konstan) SAMA dengan HASH_SKRIP_RT", hashRt === HASH_SKRIP_RT, hashRt);
+  const prod = buatHeaderCsp("NONCE-UJI-123");
+  const skripProd = prod.split(";").map((s) => s.trim()).find((s) => s.startsWith("script-src")) ?? "";
+  cek("CSP produksi: script-src berisi hash skrip $RT", skripProd.includes(HASH_SKRIP_RT), skripProd);
+  cek("csp.ts mendokumentasikan hash skrip $RT", csp.includes("HASH_SKRIP_RT") && csp.includes("7mu4H06"));
 }
 
 console.log(`\nHASIL: ${lolos} LOLOS, ${gagal} GAGAL`);

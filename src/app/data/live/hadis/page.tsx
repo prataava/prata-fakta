@@ -11,6 +11,16 @@ export const metadata: Metadata = {
 };
 
 // Halaman data live: dibaca per request (pola cacheComponents).
+// + connection() di komponen halaman ini (17 Nov 2026, perbaikan
+// CSP $RT/$RV): connection() di dalam DaftarHadis SAJA tidak cukup
+// — boundary loading.tsx root tetap selesai di shell prerender
+// (hero statis) sehingga skrip definisi $RV/$RC React terpanggang
+// TANPA nonce → CSP memblokir → $RC undefined → hidrasi gagal
+// (#419) → isi ganda (h1=2). connection() di sini menunda SELURUH
+// segmen halaman sampai request, jadi definisi $RV/$RC diterbitkan
+// saat resume DENGAN nonce. DaftarHadis tetap memakai connection()
+// sendiri (menjaga aturan baca waktu). JANGAN hapus connection()
+// di sini tanpa menguji ulang halaman ini di CDP.
 export const instant = false;
 
 async function DaftarHadis() {
@@ -87,7 +97,8 @@ async function DaftarHadis() {
   );
 }
 
-export default function Hadis() {
+export default async function Hadis() {
+  await connection();
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-hadis">
