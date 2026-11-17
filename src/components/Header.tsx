@@ -7,6 +7,7 @@ import NotifikasiBadge from "@/components/NotifikasiBadge";
 import PelacakKunjungan from "@/components/PelacakKunjungan";
 import ThemeToggle from "@/components/ThemeToggle";
 import TombolCari from "@/components/TombolCari";
+import { TombolPalette } from "@/components/CommandPalette";
 import { bacaPemeliharaan } from "@/lib/scheduler/flags";
 
 // Banner pemeliharaan (Tahap 13C): membaca flag mode_pemeliharaan
@@ -60,6 +61,7 @@ export default function Header() {
           </div>
           <div className="header-aksi">
             <TombolCari />
+            <TombolPalette />
             <ThemeToggle />
             <NotifikasiBadge />
             <AuthArea />

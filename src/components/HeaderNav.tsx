@@ -71,6 +71,7 @@ const FAKTA_DATA: ItemMenu[] = [
   { href: "/kategori/fakta-mitos", label: "Fakta & Mitos", deskripsi: "Periksa klaim publik dengan bukti.", ikon: Scale },
   { href: "/kategori/data-statistik", label: "Data & Statistik", deskripsi: "Grafik dan tren indikator resmi.", ikon: BarChart3 },
   { href: "/data", label: "Data", deskripsi: "Indikator nasional dan dunia.", ikon: Database },
+  { href: "/sumber", label: "Sumber", deskripsi: "Daftar sumber berita beserta tier dan rekam pemeriksaannya.", ikon: Database },
   { href: "/data/live", label: "Data Live", deskripsi: "Gempa, cuaca, kurs, sholat — langsung dari API publik.", ikon: Activity },
   { href: "/peta", label: "Peta", deskripsi: "Peristiwa di peta dunia.", ikon: Map },
   { href: "/riset", label: "Riset", deskripsi: "Laporan riset berbasis data.", ikon: FlaskConical },
@@ -160,6 +161,7 @@ export default function HeaderNav() {
   const aktifKategori = aktifGrup(["/kategori"]);
   const aktifFaktaData = aktifGrup([
     "/data",
+    "/sumber",
     "/peta",
     "/riset",
     "/timeline",
