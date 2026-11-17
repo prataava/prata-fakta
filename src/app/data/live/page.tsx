@@ -78,9 +78,9 @@ const FITUR: {
   {
     href: "/data/live/hadis",
     nama: "Hadis",
-    sumber: "api.hadith.gading.dev",
+    sumber: "MyQuran API",
     keterangan:
-      "Kitab-kitab hadis dan isi hadis per nomor. Bila sumber sedang tidak dapat dijangkau, halaman memberitahukannya dengan jujur.",
+      "42 hadis Arbain Nawawi — teks Arab beserta terjemahannya. Bila sumber sedang tidak dapat dijangkau, halaman menampilkan korpus terverifikasi (3 hadis) dan mengatakannya dengan jujur.",
   },
   {
     href: "/data/live/wilayah",
