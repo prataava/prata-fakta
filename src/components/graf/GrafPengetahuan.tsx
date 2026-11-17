@@ -1,9 +1,14 @@
-// Graf Pengetahuan v1 — visualisasi SVG buatan tangan (P1-2).
+// Graf Pengetahuan v1 — visualisasi SVG buatan tangan (P1-2),
+// v2 (P2-1): simpul negara + kategori, sisi berlabel (arah bukti
+// dari pf_evidence, "diliput dalam", "bagian dari cerita",
+// "profil negara", "kategori artikel"), dan tautan dua arah —
+// klik simpul entitas (sumber/negara/cerita/kategori) membuka
+// halaman entitasnya di /graf/[jenis]/[id].
 // Tanpa library grafik (aturan P1). Tata letak berlapis: satu kolom
-// per jenis simpul (artikel, klaim, sumber, peristiwa, cerita);
-// sisi digambar sebagai garis antar simpul. Klik simpul menyorot
-// tetangganya (sisi + simpul tetangga tetap penuh, sisanya meredup)
-// dan membuka panel detail (nama + jenis + tautan).
+// per jenis simpul; sisi digambar sebagai garis antar simpul.
+// Klik simpul menyorot tetangganya (sisi + simpul tetangga tetap
+// penuh, sisanya meredup) dan membuka panel detail (nama + jenis +
+// tautan).
 // Komponen klien: tanpa new Date() di render (aturan cacheComponents)
 // — tanggal tidak dipakai di sini sama sekali.
 "use client";
@@ -13,6 +18,7 @@ import Link from "next/link";
 import {
   JENIS_SIMPUL,
   LABEL_JENIS_SIMPUL,
+  hrefEntitasGraf,
   type JenisSimpul,
 } from "@/lib/graf-meta";
 import type {
@@ -26,6 +32,8 @@ const WARNA_JENIS: Record<JenisSimpul, string> = {
   sumber: "#a58bff",
   event: "#f0b877",
   cerita: "#f0779b",
+  negara: "#4ade80",
+  kategori: "#facc15",
 };
 
 const LEBAR = 920;
@@ -39,8 +47,13 @@ function potongTeks(teks: string, maks = 26): string {
 
 export default function GrafPengetahuan({
   graf,
+  /** Id simpul entitas yang sedang dibuka halamannya (mini-graf
+   *  di /graf/[jenis]/[id]) — tautan "Lihat di graf" untuk simpul
+   *  itu disembunyikan karena sudah berada di halamannya. */
+  idEntitasAktif,
 }: {
   graf: GrafPengetahuan;
+  idEntitasAktif?: string | null;
 }) {
   const [jenisAktif, setJenisAktif] = useState<Set<JenisSimpul>>(
     () => new Set(JENIS_SIMPUL),
@@ -109,6 +122,22 @@ export default function GrafPengetahuan({
     );
   }, [simpulDipilih, tetangga, graf.simpul]);
 
+  /** Label sisi antara simpul terpilih dan satu tetangga
+   *  (arah bukti / jenis relasi) — null bila tidak ada sisi. */
+  const relasiDengan = (tetanggaId: string): string | null => {
+    if (!simpulDipilih) return null;
+    const sisi = graf.sisi.find(
+      (s) =>
+        (s.dari === simpulDipilih.id && s.ke === tetanggaId) ||
+        (s.dari === tetanggaId && s.ke === simpulDipilih.id),
+    );
+    return sisi ? sisi.label : null;
+  };
+
+  const hrefEntitasDipilih = simpulDipilih
+    ? hrefEntitasGraf(simpulDipilih)
+    : null;
+
   const alihkanJenis = (jenis: JenisSimpul) => {
     setJenisAktif((sebelum) => {
       const baru = new Set(sebelum);
@@ -154,7 +183,9 @@ export default function GrafPengetahuan({
         {graf.terpotong
           ? ` — graf dipotong pada batas ${graf.batas} simpul, jadi tidak semua simpul tampil`
           : ` — batas tampilan ${graf.batas} simpul`}
-        . Klik simpul untuk menyorot tetangganya.
+        . Klik simpul untuk menyorot tetangganya; arahkan kursor ke
+        garis untuk melihat label relasinya. Simpul sumber, negara,
+        cerita, dan kategori punya halaman entitas sendiri.
       </p>
 
       <div style={{ overflowX: "auto" }}>
@@ -162,7 +193,7 @@ export default function GrafPengetahuan({
           viewBox={`0 0 ${LEBAR} ${tinggi}`}
           width="100%"
           role="img"
-          aria-label="Graf pengetahuan: simpul klaim, sumber, artikel, peristiwa, dan cerita beserta relasinya"
+          aria-label="Graf pengetahuan: simpul artikel, klaim, sumber, peristiwa, cerita, negara, dan kategori beserta relasinya"
           style={{ minWidth: 640, display: "block" }}
         >
           {jenisTampil.map((jenis, iKolom) => {
@@ -195,7 +226,9 @@ export default function GrafPengetahuan({
                 stroke={aktif ? "var(--ink-2)" : "var(--muted)"}
                 strokeOpacity={aktif ? 0.7 : 0.25}
                 strokeWidth={aktif ? 1.6 : 1}
-              />
+              >
+                <title>{s.label}</title>
+              </line>
             );
           })}
           {simpulTampil.map((s) => {
@@ -258,18 +291,27 @@ export default function GrafPengetahuan({
           </span>
           {tetanggaDipilih.length > 0 && (
             <ul style={{ display: "grid", gap: 6, listStyle: "none", padding: 0, margin: "8px 0 0" }}>
-              {tetanggaDipilih.map((t) => (
-                <li key={t.id}>
-                  <button
-                    type="button"
-                    className="tombol tombol-hantu"
-                    onClick={() => setTerpilih(t.id)}
-                  >
-                    {LABEL_JENIS_SIMPUL[t.jenis]}: {potongTeks(t.label, 60)}
-                  </button>
-                </li>
-              ))}
+              {tetanggaDipilih.map((t) => {
+                const relasi = relasiDengan(t.id);
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className="tombol tombol-hantu"
+                      onClick={() => setTerpilih(t.id)}
+                    >
+                      {LABEL_JENIS_SIMPUL[t.jenis]}: {potongTeks(t.label, 60)}
+                      {relasi ? ` — ${relasi}` : ""}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
+          )}
+          {hrefEntitasDipilih && simpulDipilih.id !== idEntitasAktif && (
+            <Link className="tombol tombol-hantu" href={hrefEntitasDipilih}>
+              Lihat di graf
+            </Link>
           )}
           {simpulDipilih.href &&
             (simpulDipilih.href.startsWith("/") ? (
