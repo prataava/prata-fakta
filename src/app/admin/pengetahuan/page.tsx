@@ -12,6 +12,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import DialogKonfirmasi from "@/components/admin/DialogKonfirmasi";
 import FormPengetahuan, {
   LABEL_TOPIK,
   type ArtikelPengetahuanAdmin,
@@ -24,6 +25,11 @@ export default function AdminPengetahuan() {
   const [galat, setGalat] = useState("");
 
   const [editId, setEditId] = useState<string | null>(null);
+
+  // Artikel yang menunggu konfirmasi hapus (dialog dalam-halaman,
+  // bukan window.confirm — dialog bawaan ditolak otomatisasi).
+  const [hapusTarget, setHapusTarget] =
+    useState<ArtikelPengetahuanAdmin | null>(null);
 
   const muat = useCallback(async () => {
     setMemuat(true);
@@ -98,13 +104,7 @@ export default function AdminPengetahuan() {
   }
 
   async function hapus(a: ArtikelPengetahuanAdmin) {
-    if (
-      !window.confirm(
-        `Hapus artikel "${a.judul}"? Artikel yang dirujuk pelajaran akademi akan kehilangan rujukannya.`,
-      )
-    ) {
-      return;
-    }
+    setHapusTarget(null);
     try {
       const res = await fetch(`/api/admin/pengetahuan/${a.id}`, {
         method: "DELETE",
@@ -204,7 +204,7 @@ export default function AdminPengetahuan() {
                         <button
                           className="tombol tombol-hantu"
                           type="button"
-                          onClick={() => void hapus(a)}
+                          onClick={() => setHapusTarget(a)}
                         >
                           Hapus
                         </button>
@@ -217,6 +217,21 @@ export default function AdminPengetahuan() {
           </div>
         )}
       </section>
+      <DialogKonfirmasi
+        terbuka={hapusTarget !== null}
+        judul="Hapus artikel?"
+        pesan={
+          hapusTarget
+            ? `Hapus artikel "${hapusTarget.judul}"? Artikel yang dirujuk pelajaran akademi akan kehilangan rujukannya.`
+            : ""
+        }
+        labelKonfirmasi="Ya, hapus"
+        varian="bahaya"
+        onKonfirmasi={() => {
+          if (hapusTarget) void hapus(hapusTarget);
+        }}
+        onTutup={() => setHapusTarget(null)}
+      />
     </>
   );
 }
