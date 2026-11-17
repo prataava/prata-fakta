@@ -6,6 +6,10 @@
 // benar-benar ada — tanpa tautan fiktif. Deskripsi kategori diambil
 // dari KATEGORI_UTAMA (data nyata); deskripsi grup ditulis singkat
 // sebagai copy UI (bukan klaim data).
+// Swiss 17 Nov 2026: nav ini hidup di sub-bar masthead
+// (.header-subbar di Header.tsx, berbatas 1px) — rute, pintu,
+// dropdown, dan active state TIDAK berubah; hanya wadahnya yang
+// pindah dari dalam .wadah baris atas ke sub-bar lebar penuh.
 // Mobile (<768px): nav ini disembunyikan (CSS) — navigasi HP lewat
 // dock bawah + /jelajahi (Lainnya), sesuai brief Fase 4–5.
 // Ikon: SATU library (lucide-react), ukuran konsisten 17–18px.
