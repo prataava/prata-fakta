@@ -52,15 +52,24 @@ export default async function Saya() {
   }
   if (!penggunaId) redirect("/masuk");
 
-  const [ringkasan, bookmark, riwayat, topik, notifikasi, brief] =
+  const [ringkasan, bookmark, riwayat, riwayatLanjut, topik, notifikasi, brief] =
     await Promise.all([
       getRingkasanSaya(penggunaId),
       getBookmarkPengguna(penggunaId, 6),
       getRiwayatBaca(penggunaId, 5),
+      // Lanjutkan membaca: ambil lebih banyak lalu saring yang belum
+      // selesai, agar tetap dapat 5 walau riwayat terbaru sudah selesai.
+      getRiwayatBaca(penggunaId, 10),
       getTopikDiikuti(penggunaId),
       getNotifikasi(penggunaId, 10, true),
       getBriefTerbit(),
     ]);
+  // Catatan jujur: getRiwayatBaca tidak membawa durasi_detik, jadi
+  // keterangan durasi tidak bisa ditampilkan di seksi ini (bukan
+  // dihitung/dikarang) — hanya tanggal dibaca + status belum selesai.
+  const belumSelesai = riwayatLanjut
+    .filter((r) => !r.selesai)
+    .slice(0, 5);
   const kategoriDiikuti = topik
     .filter((t) => t.tipe === "kategori")
     .map((t) => t.target);
@@ -281,6 +290,53 @@ export default async function Saya() {
                 >
                   Dibaca {formatTanggal(r.dibaca_pada)}
                   {r.selesai ? " · Selesai" : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="seksi" aria-labelledby="seksi-lanjutkan">
+        <div className="seksi-kepala">
+          <h2 id="seksi-lanjutkan">Lanjutkan membaca</h2>
+          <p>Artikel yang mulai Anda baca tapi belum selesai.</p>
+        </div>
+        {belumSelesai.length === 0 ? (
+          <EmptyState
+            judul="Tidak ada bacaan yang belum selesai."
+            pesan="Semua artikel yang Anda baca sudah selesai, atau Anda belum mulai membaca artikel apa pun."
+            aksi={
+              <Link className="tombol" href="/arsip">
+                Jelajahi arsip
+              </Link>
+            }
+          />
+        ) : (
+          <div className="grid-berita">
+            {belumSelesai.map((r) => (
+              <div key={r.id}>
+                <KartuArtikel artikel={r.artikel} />
+                <p
+                  style={{
+                    color: "var(--muted)",
+                    fontSize: "0.88rem",
+                    marginTop: 4,
+                  }}
+                >
+                  Dibaca {formatTanggal(r.dibaca_pada)} · Belum selesai
+                  {r.durasi_detik > 0 && (
+                    <>
+                      {" · "}
+                      {r.durasi_detik >= 60
+                        ? `${Math.floor(r.durasi_detik / 60)} mnt dibaca`
+                        : `${r.durasi_detik} dtk dibaca`}
+                    </>
+                  )}
+                  {" · "}
+                  <Link href={`/artikel/${r.artikel.slug}`}>
+                    Lanjutkan membaca
+                  </Link>
                 </p>
               </div>
             ))}
