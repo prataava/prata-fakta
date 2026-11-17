@@ -339,6 +339,11 @@ export async function POST(req: Request) {
       lock: infoLock,
       per_sumber: perSumber,
       total,
+      // Integrasi Global News 24/7 (17 Nov 2026, catatan
+      // Worker B): teruskan klaster event yang disimpan engine
+      // pada run ini (tabel v24) ke respons — sebelumnya bidang
+      // ini dibuang route padahal engine sudah mengembalikannya.
+      klaster: hasil.klaster ?? [],
       ...(gdelt ? { gdelt } : {}),
       sumber_basi: pemeliharaan?.basi ?? [],
       kedaluarsa: pemeliharaan
