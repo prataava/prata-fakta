@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
+import TombolIkutiTopik from "@/components/lanjutan/TombolIkutiTopik";
 import FaktaNegara from "@/components/negara/FaktaNegara";
 import { formatAngka, getNegara } from "@/lib/negara";
+import { getTopikDiikuti } from "@/lib/lanjutan";
 import { urlSitus } from "@/lib/situs";
+import { createClient } from "@/lib/supabase/server";
 
 // 404 nyata untuk kode yang tidak ada DITANGANI DI PROXY
 // (src/proxy.ts — pola yang sama dengan /pengetahuan/[slug]
@@ -56,11 +59,46 @@ export default async function ProfilNegara({
   if (!profil) notFound();
   const { negara } = profil;
 
+  // P1-5: status ikuti topik negara (target = nama negara; baris
+  // lama yang memakai kode ISO-2 tetap dikenali agar tombol tidak
+  // berbohong — berhenti mengikuti memakai id baris).
+  let masuk = false;
+  let mengikuti = false;
+  let mengikutiId: string | null = null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    const penggunaId = data.user?.id ?? null;
+    if (penggunaId) {
+      masuk = true;
+      const topik = await getTopikDiikuti(penggunaId);
+      const baris = topik.find(
+        (t) =>
+          t.tipe === "negara" &&
+          (t.target === negara.nama ||
+            t.target.toUpperCase() === negara.kode.toUpperCase()),
+      );
+      mengikuti = Boolean(baris);
+      mengikutiId = baris?.id ?? null;
+    }
+  } catch {
+    masuk = false;
+  }
+
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-negara">
         <span className="hero-label">Profil Negara · {negara.kode}</span>
         <h1 id="judul-negara">{negara.nama}</h1>
+        <p>
+          <TombolIkutiTopik
+            tipe="negara"
+            target={negara.nama}
+            mengikutiAwal={mengikuti}
+            mengikutiId={mengikutiId}
+            masuk={masuk}
+          />
+        </p>
         <p>
           <Link href="/negara">← Semua negara</Link>
         </p>
