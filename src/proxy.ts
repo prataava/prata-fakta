@@ -4,7 +4,7 @@
 // halaman admin (Fase 5) dengan pemeriksaan role lewat server client.
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { cariKategori } from "@/lib/categories";
+import { KATEGORI_UTAMA, cariKategori } from "@/lib/categories";
 import { buatHeaderCsp, buatNonce } from "@/lib/csp";
 import { apakahAsalDiizinkan } from "@/lib/asal";
 
@@ -61,6 +61,98 @@ async function kodeNegaraTidakAda(kode: string): Promise<boolean> {
   try {
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/pf_countries?kode=eq.${encodeURIComponent(kode)}&select=id&limit=1`,
+      {
+        headers: {
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+        },
+      },
+    );
+    if (res.ok) {
+      const baris = (await res.json()) as unknown[];
+      return Array.isArray(baris) && baris.length === 0;
+    }
+    if (res.status === 404) {
+      try {
+        const body = (await res.json()) as { code?: string };
+        if (body.code === "PGRST205") return true;
+      } catch {
+        // Abaikan; lanjut ke halaman.
+      }
+    }
+  } catch {
+    // Fail-open: halaman yang menangani (notFound + noindex).
+  }
+  return false;
+}
+
+/** true bila slug adalah kategori utama atau subkategori
+ *  (taksonomi statis — tanpa perlu query database). */
+function kategoriGrafAda(slug: string): boolean {
+  if (cariKategori(slug)) return true;
+  return KATEGORI_UTAMA.some((k) => k.sub.some((s) => s.slug === slug));
+}
+
+// Pemeriksaan keberadaan sumber graf (P2-1): UUID baris
+// pf_sources ATAU URL (persis, tanpa trailing slash) di
+// pf_sources / pf_evidence. true bila sumber PASTI tidak ada
+// di ketiganya; false bila ada ATAU bila pemeriksaan gagal
+// (fail-open: halaman yang menangani).
+async function sumberGrafTidakAda(id: string): Promise<boolean> {
+  const POLA_UUID =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const kepala = {
+    apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+  };
+  // true = ada baris; false = pasti kosong; null = gagal diperiksa.
+  const adaBaris = async (url: string): Promise<boolean | null> => {
+    try {
+      const res = await fetch(url, { headers: kepala });
+      if (!res.ok) return null;
+      const baris = (await res.json()) as unknown[];
+      return Array.isArray(baris) && baris.length > 0;
+    } catch {
+      return null;
+    }
+  };
+  try {
+    const dasar = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (POLA_UUID.test(id)) {
+      const ada = await adaBaris(
+        `${dasar}/rest/v1/pf_sources?id=eq.${encodeURIComponent(id)}&select=id&limit=1`,
+      );
+      return ada === false;
+    }
+    const url = id.replace(/\/+$/, "");
+    if (!url) return true;
+    const [diSumber, diBukti] = await Promise.all([
+      adaBaris(
+        `${dasar}/rest/v1/pf_sources?url=eq.${encodeURIComponent(url)}&select=id&limit=1`,
+      ),
+      adaBaris(
+        `${dasar}/rest/v1/pf_evidence?sumber_url=eq.${encodeURIComponent(url)}&select=klaim_id&limit=1`,
+      ),
+    ]);
+    if (diSumber === true || diBukti === true) return false;
+    // 404 nyata hanya bila KEDUA pemeriksaan memastikan kosong;
+    // bila satu pun gagal diperiksa → fail-open ke halaman.
+    if (diSumber === false && diBukti === false) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Pemeriksaan keberadaan tag di pf_tags lewat REST publik (P2-4).
+// pf_tags TIDAK punya kolom status (tidak seperti pf_stories) —
+// jadi tidak bisa memakai slugTidakAda. true bila tag PASTI tidak
+// ada (hasil kosong, atau tabel belum ada = PGRST205); false bila
+// ada ATAU bila pemeriksaan gagal (fail-open: halaman yang menangani).
+async function tagTidakAda(slug: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/pf_tags?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`,
       {
         headers: {
           apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -213,6 +305,60 @@ export default async function proxy(request: NextRequest) {
     const slug = decodeURIComponent(cocokKategori[1]);
     if (!cariKategori(slug)) {
       return rewriteDenganCsp("/_not-found");
+    }
+  }
+
+  // Entitas graf tidak ada → 404 SEBELUM halaman dirender (P2-1).
+  // Utang yang SAMA seperti /pengetahuan + Gelombang 2: notFound()
+  // di halaman /graf/[jenis]/[id] menampilkan UI 404 yang benar
+  // tetapi dengan status HTTP 200 (Partial Prerender mengirim
+  // shell 200 sebelum notFound() berjalan); generateMetadata +
+  // notFound() di halaman TIDAK mengubah status. Pola yang sama:
+  // periksa keberadaan di proxy sebelum halaman dirender.
+  // Jenis tak dikenal → 404 langsung (tanpa query).
+  const cocokGraf = /^\/graf\/([^/]+)\/([^/]+)$/.exec(
+    request.nextUrl.pathname,
+  );
+  if (cocokGraf) {
+    const jenisGraf = decodeURIComponent(cocokGraf[1]);
+    const idGraf = decodeURIComponent(cocokGraf[2]);
+    let grafTidakAda = false;
+    if (jenisGraf === "negara") {
+      grafTidakAda = await kodeNegaraTidakAda(idGraf.toUpperCase());
+    } else if (jenisGraf === "cerita") {
+      grafTidakAda = await slugTidakAda("pf_stories", idGraf);
+    } else if (jenisGraf === "kategori") {
+      grafTidakAda = !kategoriGrafAda(idGraf);
+    } else if (jenisGraf === "sumber") {
+      grafTidakAda = await sumberGrafTidakAda(idGraf);
+    } else {
+      grafTidakAda = true;
+    }
+    if (grafTidakAda) {
+      return rewriteDenganCsp("/_not-found");
+    }
+  }
+
+  // Topik konteks tidak ada → 404 SEBELUM halaman dirender (P2-4).
+  // Pola yang sama seperti /graf (P2-1): notFound() di halaman
+  // saja menampilkan UI 404 dengan status HTTP 200 (Partial
+  // Prerender mengirim shell 200 sebelum notFound() berjalan).
+  // Topik = slug tag ATAU slug kategori/subkategori (taksonomi
+  // statis dipakai ulang dari kategoriGrafAda); bila bukan
+  // kategori, periksa pf_tags — 404 hanya bila tag PASTI tidak
+  // ada (fail-open bila pemeriksaan gagal).
+  const cocokKonteks = /^\/konteks\/([^/]+)$/.exec(
+    request.nextUrl.pathname,
+  );
+  if (cocokKonteks) {
+    const topikKonteks = decodeURIComponent(cocokKonteks[1])
+      .trim()
+      .toLowerCase();
+    if (!kategoriGrafAda(topikKonteks)) {
+      const tagTakAda = await tagTidakAda(topikKonteks);
+      if (tagTakAda) {
+        return rewriteDenganCsp("/_not-found");
+      }
     }
   }
 
