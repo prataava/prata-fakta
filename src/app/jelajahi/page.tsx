@@ -42,7 +42,7 @@ const GRUP: {
       { href: "/cari", label: "Pencarian", keterangan: "Cari artikel, kategori, dan sumber." },
       { href: "/timeline", label: "Timeline", keterangan: "Kronologi peristiwa." },
       { href: "/klaim", label: "Pelacak Klaim", keterangan: "Lacak status verifikasi setiap klaim dalam artikel terbit." },
-      { href: "/graf", label: "Graf Pengetahuan", keterangan: "Peta relasi klaim, sumber, artikel, peristiwa, dan cerita." },
+      { href: "/graf", label: "Graf Pengetahuan", keterangan: "Peta relasi klaim, sumber, artikel, peristiwa, cerita, negara, dan kategori." },
       { href: "/bandingkan", label: "Bandingkan Liputan", keterangan: "Bandingkan dua liputan berdampingan, klaim demi klaim." },
       { href: "/cerita", label: "Cerita", keterangan: "Peristiwa yang diikuti perkembangannya." },
       { href: "/sejarah", label: "Arsip Sejarah", keterangan: "Peristiwa lampau per tahun dan era." },
@@ -58,6 +58,8 @@ const GRUP: {
       { href: "/riset", label: "Riset", keterangan: "Laporan riset berbasis data." },
       { href: "/pengetahuan", label: "Pengetahuan", keterangan: "Artikel pengetahuan dan explainer." },
       { href: "/negara", label: "Negara", keterangan: "Profil negara." },
+      { href: "/observatorium", label: "Observatorium Data", keterangan: "Indikator pilihan, hitungan artikel, dan tren ingestion dalam satu hub." },
+      { href: "/intelijen", label: "Intelijen Dunia", keterangan: "Peta, brief dunia, sorotan negara, dan timeline per domain." },
     ],
   },
   {
