@@ -14,6 +14,26 @@
 import { createClient } from "@/lib/supabase/server";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 
+// ============================================================
+// TIPE TOPIK YANG DIDUKUNG (terverifikasi P1-5, 17 Nov 2026) —
+// pf_followed_topics.tipe HANYA tiga nilai ini:
+//   kategori — slug taksonomi KATEGORI_UTAMA (mis. "politik").
+//     Tombol Ikuti ada di /kategori/[slug].
+//   negara   — NAMA negara ("Indonesia") ATAU kode ISO-2 ("ID").
+//     Keduanya diterima (negaraAda + pencocokan notifikasi di
+//     lib/notifikasi/tulis.ts memakai ilike terhadap kode DAN
+//     nama). Tombol Ikuti ada di /negara/[kode] (target = nama).
+//   isu      — teks bebas ("Perubahan iklim"), huruf/spasi/tanda
+//     hubung saja. Diikuti lewat formulir di /feed-saya (tidak
+//     ada halaman isu tersendiri); arsipnya di /saya/topik.
+// "cerita" BUKAN tipe topik — mengikuti cerita memakai sistem
+// terpisah (POST /api/cerita/[slug]/ikuti + TombolIkutiCerita,
+// tabel pengikut cerita), jadi JANGAN tambahkan "cerita" ke
+// TIPE_VALID tanpa migrasi + API baru. Notifikasi topik ditulis
+// kirimNotifikasiTopik (lib/notifikasi/tulis.ts) untuk ketiga
+// tipe di atas, dengan sakelar pf_user_preferences
+// .notifikasi_topik.
+// ============================================================
 const TIPE_VALID = ["kategori", "negara", "isu"] as const;
 
 /** Validasi target topik (D3, Fase 8 Gelombang 1 — diekspos untuk uji).

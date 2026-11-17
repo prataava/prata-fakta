@@ -127,6 +127,7 @@ export default function JejakFakta({
                     Klaim · {k.jenis} · {LABEL_STATUS_KLAIM[k.status] ?? k.status}
                   </span>
                   <span className="kartu-judul">{k.teks}</span>
+                  <Link href={`/klaim/${k.id}`}>Lacak klaim ini</Link>
                   {k.bukti.length === 0 ? (
                     <span className="kartu-teks" style={{ color: "var(--muted)" }}>
                       Belum ada bukti yang tercatat untuk klaim ini.

@@ -14,6 +14,12 @@ import {
   skorKredibilitas,
   tierDariPrioritas,
 } from "@/lib/ai/source-analysis";
+import {
+  rakitPerbandinganDuaArtikel,
+  type ArtikelPerbandinganRingkas,
+  type KlaimPerbandingan,
+  type PerbandinganDuaArtikel,
+} from "@/lib/perbandingan-dua";
 
 export type PfCategoryRow = {
   id: string;
@@ -1832,6 +1838,113 @@ export async function getPerbandinganSumber(
     };
   } catch (err) {
     catatGalatBaca("getPerbandinganSumber", err);
+    return kosong;
+  }
+}
+
+/* ============================================================
+   P1-3 — Perbandingan dua artikel (side-by-side)
+   Logika murni (tipe + pencocokan + perakitan) tinggal di
+   src/lib/perbandingan-dua.ts (tanpa impor, bisa diuji PGlite);
+   di sini hanya getter + re-ekspor, agar impor lama
+   `from "@/lib/data"` tetap jalan. PENTING: pf_claims.artikel_id
+   hanya menunjuk SATU artikel (migrasi v4) — klaim bersama =
+   dua klaim yang TEKSNYA SAMA setelah normalisasi, bukan baris
+   yang tertaut ke kedua artikel. Tanpa klaim bersama, hasilnya
+   tetap struktur lengkap (tersedia=true, bersama=[]) — bukan
+   null yang membuat komponen crash. Slug tak ada / draf →
+   tersedia=false, artikel null.
+   ============================================================ */
+
+export {
+  normalisasiTeksKlaim,
+  cocokkanKlaimDuaArtikel,
+  rakitPerbandinganDuaArtikel,
+} from "@/lib/perbandingan-dua";
+export type {
+  KlaimPerbandingan,
+  SumberArtikelPerbandingan,
+  ArtikelPerbandinganRingkas,
+  KlaimBersama,
+  PerbandinganDuaArtikel,
+  HasilCocokKlaim,
+} from "@/lib/perbandingan-dua";
+
+/** Perbandingan dua artikel terbit berdasarkan slug. Hanya
+ *  artikel status='terbit' (lewat getArtikelLengkap); slug tak
+ *  ada / draf → tersedia=false. Galat baca klaim → tersedia=false
+ *  + dicatat (pola getPerbandinganSumber), tidak pernah throw
+ *  dan tidak pernah null. */
+export async function getPerbandinganDuaArtikel(
+  slugA: string,
+  slugB: string,
+): Promise<PerbandinganDuaArtikel> {
+  const kosong: PerbandinganDuaArtikel = {
+    tersedia: false,
+    artikelA: null,
+    artikelB: null,
+    bersama: [],
+    hanyaA: [],
+    hanyaB: [],
+    sumberA: [],
+    sumberB: [],
+  };
+  try {
+    const [a, b] = await Promise.all([
+      getArtikelLengkap(slugA),
+      getArtikelLengkap(slugB),
+    ]);
+    if (!a || !b) return kosong;
+    const supabase = await createClient();
+    const [resA, resB] = await Promise.all([
+      supabase
+        .from("pf_claims")
+        .select("id, teks, jenis, status")
+        .eq("artikel_id", a.id)
+        .order("dibuat_pada", { ascending: true }),
+      supabase
+        .from("pf_claims")
+        .select("id, teks, jenis, status")
+        .eq("artikel_id", b.id)
+        .order("dibuat_pada", { ascending: true }),
+    ]);
+    if (resA.error) {
+      catatGalatBaca("getPerbandinganDuaArtikel.klaimA", resA.error);
+      return kosong;
+    }
+    if (resB.error) {
+      catatGalatBaca("getPerbandinganDuaArtikel.klaimB", resB.error);
+      return kosong;
+    }
+    const ringkas = (art: PfArtikelLengkap): ArtikelPerbandinganRingkas => ({
+      id: art.id,
+      slug: art.slug,
+      judul: art.judul,
+      ringkasan: art.ringkasan,
+      kategori_slug: art.kategori_slug,
+      status_verifikasi: art.status_verifikasi,
+      diterbitkan_pada: art.diterbitkan_pada,
+    });
+    return rakitPerbandinganDuaArtikel(
+      ringkas(a),
+      ringkas(b),
+      ((resA.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
+        id: String(k.id),
+        teks: String(k.teks ?? ""),
+        jenis: String(k.jenis ?? "lain"),
+        status: String(k.status ?? "belum_terverifikasi"),
+      })),
+      ((resB.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
+        id: String(k.id),
+        teks: String(k.teks ?? ""),
+        jenis: String(k.jenis ?? "lain"),
+        status: String(k.status ?? "belum_terverifikasi"),
+      })),
+      a.sumber_list.map((s) => ({ nama: s.nama, url: s.url })),
+      b.sumber_list.map((s) => ({ nama: s.nama, url: s.url })),
+    );
+  } catch (err) {
+    catatGalatBaca("getPerbandinganDuaArtikel", err);
     return kosong;
   }
 }

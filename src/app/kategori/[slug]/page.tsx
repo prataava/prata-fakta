@@ -4,9 +4,12 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import EmptyState from "@/components/EmptyState";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import TombolIkutiTopik from "@/components/lanjutan/TombolIkutiTopik";
 import { KATEGORI_UTAMA, cariKategori } from "@/lib/categories";
 import { getArtikelPerKategori } from "@/lib/data";
+import { getTopikDiikuti } from "@/lib/lanjutan";
 import { urlSitus } from "@/lib/situs";
+import { createClient } from "@/lib/supabase/server";
 
 export function generateStaticParams() {
   return KATEGORI_UTAMA.map((k) => ({ slug: k.slug }));
@@ -48,6 +51,11 @@ export default async function HalamanKategori({
         <span className="hero-label">Kategori</span>
         <h1 id="judul-kat">{kategori.nama}</h1>
         <p>{kategori.deskripsi}</p>
+        <p>
+          <Suspense fallback={null}>
+            <IkutiKategori slug={slug} />
+          </Suspense>
+        </p>
       </section>
 
       {kategori.sub.length > 0 && (
@@ -76,6 +84,42 @@ export default async function HalamanKategori({
         </Suspense>
       </section>
     </div>
+  );
+}
+
+// Tombol Ikuti kategori (P1-5) — dibaca di dalam Suspense agar
+// shell kategori tetap bisa di-prerender (generateStaticParams)
+// sementara status login/ikuti mengalir dinamis. Komponen dan
+// logika yang sama dengan permukaan topik lain
+// (TombolIkutiTopik), bukan duplikasi.
+async function IkutiKategori({ slug }: { slug: string }) {
+  let masuk = false;
+  let mengikuti = false;
+  let mengikutiId: string | null = null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    const penggunaId = data.user?.id ?? null;
+    if (penggunaId) {
+      masuk = true;
+      const topik = await getTopikDiikuti(penggunaId);
+      const baris = topik.find(
+        (t) => t.tipe === "kategori" && t.target === slug,
+      );
+      mengikuti = Boolean(baris);
+      mengikutiId = baris?.id ?? null;
+    }
+  } catch {
+    masuk = false;
+  }
+  return (
+    <TombolIkutiTopik
+      tipe="kategori"
+      target={slug}
+      mengikutiAwal={mengikuti}
+      mengikutiId={mengikutiId}
+      masuk={masuk}
+    />
   );
 }
 

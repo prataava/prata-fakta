@@ -16,6 +16,7 @@ import {
   getRiwayatBaca,
   getTopikDiikuti,
 } from "@/lib/lanjutan";
+import { getCatatanPengguna, getJumlahPerFolder } from "@/lib/perpustakaan";
 
 export const metadata: Metadata = {
   title: "Saya — My Prata",
@@ -52,7 +53,7 @@ export default async function Saya() {
   }
   if (!penggunaId) redirect("/masuk");
 
-  const [ringkasan, bookmark, riwayat, riwayatLanjut, topik, notifikasi, brief] =
+  const [ringkasan, bookmark, riwayat, riwayatLanjut, topik, notifikasi, brief, folderCounts, catatanRingkas] =
     await Promise.all([
       getRingkasanSaya(penggunaId),
       getBookmarkPengguna(penggunaId, 6),
@@ -63,6 +64,10 @@ export default async function Saya() {
       getTopikDiikuti(penggunaId),
       getNotifikasi(penggunaId, 10, true),
       getBriefTerbit(),
+      // P1-1: ringkasan perpustakaan (folder kosong → [] bila
+      // migrasi v19 belum dijalankan; seksi menampilkan EmptyState).
+      getJumlahPerFolder(penggunaId),
+      getCatatanPengguna(penggunaId, { limit: 3 }),
     ]);
   // Catatan jujur: getRiwayatBaca tidak membawa durasi_detik, jadi
   // keterangan durasi tidak bisa ditampilkan di seksi ini (bukan
@@ -97,6 +102,9 @@ export default async function Saya() {
           </Link>
           <Link className="tombol" href="/feed-saya">
             Feed Saya
+          </Link>
+          <Link className="tombol" href="/perpustakaan">
+            Perpustakaan
           </Link>
         </div>
       </section>
@@ -262,6 +270,85 @@ export default async function Saya() {
         )}
       </section>
 
+      <section className="seksi" aria-labelledby="seksi-perpustakaan">
+        <div className="seksi-kepala">
+          <h2 id="seksi-perpustakaan">Perpustakaan saya</h2>
+          <p>Folder bookmark dan catatan pribadi terbaru Anda.</p>
+        </div>
+        {folderCounts.length === 0 && catatanRingkas.length === 0 ? (
+          <EmptyState
+            judul="Perpustakaan Anda masih kosong."
+            pesan="Simpan artikel ke bookmark atau tulis catatan dari halaman artikel — semuanya terkumpul di Perpustakaan."
+            aksi={
+              <Link className="tombol" href="/perpustakaan">
+                Buka Perpustakaan
+              </Link>
+            }
+          />
+        ) : (
+          <>
+            {folderCounts.length > 0 && (
+              <p style={{ margin: "0 0 10px" }}>
+                {folderCounts.map((f) => (
+                  <Link
+                    key={f.folder ?? "__tanpa__"}
+                    className="chip"
+                    style={{ margin: "0 6px 6px 0" }}
+                    href={`/perpustakaan?folder=${encodeURIComponent(f.folder ?? "")}`}
+                  >
+                    {f.folder ?? "Tanpa folder"} ({f.jumlah})
+                  </Link>
+                ))}
+              </p>
+            )}
+            {catatanRingkas.length > 0 && (
+              <ul
+                style={{
+                  display: "grid",
+                  gap: 8,
+                  listStyle: "none",
+                  padding: 0,
+                  margin: "0 0 10px",
+                }}
+              >
+                {catatanRingkas.map((c) => (
+                  <li key={c.id} className="kartu" style={{ margin: 0 }}>
+                    <span className="kartu-teks" style={{ whiteSpace: "pre-wrap" }}>
+                      {c.isi}
+                    </span>
+                    <span className="kartu-meta">
+                      {c.slug_target ? (
+                        <Link
+                          href={
+                            c.jenis_target === "pengetahuan"
+                              ? `/pengetahuan/${c.slug_target}`
+                              : `/artikel/${c.slug_target}`
+                          }
+                        >
+                          {c.judul_target ?? "Artikel"}
+                        </Link>
+                      ) : (
+                        (c.judul_target ?? "Artikel")
+                      )}
+                      {" · "}
+                      {formatTanggal(c.dibuat_pada)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <Link className="tombol" href="/perpustakaan">
+                Buka Perpustakaan
+              </Link>
+              <Link className="tombol" href="/saya/topik">
+                Topik yang saya ikuti
+              </Link>
+            </div>
+          </>
+        )}
+      </section>
+
       <section className="seksi" aria-labelledby="seksi-riwayat">
         <div className="seksi-kepala">
           <h2 id="seksi-riwayat">Terakhir dibaca</h2>
@@ -367,6 +454,11 @@ export default async function Saya() {
             ))}
           </p>
         )}
+        <p>
+          <Link className="tombol" href="/saya/topik">
+            Lihat semua topik yang saya ikuti
+          </Link>
+        </p>
       </section>
 
       <section className="seksi" aria-labelledby="seksi-notifikasi">

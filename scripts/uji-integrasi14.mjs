@@ -190,8 +190,9 @@ cek(
 );
 cek(
   "halaman artikel merender Multi-Source View (Area 3)",
-  halamanArtikel.includes("<PerbandinganSumber"),
-  "PerbandinganSumber",
+  halamanArtikel.includes("<SakelarPerbandingan") &&
+    halamanArtikel.includes("getPerbandinganSumber("),
+  "PerbandinganSumber via SakelarPerbandingan",
 );
 const halamanSaya = fs.readFileSync(path.join(DIR_SRC, "app/saya/page.tsx"), "utf8");
 cek(
