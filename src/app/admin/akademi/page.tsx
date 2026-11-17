@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import DialogKonfirmasi from "@/components/admin/DialogKonfirmasi";
 import FormKursus, { type KursusAdmin } from "@/components/admin/FormKursus";
 import FormStrukturAkademi from "@/components/admin/FormStrukturAkademi";
 
@@ -38,6 +39,12 @@ function SeksiCabutSertifikat() {
   const [pesan, setPesan] = useState("");
   const [gagal, setGagal] = useState(false);
   const [mengirim, setMengirim] = useState(false);
+  // Pencabutan yang menunggu konfirmasi (dialog dalam-halaman,
+  // bukan window.confirm — dialog bawaan ditolak otomatisasi).
+  const [cabutTertunda, setCabutTertunda] = useState<{
+    kode: string;
+    alasan: string;
+  } | null>(null);
 
   const muat = useCallback(async () => {
     setMemuat(true);
@@ -100,13 +107,7 @@ function SeksiCabutSertifikat() {
   }, []);
 
   async function cabut(kodeVerifikasi: string, alasanCabut: string) {
-    if (
-      !window.confirm(
-        `Cabut sertifikat ${kodeVerifikasi}? Sertifikat tetap bisa diverifikasi publik dengan status DICABUT.`,
-      )
-    ) {
-      return;
-    }
+    setCabutTertunda(null);
     setMengirim(true);
     setPesan("");
     setGagal(false);
@@ -152,7 +153,10 @@ function SeksiCabutSertifikat() {
           className="formulir"
           onSubmit={(e) => {
             e.preventDefault();
-            void cabut(kode.trim().toUpperCase(), alasan.trim());
+            setCabutTertunda({
+              kode: kode.trim().toUpperCase(),
+              alasan: alasan.trim(),
+            });
           }}
         >
           <div>
@@ -253,6 +257,23 @@ function SeksiCabutSertifikat() {
           </div>
         )}
       </div>
+      <DialogKonfirmasi
+        terbuka={cabutTertunda !== null}
+        judul="Cabut sertifikat?"
+        pesan={
+          cabutTertunda
+            ? `Cabut sertifikat ${cabutTertunda.kode}? Sertifikat tetap bisa diverifikasi publik dengan status DICABUT.`
+            : ""
+        }
+        labelKonfirmasi="Ya, cabut"
+        varian="bahaya"
+        sibuk={mengirim}
+        onKonfirmasi={() => {
+          if (cabutTertunda)
+            void cabut(cabutTertunda.kode, cabutTertunda.alasan);
+        }}
+        onTutup={() => setCabutTertunda(null)}
+      />
     </section>
   );
 }
