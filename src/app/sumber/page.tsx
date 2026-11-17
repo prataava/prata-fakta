@@ -170,6 +170,12 @@ async function DaftarSumber({ filter }: { filter: FilterSumber }) {
                   ? "Belum dipakai di artikel mana pun"
                   : `Dipakai di ${jumlah} artikel`}
             </span>
+            <Link
+              className="tombol tombol-hantu"
+              href={`/graf/sumber/${encodeURIComponent(s.id)}`}
+            >
+              Lihat di graf
+            </Link>
           </article>
         );
       })}
