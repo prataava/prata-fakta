@@ -13,6 +13,14 @@ import KartuArtikel from "@/components/artikel/KartuArtikel";
 // (Fase 7) agar tidak membebani First Load halaman artikel.
 import dynamic from "next/dynamic";
 import gaya from "./PembacaArtikel.module.css";
+import {
+  bacaPreferensiBacaTamu,
+  kirimPreferensiBaca,
+  simpanPreferensiBacaTamu,
+  terapkanKepadatan,
+  type Kepadatan,
+  type PreferensiBaca,
+} from "@/lib/preferensi-baca";
 
 const PembacaSuara = dynamic(
   () => import("@/components/artikel/PembacaSuara"),
@@ -23,8 +31,8 @@ const FormLaporan = dynamic(
   { loading: () => <p>Memuat formulir laporan…</p> },
 );
 
-type ModeBaca = "1menit" | "3menit" | "mendalam";
-type UkuranFont = "S" | "M" | "L";
+export type ModeBaca = "1menit" | "3menit" | "mendalam";
+export type UkuranFont = "S" | "M" | "L";
 
 const UKURAN_FONT: Record<UkuranFont, string> = {
   S: "1rem",
@@ -162,21 +170,36 @@ function pilihKalimatSederhana(
 // laporan kesalahan, mode fokus, penjelasan sederhana (ekstraktif),
 // dan pencatatan riwayat baca persisten (durasi + selesai, throttle
 // 30 detik; dikirim saat mencapai akhir artikel dan saat dilepas).
+// Preferensi baca (P3-2): nilai awal dari server lewat props
+// `preferensiAwal` (halaman artikel, tanpa fetch baru dari klien);
+// tamu memakai localStorage (pf-preferensi-baca). Perubahan
+// ditulis via PATCH /api/saya/preferensi (debounce 800 md —
+// bukan tiap ketik) bila login, atau ke localStorage bila tamu.
+// Saat login, preferensi akun menang atas localStorage.
 export default function PembacaArtikel({
   artikel,
   terkait,
   versi,
   loggedIn,
   bookmarkAwal,
+  preferensiAwal,
 }: {
   artikel: PfArtikelLengkap;
   terkait: PfArtikelRingkas[];
   versi: PfVersiArtikel[];
   loggedIn: boolean;
   bookmarkAwal: boolean;
+  preferensiAwal?: PreferensiBaca;
 }) {
-  const [mode, setMode] = useState<ModeBaca>("mendalam");
-  const [ukuran, setUkuran] = useState<UkuranFont>("M");
+  const [mode, setMode] = useState<ModeBaca>(
+    preferensiAwal?.mode_baca ?? "mendalam",
+  );
+  const [ukuran, setUkuran] = useState<UkuranFont>(
+    preferensiAwal?.ukuran_font ?? "M",
+  );
+  const [kepadatan, setKepadatan] = useState<Kepadatan>(
+    preferensiAwal?.kepadatan ?? "nyaman",
+  );
   const [progress, setProgress] = useState(0);
   const [bookmark, setBookmark] = useState(bookmarkAwal);
   const [bookmarkPesan, setBookmarkPesan] = useState("");
@@ -191,6 +214,55 @@ export default function PembacaArtikel({
   const mulaiBacaRef = useRef<number | null>(null);
   const terakhirKirimRef = useRef(0);
   const selesaiRef = useRef(false);
+  const timerPreferensiRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Simpan preferensi baca: PATCH (debounce 800 md) bila login,
+  // localStorage langsung bila tamu. Gagal simpan diam-diam —
+  // preferensi sesi ini tetap berlaku; bukan error pengguna.
+  function simpanPreferensi(perubahan: Partial<PreferensiBaca>) {
+    if (!loggedIn) {
+      simpanPreferensiBacaTamu(perubahan);
+      return;
+    }
+    if (timerPreferensiRef.current !== null) {
+      clearTimeout(timerPreferensiRef.current);
+    }
+    timerPreferensiRef.current = setTimeout(() => {
+      timerPreferensiRef.current = null;
+      void kirimPreferensiBaca(perubahan);
+    }, 800);
+  }
+
+  function ubahMode(nilai: ModeBaca) {
+    setMode(nilai);
+    simpanPreferensi({ mode_baca: nilai });
+  }
+
+  function ubahUkuran(nilai: UkuranFont) {
+    setUkuran(nilai);
+    simpanPreferensi({ ukuran_font: nilai });
+  }
+
+  // Tamu: muat preferensi localStorage saat mount (server menang
+  // bila login — props sudah berisi preferensi akun). Kepadatan
+  // diterapkan ke <body> agar daftar di halaman ini ikut rapat.
+  // Disable lint set-state-in-effect sengaja: localStorage hanya
+  // ada di klien, jadi nilai tamu TIDAK BISA jadi state awal
+  // (SSR) — harus dikoreksi sesudah mount, tanpa mismatch.
+  useEffect(() => {
+    if (loggedIn) return;
+    const tamu = bacaPreferensiBacaTamu();
+    if (!tamu) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- koreksi mount (lihat komentar di atas)
+    if (tamu.mode_baca) setMode(tamu.mode_baca);
+    if (tamu.ukuran_font) setUkuran(tamu.ukuran_font);
+    if (tamu.kepadatan) setKepadatan(tamu.kepadatan);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    terapkanKepadatan(kepadatan);
+  }, [kepadatan]);
 
   function hitungDurasiBaca(): number {
     if (mulaiBacaRef.current === null) return 0;
@@ -378,7 +450,7 @@ export default function PembacaArtikel({
               type="button"
               className={mode === m.nilai ? "aktif" : ""}
               aria-pressed={mode === m.nilai}
-              onClick={() => setMode(m.nilai)}
+              onClick={() => ubahMode(m.nilai)}
             >
               {m.label}
             </button>
@@ -392,7 +464,7 @@ export default function PembacaArtikel({
               className={ukuran === u ? "aktif" : ""}
               aria-pressed={ukuran === u}
               aria-label={`Ukuran font ${u}`}
-              onClick={() => setUkuran(u)}
+              onClick={() => ubahUkuran(u)}
             >
               {u}
             </button>
@@ -485,6 +557,12 @@ export default function PembacaArtikel({
       <p className="artikel-mode-info">
         Mode {modeAktif.label} — {modeAktif.deskripsi}.
       </p>
+      {!loggedIn && (
+        <p className="artikel-meta-kecil" role="note">
+          Preferensi baca Anda tersimpan hanya di perangkat ini. Masuk
+          untuk menyinkronkannya ke semua perangkat.
+        </p>
+      )}
 
       <div
         className="artikel-isi"
@@ -524,7 +602,7 @@ export default function PembacaArtikel({
                 <button
                   type="button"
                   className="tombol tombol-primer"
-                  onClick={() => setMode("mendalam")}
+                  onClick={() => ubahMode("mendalam")}
                 >
                   Lanjutkan ke Deep Reading
                 </button>
