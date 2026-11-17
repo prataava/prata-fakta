@@ -312,6 +312,9 @@ export default async function ProfilNegara({
         </Link>{" "}
         <Link className="tombol tombol-hantu" href="/peta">
           Lihat di Peta
+        </Link>{" "}
+        <Link className="tombol tombol-hantu" href={`/graf/negara/${negara.kode}`}>
+          Lihat di graf
         </Link>
       </p>
     </div>
