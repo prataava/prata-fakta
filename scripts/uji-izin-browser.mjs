@@ -28,11 +28,11 @@
 //   transisi store yang teramati (simpan/ambil/bersihkan/tandai)
 //   + logika hitungStatus secara statis; render hook dicatat
 //   LEWAT jujur di bawah.
-// - sw.js tidak diubah cabang ini: §E memeriksa pola kunci
-//   handler push/notificationclick + git diff vs HEAD.
+// - sw.js diubah Tugas 1 (v26, 17 Nov 2026): §E memeriksa pola
+//   kunci handler push/notificationclick + cabang payload
+//   broadcast (event.data.json + ikon) di atas fallback.
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
 
 const DIR_REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const DIR_SRC = path.join(DIR_REPO, "src");
@@ -606,6 +606,9 @@ cek(
 // ---------- §C: Cek sumber statis ----------
 const pushSrc = baca("app/saya/notifikasi/PengalihPush.tsx", DIR_SRC);
 const pushKode = tanpaKomentar(pushSrc);
+// Mekanika subscribe/unsubscribe tinggal di lib klien sejak
+// Tugas 1 (v26, 17 Nov 2026) — komponen hanya memanggilnya.
+const libPushSrc = baca("lib/notifikasi-push.ts", DIR_SRC);
 cek(
   "IZIN-C1 requestPermission di PengalihPush (di luar komentar) tepat 1 kemunculan",
   (pushKode.match(/requestPermission/g) ?? []).length === 1,
@@ -837,20 +840,24 @@ lewati(
 // ---------- §E: Penjaga regresi ----------
 {
   cek(
-    "IZIN-E1 PengalihPush: alur subscribe utuh (pushManager.subscribe)",
-    pushSrc.includes("pushManager.subscribe("),
+    "IZIN-E1 lib klien: alur subscribe utuh (register /sw.js + pushManager.subscribe) + PengalihPush memanggil aktifkanPush()",
+    libPushSrc.includes("pushManager.subscribe(") &&
+      libPushSrc.includes('navigator.serviceWorker.register("/sw.js")') &&
+      pushSrc.includes("aktifkanPush()"),
   );
   cek(
-    "IZIN-E2 PengalihPush: POST /api/push/langganan sesudah subscribe",
-    pushSrc.includes('"/api/push/langganan"') && pushSrc.includes('method: "POST"'),
+    "IZIN-E2 lib klien: POST /api/notifications/subscribe sesudah subscribe",
+    libPushSrc.includes('"/api/notifications/subscribe"') && libPushSrc.includes('method: "POST"'),
   );
   cek(
     "IZIN-E3 PengalihPush: PATCH push_notifikasi true sesudah langganan tersimpan",
     pushSrc.includes("JSON.stringify({ push_notifikasi: true })"),
   );
   cek(
-    "IZIN-E4 PengalihPush: unsubscribe utuh (DELETE /api/push/langganan + langganan.unsubscribe())",
-    pushSrc.includes('method: "DELETE"') && pushSrc.includes("langganan.unsubscribe()"),
+    "IZIN-E4 lib klien: unsubscribe utuh (DELETE /api/notifications/subscribe + langganan.unsubscribe()) + PengalihPush memanggil matikanPush()",
+    libPushSrc.includes('method: "DELETE"') &&
+      libPushSrc.includes("langganan.unsubscribe()") &&
+      pushSrc.includes("matikanPush()"),
   );
   cek(
     "IZIN-E5 PengalihPush: PATCH push_notifikasi false saat mematikan",
@@ -913,19 +920,19 @@ cek(
     polaKlik.every((p) => sw.includes(p)),
     polaKlik.filter((p) => !sw.includes(p)).join(", "),
   );
-  try {
-    execSync("git diff --quiet HEAD -- public/sw.js", {
-      cwd: DIR_REPO,
-      stdio: "ignore",
-    });
-    cek("IZIN-E14 sw.js tidak berubah vs HEAD (git diff kosong)", true);
-  } catch (err) {
-    if (err && err.status === 1) {
-      cek("IZIN-E14 sw.js tidak berubah vs HEAD (git diff kosong)", false, "sw.js berubah di working tree");
-    } else {
-      lewati("IZIN-E14 sw.js tidak berubah vs HEAD", "git tidak tersedia di lingkungan ini");
-    }
-  }
+  // E14 DULU: "sw.js tidak berubah vs HEAD (git diff kosong)" —
+  // freeze itu SUDAH lewat: sw.js SENGAJA berubah di Tugas 1
+  // (v26, 17 Nov 2026) untuk cabang payload broadcast. Yang
+  // dikunci sekarang adalah keadaan BARU: cabang payload ada DI
+  // ATAS fallback tanpa-payload (fallback tetap diuji E12/E13),
+  // bukan "tidak ada perubahan sama sekali".
+  cek(
+    "IZIN-E14 sw.js: cabang payload broadcast (event.data.json + ikon) di atas fallback tanpa-payload",
+    sw.includes("event.data.json()") &&
+      sw.includes('icon: "/icons/icon-512.png"') &&
+      sw.indexOf("event.data.json()") < sw.indexOf('fetch("/api/notifikasi"'),
+    "cabang payload v26 hilang — broadcast tampil generik",
+  );
 }
 
 // ---------- §F: Proxy server wilayah + reverse-geocode (pekerja F) ----------

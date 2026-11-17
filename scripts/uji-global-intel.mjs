@@ -6,11 +6,13 @@
 // 1 bila ada yang gagal.
 //
 // CARA JALAN (wajib, dari akar repo):
-//   node --experimental-strip-types \
-//     --import /tmp/pf-register.mjs scripts/uji-global-intel.mjs
+//   node --experimental-strip-types scripts/jalankan-baterai.mjs scripts/uji-global-intel.mjs
+// (JANGAN --import loader: di Node 24.22.1 --import TIDAK
+// mendaftarkan hook resolve sehingga impor @/ crash di §B;
+// module.register() lewat jalankan-baterai.mjs adalah jalurnya.)
 //
 // YANG DIUJI:
-//   §A  Migrasi v1–v25 diterapkan BERURUTAN di PGlite (24 berkas,
+//   §A  Migrasi v1–v26 diterapkan BERURUTAN di PGlite (25 berkas,
 //       v20 memang tidak ada) + v22–v25 diulang (idempoten):
 //       68 tabel pf_*, RLS 68/68, CHECK v22 31 nilai (semua
 //       diterima incl. quality_check + analysis; nilai liar
@@ -52,6 +54,14 @@
 //       tidak di-embed di select — select kandidat WAJIB meng-embed
 //       pf_sources(prioritas); satu-satunya pemakaian foreignTable
 //       di src/ ada di supabase-adapter.ts.
+//   §I  Push notifications (Tugas 1, v26, 17 Nov 2026): migrasi
+//       v26 melonggarkan user_id pf_push_subscriptions (tamu NULL)
+//       + policy tamu, idempoten; route subscribe tamu validasi
+//       ketat + service client + rate limit keras + TIDAK percaya
+//       userId klien; route broadcast HANYA super_admin +
+//       setVapidDetails malas di dalam handler; sw.js tetap cache
+//       offline + handler push ber-ikon; kunci publik VAPID
+//       punya fallback NEXT_PUBLIC_*.
 //
 // BATAS UJI YANG JUJUR:
 // - "0 window.confirm di jalur admin" TIDAK BISA ditegakkan
@@ -70,7 +80,6 @@
 //   urutan + isi berkas di PGlite.
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 
 const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
@@ -101,7 +110,7 @@ function bacaMigrasi(nama) {
   return sql;
 }
 
-// ---------- §A: migrasi v1–v25 berurutan di PGlite ----------
+// ---------- §A: migrasi v1–v26 berurutan di PGlite ----------
 
 const DAFTAR_MIGRASI = fs
   .readdirSync(DIR_MIGRASI)
@@ -117,10 +126,10 @@ const VERSI_MIGRASI = DAFTAR_MIGRASI.map(
   (f) => Number(/_pf_v(\d+)_/.exec(f)?.[1] ?? 0),
 );
 cek(
-  "A0 urutan migrasi: 24 berkas v1–v25, v20 memang tidak ada",
-  DAFTAR_MIGRASI.length === 24 &&
+  "A0 urutan migrasi: 25 berkas v1–v26, v20 memang tidak ada",
+  DAFTAR_MIGRASI.length === 25 &&
     JSON.stringify(VERSI_MIGRASI) ===
-      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25]),
+      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26]),
   `versi: ${VERSI_MIGRASI.join(",")}`,
 );
 
@@ -148,7 +157,7 @@ for (const nama of DAFTAR_MIGRASI) {
     break;
   }
 }
-cek("A1 migrasi v1–v25 diterapkan BERURUTAN tanpa error", migrasiOk, migrasiGagal);
+cek("A1 migrasi v1–v26 diterapkan BERURUTAN tanpa error", migrasiOk, migrasiGagal);
 
 let idempotenOk = true;
 let idempotenGagal = "";
@@ -709,6 +718,132 @@ cek(
     pemakaiForeignTable[0] === "src/lib/ai/supabase-adapter.ts",
   pemakaiForeignTable.join(", ") || "tidak ada",
 );
+
+// ---------- §I: push notifications (Tugas 1, v26) ----------
+// Tabel pf_push_subscriptions milik v14 (user_id NOT NULL,
+// RLS pemilik). v26 HANYA melonggarkan user_id (tamu NULL) +
+// policy insert tamu — TIDAK membuat tabel baru (jumlah tabel
+// tetap 68, §A3/§E tidak berubah). Route subscribe tamu TIDAK
+// BOLEH percaya userId dari klien (menempel ke id orang lain =
+// menerima notifikasinya); user_id dari SESI atau NULL.
+// Broadcast HANYA super_admin + setVapidDetails MALAS di dalam
+// handler (bukan di lingkup modul dengan string kosong).
+console.log("\n--- §I push notifications (v26) ---");
+{
+  const sql26 = baca("supabase/migrations/20261117_pf_v26_push_subscriptions.sql");
+  cek(
+    "I1 v26 melonggarkan user_id pf_push_subscriptions + policy tamu (bukan membuat tabel baru)",
+    sql26.includes("pf_push_subscriptions") &&
+      sql26.includes("drop not null") &&
+      sql26.includes("tambah tamu") &&
+      sql26.includes("enable row level security") &&
+      !/create table/i.test(sql26),
+    "v26 harus ALTER-only (tabel milik v14)",
+  );
+  // Idempoten: jalankan v26 dua kali di PGlite §A (yang sudah
+  // menerapkannya sekali) + user_id jadi nullable.
+  let v26Ok = true;
+  let v26Gagal = "";
+  try {
+    await db.exec(bacaMigrasi("20261117_pf_v26_push_subscriptions.sql"));
+    await db.exec(bacaMigrasi("20261117_pf_v26_push_subscriptions.sql"));
+  } catch (e) {
+    v26Ok = false;
+    v26Gagal = String(e.message).split("\n")[0];
+  }
+  cek("I2 v26 idempoten (putaran ke-2 + ke-3 tanpa error)", v26Ok, v26Gagal);
+  if (v26Ok) {
+    const nullable = await db.query(
+      `select is_nullable from information_schema.columns where table_name = 'pf_push_subscriptions' and column_name = 'user_id'`,
+    );
+    cek(
+      "I3 user_id pf_push_subscriptions nullable sesudah v26 (tamu NULL)",
+      nullable.rows[0]?.is_nullable === "YES",
+      String(nullable.rows[0]?.is_nullable ?? "?"),
+    );
+    const policies = await db.query(
+      `select policyname from pg_policies where tablename = 'pf_push_subscriptions'`,
+    );
+    cek(
+      "I4 pf_push_subscriptions punya 5 policy (4 pemilik v14 + tambah tamu)",
+      policies.rows.length === 5 &&
+        policies.rows.some((r) => r.policyname === "pf_push_subscriptions tambah tamu"),
+      policies.rows.map((r) => r.policyname).join(", "),
+    );
+  }
+  const routeLanggananTamu = baca("src/app/api/notifications/subscribe/route.ts");
+  cek(
+    "I5 route subscribe tamu memvalidasi endpoint https + p256dh/auth",
+    routeLanggananTamu.includes("^https:") &&
+      routeLanggananTamu.includes("p256dh") &&
+      routeLanggananTamu.includes("length > 300"),
+  );
+  cek(
+    "I6 route subscribe tamu memakai service client + upsert onConflict endpoint + rate limit KERAS",
+    routeLanggananTamu.includes("cobaServiceClient()") &&
+      routeLanggananTamu.includes('onConflict: "endpoint"') &&
+      routeLanggananTamu.includes("buatRateLimiterKeras(30)"),
+  );
+  cek(
+    "I7 route subscribe tamu TIDAK percaya userId klien (user_id dari sesi atau NULL)",
+    !routeLanggananTamu.includes("userId"),
+    "userId klien = menempel ke akun orang lain",
+  );
+  const routeKirim = baca("src/app/api/admin/notifikasi/kirim/route.ts");
+  cek(
+    "I8 route broadcast HANYA super_admin (autentikasiAdmin + ROLES.SUPER_ADMIN)",
+    routeKirim.includes("autentikasiAdmin(req, ROLES.SUPER_ADMIN)"),
+  );
+  const idxPost = routeKirim.indexOf("export async function POST");
+  const idxSet = routeKirim.indexOf("setVapidDetails(");
+  cek(
+    "I9 setVapidDetails MALAS di dalam handler POST (bukan lingkup modul)",
+    idxPost > 0 && idxSet > idxPost,
+    "setVapidDetails di luar handler = init dengan string kosong",
+  );
+  cek(
+    "I10 broadcast 503 jujur bila VAPID belum terkonfigurasi + hitung sukses nyata (bukan jumlah baris)",
+    routeKirim.includes("status: 503") &&
+      routeKirim.includes("Push belum terkonfigurasi") &&
+      routeKirim.includes("broadcasted: terkirim") &&
+      routeKirim.includes("Promise.allSettled"),
+  );
+  cek(
+    "I11 broadcast menghapus subscriber mati (410/404) + validasi url same-origin",
+    routeKirim.includes("410") &&
+      routeKirim.includes("404") &&
+      routeKirim.includes('startsWith("//")'),
+  );
+  const sw = baca("public/sw.js");
+  cek(
+    "I12 sw.js: handler push ber-ikon (/icons/icon-512.png) + cache offline utuh + notificationclick",
+    sw.includes('icon: "/icons/icon-512.png"') &&
+      sw.includes("prata-fakta-v1") &&
+      sw.includes("notificationclick") &&
+      !sw.includes('"/icon.png"'),
+    "ikon /icon.png tidak ada — wajib /icons/icon-512.png",
+  );
+  const pushLib = baca("src/lib/notifikasi/push.ts");
+  cek(
+    "I13 kunci publik VAPID punya fallback NEXT_PUBLIC_* (server tetap jalan dengan kunci .env.local)",
+    pushLib.includes("NEXT_PUBLIC_VAPID_PUBLIC_KEY") &&
+      pushLib.includes("ambilKunciPublikVapid"),
+  );
+  const pengalih = baca("src/app/saya/notifikasi/PengalihPush.tsx");
+  const libKlien = baca("src/lib/notifikasi-push.ts");
+  cek(
+    "I14 PengalihPush memakai lib klien (aktifkanPush/matikanPush), bukan fetch inline ke langganan lama",
+    pengalih.includes("@/lib/notifikasi-push") &&
+      pengalih.includes("aktifkanPush()") &&
+      pengalih.includes("matikanPush()") &&
+      !pengalih.includes("api/push/langganan"),
+  );
+  cek(
+    "I15 lib klien subscribe ke /api/notifications/subscribe (bukan /api/push/langganan)",
+    libKlien.includes("/api/notifications/subscribe") &&
+      !libKlien.includes("/api/push/langganan"),
+  );
+}
 
 console.log(`\nRINGKASAN global-intel: ${lolos} lolos, ${gagal} gagal.`);
 if (gagal > 0) process.exit(1);

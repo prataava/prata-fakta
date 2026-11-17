@@ -1,19 +1,58 @@
 /* Service worker PRATA FAKTA — push VAPID (Gelombang B2-D, E3)
  * + PWA / offline reading (P3-1).
  * Push: HANYA menangani push + klik notifikasi (blok di bawah ini
- * WAJIB utuh — perilakunya tidak boleh berubah).
+ * WAJIB utuh — perilaku jalur tanpa payload tidak boleh berubah).
  * PWA: precache halaman publik + fallback /offline + strategi
  * cache per jenis aset. Yang TIDAK PERNAH di-cache: semua /api/*,
  * navigasi /admin/*, /saya/*, /masuk, /daftar (butuh login / auth),
  * respons bukan-200, dan respons ber-Set-Cookie.
- * Push dikirim TANPA payload (payload-less): saat ketukan
- * diterima, worker mengambil notifikasi belum dibaca terbaru
- * dari /api/notifikasi lalu menampilkannya. Klik notifikasi
- * membuka tautannya (atau /saya/notifikasi bila tidak ada).
+ * Dua jalur push:
+ *  (a) Broadcast admin (Tugas 1, v26): payload {title, body, url}
+ *      terenkripsi web-push — ditampilkan langsung (+ ikon).
+ *  (b) Ketukan tanpa payload (payload-less): saat ketukan
+ *      diterima, worker mengambil notifikasi belum dibaca terbaru
+ *      dari /api/notifikasi lalu menampilkannya. Klik notifikasi
+ *      membuka tautannya (atau /saya/notifikasi bila tidak ada).
  */
 self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
+      // Jalur (a): broadcast admin — payload {title, body, url}
+      // terenkripsi web-push. Tampilkan langsung bila ada.
+      let dariPayload = null;
+      try {
+        const j = event.data ? event.data.json() : null;
+        if (j && typeof j === "object") dariPayload = j;
+      } catch {
+        // Bukan JSON — jatuh ke jalur tanpa payload di bawah.
+      }
+      if (
+        dariPayload &&
+        typeof dariPayload.title === "string" &&
+        dariPayload.title
+      ) {
+        const mentah =
+          typeof dariPayload.url === "string"
+            ? dariPayload.url
+            : "/saya/notifikasi";
+        // Hanya path same-origin ("/..." bukan "//...") agar klik
+        // tidak membuka situs luar.
+        const tautan =
+          mentah.startsWith("/") && !mentah.startsWith("//")
+            ? mentah
+            : "/saya/notifikasi";
+        await self.registration.showNotification(dariPayload.title, {
+          body:
+            typeof dariPayload.body === "string"
+              ? dariPayload.body
+              : "Ada notifikasi baru untuk Anda.",
+          icon: "/icons/icon-512.png",
+          data: { tautan },
+        });
+        return;
+      }
+      // Jalur (b): ketukan tanpa payload — ambil notifikasi
+      // terbaru dari /api/notifikasi (perilaku lama, tidak berubah).
       let judul = "PRATA FAKTA";
       let isi = "Ada notifikasi baru untuk Anda.";
       let tautan = "/saya/notifikasi";
@@ -39,6 +78,7 @@ self.addEventListener("push", (event) => {
       }
       await self.registration.showNotification(judul, {
         body: isi,
+        icon: "/icons/icon-512.png",
         data: { tautan },
       });
     })(),
