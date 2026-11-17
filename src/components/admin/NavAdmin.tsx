@@ -47,6 +47,9 @@ export const NAV_ADMIN: {
       // Fase 12 (Worker G): Operations Center — status live,
       // kesehatan sumber, inbox, performa, kontrol antrean.
       { href: "/admin/ops", label: "Ops Center" },
+      // Tugas 1 (17 Nov 2026): form broadcast push — sebelumnya
+      // broadcast hanya bisa lewat API, tanpa UI sama sekali.
+      { href: "/admin/notifikasi", label: "Notifikasi" },
     ],
   },
   {
