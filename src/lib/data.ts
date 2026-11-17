@@ -125,6 +125,10 @@ export type PfArtikelRingkas = {
   kategori_slug: string | null;
   status_verifikasi: string;
   diterbitkan_pada: string | null;
+  /** Foto sumber (thumbnail kartu). Opsional: pemanggil yang
+   * tidak mengambil kolom gambar_url mendapat undefined —
+   * kartu menampilkan placeholder (tidak pernah kosong). */
+  gambar_url?: string | null;
 };
 
 export type FilterArsip = {
@@ -166,7 +170,7 @@ export async function getArtikel(filter: FilterArsip): Promise<PfArtikelRingkas[
     const pakaiSumber =
       Boolean(filter.sumber) && POLA_UUID.test(filter.sumber as string);
     const kolom =
-      "id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada" +
+      "id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada, gambar_url" +
       (pakaiSumber ? ", pf_article_sources!inner(sumber_id)" : "");
     let query = supabase
       .from("pf_articles")
@@ -325,7 +329,7 @@ const KOLOM_ARTIKEL_LENGKAP =
   "id, slug, judul, subjudul, ringkasan, isi, kategori_slug, subkategori_slug, status_verifikasi, status, penulis_nama, penulis_id, sumber_url, gambar_url, estimasi_baca_menit, kronologi, fakta_penting, data_pendukung, mengapa_penting, dampak, belum_diketahui, dijadwalkan_pada, diterbitkan_pada, dibuat_pada, diperbarui_pada, negara_kode";
 
 const KOLOM_ARTIKEL_RINGKAS =
-  "id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada";
+  "id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada, gambar_url";
 
 function namaDariUrl(url: string): string {
   try {
