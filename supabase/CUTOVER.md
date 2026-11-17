@@ -209,8 +209,12 @@ v8 — kode belum siap, dan v8 akan memutus route tersebut.
 
 ### 2.1 Alat: `scripts/backup-pf.mjs`
 
-Skrip ini mengekspor SEMUA **37 tabel `pf_*`** (sesudah v8:
-36 dari v1–v7 + `pf_user_preferences` dari v8) ke JSON via REST
+Skrip ini mengekspor SEMUA **68 tabel `pf_*`** (37 sesudah v8 —
+36 dari v1–v7 + `pf_user_preferences` dari v8 — ditambah 31 dari
+v10–v25: v10 16, v11 1, v13 1, v14 6, v15 1, v19 1, v22 2, v24 2,
+v25 1; daftar persis = `TABEL_PF` di skrip, sama dengan
+`CREATE TABLE` di migrasi v1–v25, diverifikasi 17 Nov 2026)
+ke JSON via REST
 dengan service-role key. Skrip TIDAK PERNAH mencetak nilai key.
 Paginasi 1000 baris per halaman. Keluaran:
 `<out>/backup-YYYYMMDD-HHmmss/<tabel>.json` + `manifest.json`
@@ -238,7 +242,7 @@ Tanpa `--out`, hasil ditulis ke direktori kerja saat ini
 
 ### 2.3 Ekspektasi output
 
-**Sebelum migrasi apa pun (cutover pertama):** SEMUA 37 tabel
+**Sebelum migrasi apa pun (cutover pertama):** SEMUA 68 tabel
 akan dilaporkan GAGAL (REST 404 — tabel belum ada) dan skrip
 exit 1. **Itu NORMAL dan BUKAN blokir.** Tujuannya pada tahap
 ini hanya dua: (a) membuktikan service-role key valid dan
@@ -251,8 +255,8 @@ boleh 0/gagal semua, yang penting pesan errornya 404, bukan 401):
 
 ```text
 GAGAL: pf_profiles — HTTP 404 ...
-... (37 baris GAGAL, satu per tabel)
-SELESAI: 0/37 tabel, 0 baris, 37 gagal → .../backup-20261116-.../
+... (68 baris GAGAL, satu per tabel)
+SELESAI: 0/68 tabel, 0 baris, 68 gagal → .../backup-20261116-.../
 ```
 
 Bila errornya **401 / "Invalid API key"**: key salah atau
@@ -273,7 +277,7 @@ OK: pf_sources — 8 baris
 OK: pf_scheduled_jobs — 3 baris
 ...
 OK: pf_user_preferences — 0 baris
-SELESAI: 37/37 tabel, <total> baris, 0 gagal → .../backup-.../
+SELESAI: 68/68 tabel, <total> baris, 0 gagal → .../backup-.../
 ```
 
 Angka seed yang harus cocok: `pf_roles` 5, `pf_permissions` 9,
@@ -1509,6 +1513,119 @@ boleh dibiarkan — migrasi berikutnya memakai
   `/api/health` dulu (`db: "ok"` atau tidak) sebelum
   menyentuh kode.
 
+### 9.5 Rollback v18 / v19 / v21 (ekspansi P0/P1/P3) — DITAMBAH 17 Nov 2026 (Fase 2)
+
+> ⚠️ **Syarat yang sama seperti §9.3:** jalankan HANYA atas
+> persetujuan eksplisit pemilik, sesudah backup §2 (pasca-migrasi)
+> disimpan di luar repo. Rollback ini MENGHAPUS DATA PENGGUNA:
+> daftar pencarian tersimpan, nama folder bookmark, semua catatan
+> pribadi (`pf_notes`), dan nilai preferensi baca v21 (mode baca /
+> ukuran font / kepadatan / bahasa — bila kolom dibuat ulang,
+> nilainya kembali ke default, BUKAN ke nilai pilihan pengguna).
+> Data yang terhapus TIDAK BISA dikembalikan kecuali dari backup §2.
+
+**Kecocokan dengan berkas migrasi (diverifikasi 17 Nov 2026):**
+SQL di bawah adalah kebalikan persis dari
+`supabase/migrations/20261117_pf_v18_ekspansi_p0.sql`,
+`20261117_pf_v19_ekspansi_p1.sql`, dan
+`20261117_pf_v21_ekspansi_p3.sql` (lihat juga
+`hidden_files/AUDIT-GLOBAL-NEWS.md` §4.3). Ketiga migrasi ADITIF,
+jadi rollback-nya adalah kebalikan aditif. Urutan rollback
+DIBALIK dari urutan penerapan: **v21 dulu, lalu v19, lalu v18**.
+
+**Perhatian v18 — JANGAN drop kolom `peran`:** `ALTER ... ADD
+COLUMN peran` di v18 adalah NO-OP — kolom `peran` sudah ada sejak
+v8 §8 (`20261116_pf_v8_expansion.sql:436-439`) dengan CHECK
+`('utama', 'koroborasi', 'konteks', 'bantahan')`. Yang benar-benar
+baru dari v18 HANYA `pencarian_tersimpan`. Rollback v18 = drop
+`pencarian_tersimpan` SAJA. Men-drop `peran` akan merusak v8.
+
+**Prasyarat kode:** sebelum rollback, pastikan kode yang memakai
+kolom/tabel ini sudah tidak lagi membutuhkannya di produksi
+(`GET/POST /api/catatan` memakai `pf_notes`;
+`PATCH /api/saya/preferensi` memakai 4 kolom v21;
+`POST /api/bookmark` memakai kolom `folder`;
+UI pencarian tersimpan memakai `pencarian_tersimpan`).
+Bila kode baru sudah deploy dan rollback dijalankan tanpa
+menurunkan kode dulu, route-route itu menjawab 503 jujur
+("tabel/kolom belum tersedia") sampai kode diturunkan atau
+migrasi dijalankan ulang — migrasi idempoten, jadi menjalankan
+ulang v18/v19/v21 memulihkan skema (tetapi TIDAK memulihkan
+data pengguna yang terhapus).
+
+Jalankan di SQL Editor, tiga langkah berurutan:
+
+```sql
+-- LANGKAH 1 — Rollback v21: 4 kolom preferensi baca.
+-- (v21: 4x ADD COLUMN IF NOT EXISTS + 4x COMMENT.)
+alter table public.pf_user_preferences
+  drop column if exists mode_baca;
+alter table public.pf_user_preferences
+  drop column if exists ukuran_font;
+alter table public.pf_user_preferences
+  drop column if exists kepadatan;
+alter table public.pf_user_preferences
+  drop column if exists bahasa;
+
+-- LANGKAH 2 — Rollback v19: tabel pf_notes + kolom folder.
+-- DROP TABLE menghapus sekaligus: 4 policy owner-scoped,
+-- CHECK pf_notes_satu_target_check, index pf_notes_user_idx,
+-- dan GRANT v19 (grant ikut hilang bersama tabel).
+drop table if exists public.pf_notes cascade;
+alter table public.pf_bookmarks
+  drop column if exists folder;
+
+-- LANGKAH 3 — Rollback v18: kolom pencarian_tersimpan SAJA.
+-- JANGAN drop kolom peran (milik v8, lihat peringatan di atas).
+alter table public.pf_user_preferences
+  drop column if exists pencarian_tersimpan;
+```
+
+Verifikasi sesudah rollback (ekspektasi = keadaan sesudah v17):
+
+```sql
+select count(*) from pg_tables
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 62 (63 - pf_notes)
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename like 'pf_%';
+-- ekspektasi: 120 (124 - 4 policy pf_notes)
+
+select column_name from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'pf_user_preferences'
+  and column_name in
+    ('mode_baca', 'ukuran_font', 'kepadatan', 'bahasa',
+     'pencarian_tersimpan');
+-- ekspektasi: 0 baris
+
+select column_name from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'pf_bookmarks'
+  and column_name = 'folder';
+-- ekspektasi: 0 baris
+
+select column_name from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'pf_article_sources'
+  and column_name = 'peran';
+-- ekspektasi: 1 baris (kolom v8 TETAP ADA — rollback v18
+-- tidak boleh menghapusnya)
+```
+
+| Pemeriksaan | Ekspektasi sesudah rollback v18/v19/v21 |
+|---|---|
+| Jumlah tabel `pf_*` | **62** |
+| Tabel ber-RLS | **62/62** |
+| Jumlah policy `pf_*` | **120** |
+| Kolom `pf_article_sources.peran` | **tetap ada (v8)** |
+| `pf_notes` / kolom `folder` / 5 kolom `pf_user_preferences` | **tidak ada** |
+
+**Yang TIDAK BOLEH di-rollback dengan cara ini:** v20 tidak
+ada berkasnya (lihat AUDIT-GLOBAL-NEWS §4.1 — tidak ada yang
+di-rollback). Rollback v1–v16 tetap memakai §9.1–§9.3.
+
 ---
 
 ## 10. Checklist go / no-go (tandai satu per satu)
@@ -1530,7 +1647,13 @@ boleh dibiarkan — migrasi berikutnya memakai
 - [ ] §6.3: login + klik utama + HP/desktop diperiksa pemilik
 - [ ] §7: secret GitHub Actions terisi, workflow terpantau
 - [ ] §8: super_admin pertama ditetapkan
-- [ ] §2: backup pasca-migrasi (61/61 tabel) disimpan di luar repo
+- [ ] §2: backup pasca-migrasi (68/68 tabel) disimpan di luar repo
+
+Catatan 17 Nov 2026 (integrasi Global News 24/7): jumlah tabel
+kini **68** (62 sesudah v16 + `pf_notes` v19 + 2 v22 +
+2 v24 + `pf_alerts` v25). Baris §3B–§3H di atas tetap berlaku
+sebagai ekspektasi PER VERSI (37/53/54/55/61 tabel), bukan
+angka berjalan — jangan "perbaiki" angka per versi itu.
 
 Bila semua kotak tercentang, situs dinyatakan **LIVE** dan URL
 produksi dicatat di `LAPORAN-AKHIR.md` §12. Sebelum itu, status
@@ -1546,7 +1669,7 @@ tetap **BELUM LIVE** — apa pun hasil tes lokalnya.
 - `ARSITEKTUR.md` §2–§3 — audit Supabase proyek `prata` +
   audit deploy Vercel.
 - `AUDIT-EXPANSION.md` §8 — blokir Fase 8.
-- `scripts/backup-pf.mjs` — skrip backup (61 tabel sesudah v14;
+- `scripts/backup-pf.mjs` — skrip backup (68 tabel sesudah v25;
   dijalankan harian otomatis oleh `.github/workflows/backup.yml`).
 - `DEPLOY.md` (root repo) — ringkasan deploy untuk pemilik.
 
