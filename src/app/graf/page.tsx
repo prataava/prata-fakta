@@ -44,11 +44,14 @@ export default async function HalamanGraf() {
         <span className="hero-label">Pengetahuan</span>
         <h1 id="judul-graf">Graf Pengetahuan</h1>
         <p>
-          Bagaimana klaim, sumber, artikel, peristiwa, dan cerita saling
-          terhubung. Graf ini hanya memakai relasi yang sudah tercatat
-          di sistem — klaim dibuktikan oleh sumber, artikel terkait
-          dengan peristiwa, dan artikel menjadi bagian dari cerita.
-          Tidak ada entitas baru yang ditebak dari teks.
+          Bagaimana artikel, klaim, sumber, peristiwa, cerita, negara,
+          dan kategori saling terhubung. Graf ini hanya memakai relasi
+          yang sudah tercatat di sistem — klaim didukung, ditentang,
+          atau dinetralkan oleh sumber (arah bukti tercatat), artikel
+          diliput dalam peristiwa dan menjadi bagian dari cerita,
+          serta ditautkan ke negara dan kategorinya. Tidak ada entitas
+          baru yang ditebak dari teks. Klik simpul sumber, negara,
+          cerita, atau kategori untuk membuka halaman entitasnya.
         </p>
       </section>
 

@@ -56,6 +56,11 @@ export default async function HalamanKategori({
             <IkutiKategori slug={slug} />
           </Suspense>
         </p>
+        <p>
+          <Link className="tombol tombol-hantu" href={`/graf/kategori/${slug}`}>
+            Lihat di graf
+          </Link>
+        </p>
       </section>
 
       {kategori.sub.length > 0 && (

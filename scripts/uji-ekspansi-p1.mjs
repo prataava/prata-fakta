@@ -1100,7 +1100,9 @@ cek(
 cek(
   "H13 /jelajahi grup Berita: Graf Pengetahuan → /graf",
   /href: "\/graf", label: "Graf Pengetahuan"/.test(jelajahi) &&
-    /Peta relasi klaim, sumber, artikel, peristiwa, dan cerita/.test(jelajahi),
+    // Diperbarui P2-1 (koordinator): deskripsi kini menyebut 7 jenis
+    // simpul (v2 tambah negara + kategori); maksud cek tak berubah.
+    /Peta relasi klaim, sumber, artikel, peristiwa, cerita, negara, dan kategori/.test(jelajahi),
 );
 cek(
   "H14 /jelajahi grup Berita: Bandingkan Liputan → /bandingkan",

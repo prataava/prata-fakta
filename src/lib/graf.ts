@@ -1,18 +1,17 @@
-// Getter Knowledge Graph v1 (P1-2) — src/lib/graf.ts (BARU).
+// Getter Knowledge Graph v1 (P1-2) + v2 (P2-1) — src/lib/graf.ts.
 //
 // Graf HANYA memakai relasi yang SUDAH ADA di database — tidak ada
-// entitas baru yang diekstrak dari teks (itu KG v2, P2):
+// entitas baru yang diekstrak dari teks:
 //   simpul: klaim + sumber + artikel + event + cerita
-//   sisi:   pf_evidence (klaim↔sumber),
-//           pf_events.artikel_id (artikel↔event),
-//           pf_story_articles (artikel↔cerita)
-// Pemeriksaan tautan artikel↔negara: pf_articles.punya kolom
-// negara_kode (FK ke pf_countries, v10) — tautan langsung itu ADA,
-// tetapi v1 SENGAJA tidak memakainya: simpul negara di luar
-// cakupan P1-2 (simpul = 5 jenis di atas, sisi = 3 relasi di atas)
-// dan pf_article_tags hanya menautkan tag (pf_tags), bukan negara.
-// Bila pemilik meminta simpul negara, itu penambahan v1.1, bukan
-// koreksi — catat di laporan, jangan diam-diam memperluas graf.
+//           (v2: + negara + kategori)
+//   sisi:   pf_evidence (klaim↔sumber, berlabel arah bukti),
+//           pf_events.artikel_id (artikel↔event, "diliput dalam"),
+//           pf_story_articles (artikel↔cerita, "bagian dari cerita"),
+//           pf_articles.negara_kode (artikel↔negara, "profil negara"
+//             — kolom FK langsung ke pf_countries, v10; BUKAN lewat
+//             tag: pf_article_tags hanya menautkan pf_tags),
+//           pf_articles.kategori_slug (artikel↔kategori,
+//             "kategori artikel")
 //
 // Aturan bocor-draf: hanya artikel TERBIT yang jadi simpul; klaim
 // draf, event yang artikelnya draf, dan cerita draf tidak masuk
@@ -20,6 +19,7 @@
 // menutupnya lagi di lapis aplikasi).
 import { createClient } from "@/lib/supabase/server";
 import { GalatBaca, catatGalatBaca } from "@/lib/galat";
+import { KATEGORI_UTAMA } from "@/lib/categories";
 import {
   JENIS_SIMPUL,
   LABEL_JENIS_SIMPUL,
@@ -27,6 +27,25 @@ import {
 } from "@/lib/graf-meta";
 
 export { JENIS_SIMPUL, LABEL_JENIS_SIMPUL, type JenisSimpul };
+
+/** Arah bukti pf_evidence (CHECK v4: mendukung/menentang/netral). */
+export type ArahBukti = "mendukung" | "menentang" | "netral";
+
+/** Label sisi klaim↔sumber menurut arah bukti yang tercatat.
+ *  Nama sengaja BUKAN LABEL_ARAH_BUKTI: lib/klaim.ts sudah
+ *  mengekspor nama itu dengan nilai berbeda ("Mendukung" vs
+ *  "mendukung klaim" di sini) — duplikasi nama dilarang H18
+ *  baterai P1. */
+export const LABEL_ARAH_SISI: Record<ArahBukti, string> = {
+  mendukung: "mendukung klaim",
+  menentang: "menentang klaim",
+  netral: "netral terhadap klaim",
+};
+
+/** true bila nilai adalah arah bukti yang sah (bukan karangan). */
+export function arahBuktiValid(v: unknown): v is ArahBukti {
+  return v === "mendukung" || v === "menentang" || v === "netral";
+}
 
 export type SimpulGraf = {
   /** Id unik lintas jenis: "<jenis>:<kunci>". */
@@ -41,7 +60,10 @@ export type SimpulGraf = {
 export type SisiGraf = {
   dari: string;
   ke: string;
+  /** Label relasi dari data yang sudah ada (bukan karangan). */
   label: string;
+  /** Arah bukti pf_evidence — hanya diisi pada sisi klaim↔sumber. */
+  arah?: ArahBukti | null;
 };
 
 export type GrafPengetahuan = {
@@ -74,12 +96,14 @@ function potongLabel(teks: string, maks = 80): string {
 }
 
 /**
- * Graf pengetahuan v1 dari relasi yang sudah ada, dibatasi
+ * Graf pengetahuan v1+v2 dari relasi yang sudah ada, dibatasi
  * `batas` simpul (default 100). Urutan pengisian deterministik:
  * artikel terbit terbaru dulu, lalu klaimnya, sumber buktinya,
- * event yang menaut ke artikel itu, dan cerita terbit yang
- * memuat artikel itu. Sisi yang menyentuh simpul terpotong ikut
- * dibuang agar graf tidak menunjuk ke simpul yang tidak tampil.
+ * event yang menaut ke artikel itu, cerita terbit yang memuat
+ * artikel itu, dan terakhir (v2) negara + kategori artikel —
+ * agar simpul v1 tetap diprioritaskan dalam batas. Sisi yang
+ * menyentuh simpul terpotong ikut dibuang agar graf tidak
+ * menunjuk ke simpul yang tidak tampil.
  */
 export async function getGrafPengetahuan(
   batas: number = BATAS_SIMPUL_GRAF,
@@ -97,7 +121,7 @@ export async function getGrafPengetahuan(
 
     const { data: artikelData, error: errArtikel } = await supabase
       .from("pf_articles")
-      .select("id, slug, judul, diterbitkan_pada, dibuat_pada")
+      .select("id, slug, judul, diterbitkan_pada, dibuat_pada, negara_kode, kategori_slug")
       .eq("status", "terbit")
       .order("diterbitkan_pada", { ascending: false })
       .limit(1000);
@@ -111,7 +135,7 @@ export async function getGrafPengetahuan(
     }
     const idArtikel = artikel.map((a) => String(a.id));
 
-    const [klaimRes, eventRes, ceritaRes, tautanCeritaRes] = await Promise.all([
+    const [klaimRes, eventRes, ceritaRes, tautanCeritaRes, negaraRes] = await Promise.all([
       supabase
         .from("pf_claims")
         .select("id, artikel_id, teks")
@@ -135,6 +159,14 @@ export async function getGrafPengetahuan(
         .select("story_id, artikel_id")
         .in("artikel_id", idArtikel)
         .limit(1000),
+      // Nama negara untuk label simpul negara (pf_countries).
+      // Galat di sini TIDAK menggagalkan graf: simpul negara
+      // tetap dibuat dengan label = kode ISO-2.
+      supabase
+        .from("pf_countries")
+        .select("kode, nama")
+        .order("nama", { ascending: true })
+        .limit(500),
     ]);
     for (const [nama, res] of [
       ["klaim", klaimRes],
@@ -147,6 +179,9 @@ export async function getGrafPengetahuan(
         throw new GalatBaca(`getGrafPengetahuan.${nama}`, res.error);
       }
     }
+    if (negaraRes.error) {
+      catatGalatBaca("getGrafPengetahuan.negara", negaraRes.error);
+    }
 
     const klaim = (klaimRes.data ?? []) as unknown as Record<string, unknown>[];
     const klaimId = klaim.map((k) => String(k.id));
@@ -155,7 +190,7 @@ export async function getGrafPengetahuan(
     if (klaimId.length > 0) {
       const buktiRes = await supabase
         .from("pf_evidence")
-        .select("klaim_id, sumber_url, sumber_nama")
+        .select("klaim_id, sumber_url, sumber_nama, arah")
         .in("klaim_id", klaimId)
         .limit(2000);
       if (buktiRes.error) {
@@ -263,25 +298,83 @@ export async function getGrafPengetahuan(
       idSimpulCerita.set(String(c.id), id);
     }
 
+    // v2: simpul negara — diisi TERAKHIR agar simpul v1 tetap
+    // diprioritaskan dalam batas 100. Satu simpul per kode
+    // negara (dedup); nama dari pf_countries, jatuh ke kode bila
+    // baris negaranya belum ada.
+    const namaNegara = new Map<string, string>();
+    if (!negaraRes.error && negaraRes.data) {
+      for (const r of negaraRes.data as unknown as Record<string, unknown>[]) {
+        const kode = String(r.kode ?? "").toUpperCase();
+        if (kode && typeof r.nama === "string" && r.nama) {
+          namaNegara.set(kode, r.nama);
+        }
+      }
+    }
+    const idSimpulNegara = new Map<string, string>();
+    for (const a of artikel) {
+      const kode = String(a.negara_kode ?? "").toUpperCase();
+      if (!kode || idSimpulNegara.has(kode)) continue;
+      const id = `negara:${kode}`;
+      if (!tambah({
+        id,
+        jenis: "negara",
+        label: potongLabel(namaNegara.get(kode) ?? kode),
+        sublabel: `Kode ${kode}`,
+        href: `/negara/${kode}`,
+      })) break;
+      idSimpulNegara.set(kode, id);
+    }
+
+    // v2: simpul kategori — juga diisi terakhir. Satu simpul per
+    // kategori_slug (dedup); label dari taksonomi statis
+    // KATEGORI_UTAMA (utama + sub); slug tak dikenal tampil
+    // apa adanya (jujur, bukan ditebak).
+    const labelKategori = (slug: string): { label: string; sublabel: string | null } => {
+      const utama = KATEGORI_UTAMA.find((k) => k.slug === slug);
+      if (utama) return { label: utama.nama, sublabel: null };
+      for (const k of KATEGORI_UTAMA) {
+        const sub = k.sub.find((s) => s.slug === slug);
+        if (sub) return { label: sub.nama, sublabel: `Subkategori ${k.nama}` };
+      }
+      return { label: slug, sublabel: null };
+    };
+    const idSimpulKategori = new Map<string, string>();
+    for (const a of artikel) {
+      const slug = String(a.kategori_slug ?? "").trim();
+      if (!slug || idSimpulKategori.has(slug)) continue;
+      const { label, sublabel } = labelKategori(slug);
+      const id = `kategori:${slug}`;
+      if (!tambah({
+        id,
+        jenis: "kategori",
+        label: potongLabel(label),
+        sublabel,
+        href: `/kategori/${slug}`,
+      })) break;
+      idSimpulKategori.set(slug, id);
+    }
+
     // Bila kandidat simpul melebihi batas, graf terpotong — tulis
     // jujur di UI (bukan diam-diam). Hitung dari URL sumber unik,
-    // bukan dari jumlah baris bukti.
+    // bukan dari jumlah baris bukti; v2 tambah negara + kategori unik.
     const urlUnik = new Set(
       bukti
         .map((b) => normalisasiUrl(String(b.sumber_url ?? "")).toLowerCase())
         .filter(Boolean),
     );
     if (
-      artikel.length + klaim.length + urlUnik.size + event.length + cerita.length >
+      artikel.length + klaim.length + urlUnik.size + event.length + cerita.length +
+      idSimpulNegara.size + idSimpulKategori.size >
       batasEfektif
     ) {
       terpotong = true;
     }
 
     const sisi: SisiGraf[] = [];
-    const tambahSisi = (dari: string, ke: string, label: string) => {
+    const tambahSisi = (dari: string, ke: string, label: string, arah?: ArahBukti | null) => {
       if (!ada.has(dari) || !ada.has(ke)) return;
-      sisi.push({ dari, ke, label });
+      sisi.push(arah ? { dari, ke, label, arah } : { dari, ke, label });
     };
     for (const b of bukti) {
       const simpulKlaim = idSimpulKlaim.get(String(b.klaim_id ?? ""));
@@ -289,14 +382,22 @@ export async function getGrafPengetahuan(
         normalisasiUrl(String(b.sumber_url ?? "")).toLowerCase(),
       );
       if (simpulKlaim && simpulSumber) {
-        tambahSisi(simpulKlaim, simpulSumber, "dibuktikan oleh");
+        // v2: label dari pf_evidence.arah yang tercatat; bila
+        // arah tak dikenal (di luar CHECK v4), jatuh ke label v1.
+        const arah = arahBuktiValid(b.arah) ? (b.arah as ArahBukti) : null;
+        tambahSisi(
+          simpulKlaim,
+          simpulSumber,
+          arah ? LABEL_ARAH_SISI[arah] : "dibuktikan oleh",
+          arah,
+        );
       }
     }
     for (const e of event) {
       const simpulArtikel = idSimpulArtikel.get(String(e.artikel_id ?? ""));
       const simpulEvent = idSimpulEvent.get(String(e.id));
       if (simpulArtikel && simpulEvent) {
-        tambahSisi(simpulArtikel, simpulEvent, "terkait peristiwa");
+        tambahSisi(simpulArtikel, simpulEvent, "diliput dalam");
       }
     }
     for (const t of tautanCerita) {
@@ -304,6 +405,22 @@ export async function getGrafPengetahuan(
       const simpulCerita = idSimpulCerita.get(String(t.story_id ?? ""));
       if (simpulArtikel && simpulCerita) {
         tambahSisi(simpulArtikel, simpulCerita, "bagian dari cerita");
+      }
+    }
+    // v2: artikel↔negara (pf_articles.negara_kode) + artikel↔kategori
+    // (pf_articles.kategori_slug).
+    for (const a of artikel) {
+      const simpulArtikel = idSimpulArtikel.get(String(a.id));
+      if (!simpulArtikel) continue;
+      const kode = String(a.negara_kode ?? "").toUpperCase();
+      const simpulNegara = kode ? idSimpulNegara.get(kode) : undefined;
+      if (simpulNegara) {
+        tambahSisi(simpulArtikel, simpulNegara, "profil negara");
+      }
+      const slug = String(a.kategori_slug ?? "").trim();
+      const simpulKategori = slug ? idSimpulKategori.get(slug) : undefined;
+      if (simpulKategori) {
+        tambahSisi(simpulArtikel, simpulKategori, "kategori artikel");
       }
     }
 
