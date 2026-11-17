@@ -62,6 +62,24 @@ export function buatNonce(): string {
 export const HASH_SKRIP_TEMA =
   "'sha256-kbdpuUr7+zlKwp6cjPtYWBBvdrWG3dqbGKfss460j9I='";
 
+/**
+ * Hash sha256 (base64) skrip runtime shell Next.js ($RT).
+ * Isi skrip KONSTAN di semua halaman (terbukti 17 Nov 2026:
+ * 1 nilai hash di 5 halaman + 104 kemunculan sapuan penuh):
+ * `requestAnimationFrame(function(){$RT=performance.now()});`
+ * (shellTimeRuntimeScript — ditulis di akhir shell prerender,
+ * jadi TIDAK PERNAH membawa nonce per-request). Tanpa hash ini,
+ * CSP memblokirnya di setiap halaman PPR (1 entri pelanggaran
+ * per muat — jinak karena $RV menugaskan $RT sendiri saat
+ * berjalan, tapi konsol tetap kotor). Preseden: HASH_SKRIP_TEMA
+ * di atas — dan seperti tema, bila Next.js mengubah isi skrip
+ * ini, hash TIDAK LAGI cocok (kembali ke 1 entri log, tanpa
+ * kerusakan lain) — hitung ulang dengan perintah di atas.
+ * Diuji di uji-tahap13b §K3.
+ */
+export const HASH_SKRIP_RT =
+  "'sha256-7mu4H06fwDCjmnxxr/xNHyuQC6pLTHr4M2E4jXw5WZs='";
+
 export interface OpsiHeaderCsp {
   /** true bila bukan produksi (menambah 'unsafe-eval' untuk React dev). */
   isDev?: boolean;
@@ -97,6 +115,10 @@ export function buatHeaderCsp(nonce: string, opsi: OpsiHeaderCsp = {}): string {
     // bertentangan dengan cacheComponents — JANGAN tanpa menguji
     // hidrasi live (toggle + tanggal + menu) sesudahnya.
     HASH_SKRIP_TEMA,
+    // Skrip runtime shell $RT (konstan, tanpa nonce — lihat
+    // HASH_SKRIP_RT di atas; BUKAN $RV yang hash-nya berbeda
+    // per halaman dan tidak bisa di-hash).
+    HASH_SKRIP_RT,
     ...(opsi.isDev ? ["'unsafe-eval'"] : []),
   ].join(" ");
   return [
