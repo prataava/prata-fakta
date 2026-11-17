@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -7,7 +8,18 @@ export const metadata: Metadata = {
     "Konten rutin PRATA FAKTA: ringkasan pagi, rekap mingguan dan bulanan, penjelasan dunia, angka Indonesia, dan peristiwa hari ini — semuanya dari data nyata.",
 };
 
-// Halaman indeks statis (tanpa data): boleh di-prerender.
+// Halaman indeks statis (tanpa data) — TETAP dirender per request
+// (`instant = false` + connection() di bawah), BUKAN prerender —
+// 17 Nov 2026 (perbaikan CSP $RT/$RV): sebagai halaman statis
+// murni, boundary loading.tsx root selesai di shell prerender
+// sehingga skrip definisi $RV/$RC React ikut terpanggang TANPA
+// nonce; CSP (script-src nonce+hash) memblokirnya → $RC undefined
+// → hidrasi gagal (#419) → isi halaman ganda di DOM (h1=2).
+// connection() menunda segmen halaman sampai request, jadi definisi
+// $RV/$RC diterbitkan saat resume DENGAN nonce. JANGAN hapus
+// connection() tanpa menguji ulang halaman ini di CDP (definisi
+// $RV/$RC harus ber-nonce, h1 harus = 1).
+export const instant = false;
 const DAFTAR: {
   href: string;
   judul: string;
@@ -54,7 +66,8 @@ const DAFTAR: {
   },
 ];
 
-export default function Rutin() {
+export default async function Rutin() {
+  await connection();
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-rutin">
