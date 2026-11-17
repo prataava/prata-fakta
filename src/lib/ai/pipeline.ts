@@ -13,6 +13,20 @@
 //     summarization -> translation-check -> writing -> quality ->
 //     draf artikel -> tautan verification record ke artikel) ->
 //     perbarui status item (draf DULU, baru status — P1-2).
+//   Langkah `comparison` (P2-5) berjalan DI ANTARA Fase 1 dan
+//     Fase 2: membandingkan judul identik + inti klaim antar-item
+//     dalam batch memakai ulang verification.ts, dan mencatat
+//     hasilnya sebagai satu baris pf_ai_runs (detail.langkah =
+//     'comparison'). Perbandingan hanya MEMBACA klaim Fase 1 —
+//     keputusan verification per item TIDAK berubah.
+//   CATATAN CHECK (P2-5): kolom pf_ai_runs.agen dibatasi CHECK
+//     (v4, diperketat v8: pf_ai_runs_agen_check_v8) ke 13 nilai —
+//     'comparison' TIDAK termasuk. Karena itu baris comparison
+//     dicatat dengan agen 'fact_verification' (perbandingan adalah
+//     bagian dari verifikasi itu sendiri) + detail.langkah =
+//     'comparison'. Nama agen harfiah 'comparison' butuh migrasi
+//     aditif yang melonggarkan CHECK — di luar mandat paket ini,
+//     JANGAN diubah diam-diam (laporkan ke koordinator).
 // SETIAP langkah pipeline dibungkus try/catch dan menulis pf_ai_runs
 // (berhasil/gagal/dilewati + durasi_ms + error/alasan). Satu langkah
 // gagal tidak menggagalkan item lain; satu item gagal tidak
@@ -1132,6 +1146,131 @@ export async function rekonsiliasiItemTerverifikasiTanpaArtikel(
   return out;
 }
 
+// ---------- Langkah `comparison` (P2-5) ----------
+// Perbandingan antar-item dalam satu batch — sinyal judul identik
+// + koroborasi klaim antar-item. PURE (tanpa I/O): semua masukan
+// berasal dari KonteksItem Fase 1. Memakai ULANG verification.ts:
+// daftarSumberIndependen (kelompok judul identik) dan
+// tentukanKeputusanDariKlaim (koroborasi inti klaim, lengkap
+// dengan penjaga topik + rantai disalin_dari di dalamnya).
+// TIDAK ADA logika perbandingan baru di sini, dan TIDAK ADA
+// keputusan yang diubah: fungsi ini hanya menghitung apa yang
+// sudah terjadi di dalam verification, agar tercatat sebagai
+// langkah pipeline bernama `comparison` (lihat CATATAN CHECK di
+// header berkas: baris pf_ai_runs-nya memakai agen
+// 'fact_verification' + detail.langkah = 'comparison').
+
+export interface HasilPerbandinganBatch {
+  jumlahItem: number;
+  /** Pasangan item yang dibandingkan (C(n,2) untuk n item). */
+  pasanganDibandingkan: number;
+  /** Pasangan dengan judul identik (hash judul sama). */
+  pasanganJudulIdentik: number;
+  /** Sumber independen di semua kelompok judul identik. */
+  sumberIndependenJudul: number;
+  /** Klaim distintif (punya inti angka/kutipan) yang diperiksa. */
+  klaimDibandingkan: number;
+  /** Inti klaim distintif yang punya koroborator valid dari
+   *  item lain (unik per inti, se-batch). */
+  klaimTerkoroborasi: number;
+}
+
+export function bandingkanAntarItem(
+  konteks: KonteksItem[],
+): HasilPerbandinganBatch {
+  const kosong: HasilPerbandinganBatch = {
+    jumlahItem: konteks.length,
+    pasanganDibandingkan: 0,
+    pasanganJudulIdentik: 0,
+    sumberIndependenJudul: 0,
+    klaimDibandingkan: 0,
+    klaimTerkoroborasi: 0,
+  };
+  const n = konteks.length;
+  if (n < 2) return kosong;
+  kosong.pasanganDibandingkan = (n * (n - 1)) / 2;
+
+  // Peta tier per sumber + peta item (dipakai kedua sinyal).
+  const tierPerSumber = new Map<string, number>();
+  const petaItem = new Map<string, ItemSerupaVerifikasi>();
+  for (const ctx of konteks) {
+    if (ctx.item.sumber_id && !tierPerSumber.has(ctx.item.sumber_id)) {
+      tierPerSumber.set(ctx.item.sumber_id, ctx.tierUtama);
+    }
+    petaItem.set(ctx.item.id, {
+      id: ctx.item.id,
+      sumber_id: ctx.item.sumber_id,
+      url: ctx.item.url,
+      judul: ctx.item.judul,
+      ringkasan: ctx.item.ringkasan,
+      waktu_terbit_asli: ctx.item.waktu_terbit_asli,
+      disalin_dari_id: ctx.item.disalin_dari_id,
+    });
+  }
+
+  // Sinyal 1 — judul identik: kelompokkan per hash judul.
+  const kelompokJudul = new Map<string, ItemSerupaVerifikasi[]>();
+  for (const ctx of konteks) {
+    const kunci = hashJudul(ctx.item.judul);
+    const daftar = kelompokJudul.get(kunci) ?? [];
+    daftar.push(petaItem.get(ctx.item.id) as ItemSerupaVerifikasi);
+    kelompokJudul.set(kunci, daftar);
+  }
+  for (const kelompok of kelompokJudul.values()) {
+    if (kelompok.length < 2) continue;
+    kosong.pasanganJudulIdentik +=
+      (kelompok.length * (kelompok.length - 1)) / 2;
+    kosong.sumberIndependenJudul +=
+      daftarSumberIndependen(kelompok, tierPerSumber).length;
+  }
+
+  // Sinyal 2 — koroborasi klaim: inti klaim distintif satu item
+  // dicari di klaim item lain dalam batch yang sama (in-memory;
+  // tanpa query baru — klaim semua item sudah ada di konteks).
+  // Validasi kecocokan (containment persis, penjaga topik,
+  // rantai disalin_dari) sepenuhnya di tentukanKeputusanDariKlaim.
+  const intiTerkoroborasi = new Set<string>();
+  for (const ctx of konteks) {
+    const klaimDenganInti = ctx.klaimTersimpan.map((k) => ({
+      teks: k.teks,
+      jenis: k.jenis,
+      inti: intiKlaim(k),
+    }));
+    kosong.klaimDibandingkan += klaimDenganInti.filter((k) => k.inti).length;
+    const itemUtama = petaItem.get(ctx.item.id) as ItemSerupaVerifikasi;
+    const koroborasi: KlaimKoroborasi[] = [];
+    for (const lain of konteks) {
+      if (lain.item.id === ctx.item.id) continue;
+      for (const k of lain.klaimTersimpan) {
+        const inti = intiKlaim(k);
+        if (!inti) continue;
+        koroborasi.push({
+          inti,
+          jenis: k.jenis,
+          teksKlaim: k.teks,
+          itemId: lain.item.id,
+          sumberId: lain.item.sumber_id,
+          judul: lain.item.judul,
+          url: lain.item.url,
+          ringkasan: lain.item.ringkasan,
+          waktuTerbitAsli: lain.item.waktu_terbit_asli,
+          disalinDariId: lain.item.disalin_dari_id,
+        });
+      }
+    }
+    const hasil = tentukanKeputusanDariKlaim(
+      itemUtama,
+      klaimDenganInti,
+      koroborasi,
+      tierPerSumber,
+      petaItem,
+    );
+    for (const inti of hasil.intiCocok) intiTerkoroborasi.add(inti);
+  }
+  kosong.klaimTerkoroborasi = intiTerkoroborasi.size;
+  return kosong;
+}
+
 // ---------- Titik masuk utama ----------
 
 export async function jalankanPipelineEditorial(
@@ -1199,6 +1338,55 @@ export async function jalankanPipelineEditorial(
       // hitung gagal, lanjut ke item berikutnya.
       hasil.gagal += 1;
     }
+  }
+
+  // Langkah `comparison` (P2-5) — DI ANTARA Fase 1 dan Fase 2:
+  // bandingkan judul identik + inti klaim antar-item dalam batch
+  // (memakai ulang verification.ts; hanya membaca klaim Fase 1).
+  // Best-effort: kegagalan pencatatan langkah ini TIDAK
+  // menggagalkan antrean — verifikasi per item tetap berjalan
+  // dengan sinyalnya sendiri dan keputusannya tidak berubah.
+  // Baris pf_ai_runs dicatat dengan agen 'fact_verification' +
+  // detail.langkah = 'comparison' (lihat CATATAN CHECK di header
+  // berkas: agen harfiah 'comparison' ditolak CHECK produksi).
+  try {
+    const dipicu = opsi.dipicu_oleh ?? "manual";
+    const perbandingan = bandingkanAntarItem(konteks);
+    const menemukanSesuatu =
+      perbandingan.pasanganJudulIdentik > 0 ||
+      perbandingan.klaimTerkoroborasi > 0;
+    const detailPerbandingan: Record<string, unknown> = {
+      langkah: "comparison",
+      jumlah_item: perbandingan.jumlahItem,
+      pasangan_dibandingkan: perbandingan.pasanganDibandingkan,
+      pasangan_judul_identik: perbandingan.pasanganJudulIdentik,
+      sumber_independen_judul: perbandingan.sumberIndependenJudul,
+      klaim_dibandingkan: perbandingan.klaimDibandingkan,
+      klaim_terkoroborasi: perbandingan.klaimTerkoroborasi,
+    };
+    await jalankanLangkah(
+      adapter,
+      "fact_verification",
+      `batch-${tanggalWibHariIni()}`,
+      "lain",
+      dipicu,
+      async () => {
+        if (!menemukanSesuatu) {
+          return {
+            nilai: perbandingan,
+            dilewati: true,
+            alasanDilewati:
+              konteks.length < 2
+                ? `Hanya ${konteks.length} item dalam batch — tidak ada pasangan item untuk dibandingkan.`
+                : "Tidak ada judul identik antar-item dan tidak ada klaim terkoroborasi dalam batch ini.",
+            detail: detailPerbandingan,
+          };
+        }
+        return { nilai: perbandingan, detail: detailPerbandingan };
+      },
+    );
+  } catch {
+    // Langkah comparison best-effort (lihat komentar di atas).
   }
 
   // Fase 2: verifikasi + draf per item (memakai klaim fase 1).
