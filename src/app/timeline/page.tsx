@@ -2,11 +2,20 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
+import GarisWaktu, { type ItemGarisWaktu } from "@/components/GarisWaktu";
 import {
   getSemuaEvent,
   getTimelineEvent,
   type PfEvent,
+  type PfTimelineEvent,
 } from "@/lib/lanjutan";
+import {
+  adaPerkembanganTerbaru,
+  batasZoom,
+  saringEventRentang,
+  uraiRentangTanggal,
+} from "@/lib/linimasa";
+import { tanggalWibHariIni } from "@/lib/rutin";
 import { getCeritaDiikuti, getEventIdDalamCerita } from "@/lib/cerita";
 import { createClient } from "@/lib/supabase/server";
 import { formatTanggalJam } from "@/lib/format";
@@ -38,14 +47,27 @@ function hanyaSejarah(events: PfEvent[]): PfEvent[] {
   });
 }
 
-async function KartuEvent({ event }: { event: PfEvent }) {
-  const kronologi = await getTimelineEvent(event.id);
+async function KartuEvent({
+  event,
+  kronologi,
+  terbaru,
+}: {
+  event: PfEvent;
+  kronologi: PfTimelineEvent[];
+  /** Perkembangan kronologi terbaru ≤7 hari. */
+  terbaru: boolean;
+}) {
   return (
     <article className="kartu" id={`event-${event.id}`}>
       <span className="kartu-kategori">
         {formatTanggalJam(event.dimulai_pada, "Waktu belum tersedia")}
         {event.lokasi_teks ? ` · ${event.lokasi_teks}` : ""}
       </span>
+      {terbaru && (
+        <span className="lencana lencana-verified" style={{ marginTop: 8 }}>
+          Perkembangan terbaru
+        </span>
+      )}
       <span className="kartu-judul">{event.judul}</span>
       {event.ringkasan && <span className="kartu-teks">{event.ringkasan}</span>}
       {event.dampak && (
@@ -90,6 +112,20 @@ async function KartuEvent({ event }: { event: PfEvent }) {
   );
 }
 
+/** Penanda "perkembangan terbaru" per event (P1-4): true bila entri
+ *  kronologi terbaru event ≤7 hari lalu. Pemakaian Date dipusatkan
+ *  di helper ini (bukan di badan render) mengikuti pola
+ *  hanyaSejarah di atas agar lint react-hooks/purity tidak
+ *  menandai render sebagai tak murni. */
+function terbaruUntukDaftar(
+  kronologiSemua: PfTimelineEvent[][],
+): boolean[] {
+  const sekarangMs = Date.now();
+  return kronologiSemua.map((k) =>
+    adaPerkembanganTerbaru(k, sekarangMs),
+  );
+}
+
 /** Bangun href /timeline dengan parameter filter yang dipertahankan. */
 function hrefTimeline(param: Record<string, string | undefined>): string {
   const cari = new URLSearchParams();
@@ -117,6 +153,13 @@ export default async function Timeline({
   const diikutiParam = sp.diikuti === "ya";
   // F-S4: ?periode=sejarah — hanya peristiwa lebih dari setahun lalu.
   const periodeSejarah = sp.periode === "sejarah";
+  // P1-4: ?dari=YYYY-MM-DD&sampai=YYYY-MM-DD — saring di SERVER.
+  // Tanggal tak valid → abaikan dengan jujur (tampilkan semua +
+  // pesan kecil), bukan error dan bukan daftar kosong.
+  const rentang = uraiRentangTanggal(
+    typeof sp.dari === "string" ? sp.dari : undefined,
+    typeof sp.sampai === "string" ? sp.sampai : undefined,
+  );
   const { events: semuaEvent } = await getSemuaEvent();
   let events = semuaEvent;
   let ceritaTidakDitemukan = false;
@@ -167,6 +210,31 @@ export default async function Timeline({
     events = hanyaSejarah(events);
   }
 
+  // P1-4: filter rentang tanggal di SERVER, digabung dengan filter
+  // cerita/diikuti/periode di atas (bukan menggantikannya).
+  if (!rentang.tidakValid) {
+    events = saringEventRentang(events, rentang);
+  }
+
+  // Kronologi diambil sekali di sini (bukan per kartu) — dipakai
+  // kartu event DAN garis waktu (penanda "Terbaru").
+  const kronologiSemua: PfTimelineEvent[][] =
+    events.length === 0
+      ? []
+      : await Promise.all(events.map((e) => getTimelineEvent(e.id)));
+  const terbaruPerEvent = terbaruUntukDaftar(kronologiSemua);
+  const itemGarisWaktu: ItemGarisWaktu[] = events
+    .map((e, i) => ({
+      id: e.id,
+      judul: e.judul,
+      tanggal: e.dimulai_pada ? e.dimulai_pada.slice(0, 10) : "",
+      labelTanggal: formatTanggalJam(e.dimulai_pada, "Waktu belum tersedia"),
+      terbaru: terbaruPerEvent[i] ?? false,
+    }))
+    .filter((it) => it.tanggal !== "");
+  const tanpaTanggal = events.length - itemGarisWaktu.length;
+  const jangkar = tanggalWibHariIni();
+
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-timeline">
@@ -195,7 +263,7 @@ export default async function Timeline({
       <div className="chip-baris" role="group" aria-label="Filter kronologi">
         <Link
           className={`chip${!periodeSejarah && !diikutiParam && !ceritaSlug ? " aktif" : ""}`}
-          href={hrefTimeline({})}
+          href={hrefTimeline({ dari: rentang.dari, sampai: rentang.sampai })}
         >
           Semua peristiwa
         </Link>
@@ -205,6 +273,8 @@ export default async function Timeline({
             cerita: ceritaSlug,
             periode: "sejarah",
             diikuti: diikutiParam ? "ya" : undefined,
+            dari: rentang.dari,
+            sampai: rentang.sampai,
           })}
         >
           Sejarah (lebih dari setahun lalu)
@@ -215,11 +285,67 @@ export default async function Timeline({
             cerita: undefined,
             periode: periodeSejarah ? "sejarah" : undefined,
             diikuti: "ya",
+            dari: rentang.dari,
+            sampai: rentang.sampai,
           })}
         >
           Yang saya ikuti
         </Link>
       </div>
+
+      {/* P1-4: filter rentang tanggal (GET — disaring di server). */}
+      <form
+        className="formulir"
+        method="get"
+        action="/timeline"
+        style={{ marginTop: 16 }}
+      >
+        {ceritaSlug ? (
+          <input type="hidden" name="cerita" value={ceritaSlug} />
+        ) : null}
+        {periodeSejarah ? (
+          <input type="hidden" name="periode" value="sejarah" />
+        ) : null}
+        {diikutiParam ? (
+          <input type="hidden" name="diikuti" value="ya" />
+        ) : null}
+        <label>
+          Dari tanggal
+          <input
+            type="date"
+            name="dari"
+            defaultValue={rentang.dari ?? ""}
+          />
+        </label>
+        <label>
+          Sampai tanggal
+          <input
+            type="date"
+            name="sampai"
+            defaultValue={rentang.sampai ?? ""}
+          />
+        </label>
+        <button className="tombol tombol-primer" type="submit">
+          Terapkan rentang
+        </button>
+        {(rentang.dari || rentang.sampai) && (
+          <Link
+            className="tombol tombol-hantu"
+            href={hrefTimeline({
+              cerita: ceritaSlug,
+              periode: periodeSejarah ? "sejarah" : undefined,
+              diikuti: diikutiParam ? "ya" : undefined,
+            })}
+          >
+            Hapus rentang
+          </Link>
+        )}
+      </form>
+      {rentang.tidakValid && (
+        <p role="status" style={{ color: "var(--muted)", marginTop: 12 }}>
+          Rentang tanggal tidak valid, menampilkan semua.
+        </p>
+      )}
 
       {ceritaTidakDitemukan ? (
         <section className="seksi">
@@ -263,20 +389,24 @@ export default async function Timeline({
             judul={
               ceritaSlug
                 ? "Belum ada peristiwa dalam cerita ini."
-                : periodeSejarah
-                  ? "Belum ada peristiwa sejarah untuk filter ini."
-                  : diikutiParam
-                    ? "Belum ada peristiwa dalam cerita yang Anda ikuti."
-                    : "Belum ada peristiwa yang tercatat."
+                : rentang.dari || rentang.sampai
+                  ? "Tidak ada peristiwa pada rentang tanggal ini."
+                  : periodeSejarah
+                    ? "Belum ada peristiwa sejarah untuk filter ini."
+                    : diikutiParam
+                      ? "Belum ada peristiwa dalam cerita yang Anda ikuti."
+                      : "Belum ada peristiwa yang tercatat."
             }
             pesan={
               ceritaSlug
                 ? "Redaksi belum menautkan peristiwa ke cerita ini."
-                : periodeSejarah
-                  ? "Belum ada peristiwa yang dimulai lebih dari setahun lalu."
-                  : diikutiParam
-                    ? "Cerita yang Anda ikuti belum memiliki peristiwa yang ditautkan."
-                    : "Timeline akan terisi begitu redaksi mencatat peristiwa beserta kronologinya."
+                : rentang.dari || rentang.sampai
+                  ? "Tidak ada peristiwa yang dimulai pada rentang tanggal yang dipilih — coba rentang yang lebih lebar atau hapus filter tanggal."
+                  : periodeSejarah
+                    ? "Belum ada peristiwa yang dimulai lebih dari setahun lalu."
+                    : diikutiParam
+                      ? "Cerita yang Anda ikuti belum memiliki peristiwa yang ditautkan."
+                      : "Timeline akan terisi begitu redaksi mencatat peristiwa beserta kronologinya."
             }
             aksi={
               ceritaSlug ? (
@@ -292,13 +422,25 @@ export default async function Timeline({
           />
         </section>
       ) : (
-        <section className="seksi" aria-label="Daftar peristiwa">
-          <div className="grid-berita">
-            {events.map((e) => (
-              <KartuEvent key={e.id} event={e} />
-            ))}
-          </div>
-        </section>
+        <>
+          <GarisWaktu
+            items={itemGarisWaktu}
+            batas={batasZoom(jangkar)}
+            tanpaTanggal={tanpaTanggal}
+          />
+          <section className="seksi" aria-label="Daftar peristiwa">
+            <div className="grid-berita">
+              {events.map((e, i) => (
+                <KartuEvent
+                  key={e.id}
+                  event={e}
+                  kronologi={kronologiSemua[i] ?? []}
+                  terbaru={terbaruPerEvent[i] ?? false}
+                />
+              ))}
+            </div>
+          </section>
+        </>
       )}
     </div>
   );
