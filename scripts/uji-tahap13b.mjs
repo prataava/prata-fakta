@@ -143,11 +143,15 @@ await cekLempar("redirect ke host di luar allowlist (feed) ditolak", () =>
 
 // ---------- (D) allowlist feed + fetchRss ----------
 console.log("\n--- (D) allowlist feed ---");
-cek("allowlist berisi 8 host", HOST_FEED_DIIZINKAN.size === 8, `${HOST_FEED_DIIZINKAN.size} host`);
+cek("allowlist berisi 19 host", HOST_FEED_DIIZINKAN.size === 19, `${HOST_FEED_DIIZINKAN.size} host`);
 for (const host of [
   "www.antaranews.com", "www.cnnindonesia.com", "feed.liputan6.com",
   "www.cnbcindonesia.com", "www.tribunnews.com", "www.republika.co.id",
   "feeds.bbci.co.uk", "api.gdeltproject.org",
+  "katadata.co.id", "news.un.org", "www.kemendag.go.id",
+  "www.theguardian.com", "www.aljazeera.com", "www.cnbc.com",
+  "www.ft.com", "www.nasa.gov", "www.noaa.gov", "www.nature.com",
+  "www.ipcc.ch",
 ]) {
   cek(`allowlist: ${host}`, hostFeedDiizinkan(`https://${host}/x`) === true);
 }

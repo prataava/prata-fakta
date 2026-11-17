@@ -6,11 +6,14 @@
 //      bergantung pada hasil DNS saat ini dan bisa diakali rebinding;
 //   2. allowlist ini menolak host APAPUN di luar daftar, bahkan bila
 //      host itu publik dan DNS-nya "bersih" — permukaan serang
-//      ingestion menyusut dari "seluruh internet" menjadi 8 host.
+//      ingestion menyusut dari "seluruh internet" menjadi 19 host.
 //
 // Daftar ini = 7 sumber RSS seed migrasi v1
 // (supabase/migrations/20261116_pf_v1_foundation.sql:348-355) +
-// host API GDELT (src/lib/ingestion/gdelt.ts). Perbandingan host
+// host API GDELT (src/lib/ingestion/gdelt.ts) + 11 host dari 12
+// sumber baru yang diaktifkan 17 Nov 2026 atas persetujuan pemilik
+// (RISET-SUMBER.md §5; BBC News EN memakai feeds.bbci.co.uk yang
+// sudah ada — jadi 11 host baru, total 19). Perbandingan host
 // PERSIS (exact match, huruf kecil) — subdomain TIDAK otomatis
 // diizinkan: `evil.antaranews.com` atau `antaranews.com.evil.test`
 // tetap ditolak.
@@ -39,6 +42,18 @@ export const HOST_FEED_DIIZINKAN: ReadonlySet<string> = new Set([
   "www.republika.co.id",
   "feeds.bbci.co.uk",
   "api.gdeltproject.org",
+  // 12 sumber baru 17 Nov 2026 (persetujuan pemilik; RISET-SUMBER §5):
+  "katadata.co.id",
+  "news.un.org",
+  "www.kemendag.go.id",
+  "www.theguardian.com",
+  "www.aljazeera.com",
+  "www.cnbc.com",
+  "www.ft.com",
+  "www.nasa.gov",
+  "www.noaa.gov",
+  "www.nature.com",
+  "www.ipcc.ch",
 ]);
 
 /** True bila host URL (huruf kecil, tanpa port) ada di allowlist feed. */
