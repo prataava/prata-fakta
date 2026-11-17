@@ -23,6 +23,7 @@ import PembacaArtikel from "@/components/artikel/PembacaArtikel";
 import LencanaFactScore from "@/components/artikel/LencanaFactScore";
 import JejakFakta from "@/components/artikel/JejakFakta";
 import MetodeVerifikasi from "@/components/artikel/MetodeVerifikasi";
+import ProvenanceAI from "@/components/artikel/ProvenanceAI";
 import CatatanPribadi from "@/components/artikel/CatatanPribadi";
 import SakelarPerbandingan from "@/components/artikel/SakelarPerbandingan";
 
@@ -143,6 +144,14 @@ export default async function HalamanArtikel({
     ),
   );
   const jumlahSumberIndependen = kunciAkarPerSumber.size;
+
+  // P2-5 (provenance pembaca): record verifikasi artikel terbaru
+  // yang VERIFIED/CROSS-CHECKED — dari jejak yang SUDAH diambil
+  // di atas (tanpa query baru). Bila tidak ada, ProvenanceAI
+  // menyembunyikan seksinya sendiri (bukan "0 klaim").
+  const recordVerifikasiArtikel = jejak.verifikasi.find(
+    (v) => v.keputusan === "VERIFIED" || v.keputusan === "CROSS-CHECKED",
+  );
 
   // FACT SCORE (P0 Worker F) — dihitung dari perbandingan yang
   // SUDAH diambil di atas (tanpa query baru kecuali hitungan
@@ -304,7 +313,12 @@ export default async function HalamanArtikel({
           {artikel.tags.length > 0 && (
             <p className="artikel-tag">
               {artikel.tags.map((t) => (
-                <Link key={t.slug} className="chip" href={`/cari?q=${encodeURIComponent(t.nama)}`}>
+                <Link
+                  key={t.slug}
+                  className="chip"
+                  href={`/konteks/${t.slug}`}
+                  title={`Jelajahi konteks ${t.nama}`}
+                >
                   {t.nama}
                 </Link>
               ))}
@@ -381,6 +395,14 @@ export default async function HalamanArtikel({
           jumlahSumber={perbandingan.sumber.length}
           jumlahSumberIndependen={jumlahSumberIndependen}
           tersedia={perbandingan.tersedia}
+        />
+        <ProvenanceAI
+          tersedia={jejak.tersedia && perbandingan.tersedia}
+          jumlahKlaim={jejak.klaim.length}
+          jumlahSumberIndependen={jumlahSumberIndependen}
+          keputusan={recordVerifikasiArtikel?.keputusan ?? null}
+          diverifikasiPada={recordVerifikasiArtikel?.dibuat_pada ?? null}
+          diterbitkanPada={artikel.diterbitkan_pada}
         />
         <SakelarPerbandingan
           perbandingan={perbandingan}
