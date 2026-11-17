@@ -26,8 +26,18 @@
 # yang mengambil alih; kegagalan sebagian sudah terlihat lewat
 # assert di bawah + status run 'sebagian'/'gagal' di
 # pf_ingestion_runs (bukan sukses diam-diam).
-# Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
-# `ok != true` atau `total.gagal > 0`, bukan hanya bila HTTP non-2xx.
+# Assert respons (F5, diubah Fase 3): sukses palsu parsial ditolak —
+# TAPI hanya untuk kegagalan kelas BERAT. Job gagal bila
+# `ok != true` atau `total.gagal_berat > 0` (kelas invalid-feed /
+# permanently-failed / galat engine). Kegagalan sementara
+# (rate-limited / unavailable / dilewati / sebagian) = job SUCCESS
+# dengan peringatan: kegagalan tetap tercatat di pf_ingestion_runs
+# (status + kelas_gagal) dan di ringkasan run di bawah, hanya tidak
+# menghentikan jadwal cron — GDELT 429 tidak boleh membuat 7 feed
+# RSS yang sehat terlihat "gagal" setiap 30 menit.
+# Transisi: bila endpoint masih kode lama (tanpa total.gagal_berat),
+# pakai aturan lama (total.gagal == 0) agar assert tidak lolos
+# diam-diam selama deploy bergulir.
 #
 # Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
 # terlihat di tab Actions (log run + badge workflow) dan di tabel
@@ -72,5 +82,24 @@ jobs:
             -d "$BODY" \
             -o "$RESP"
           echo "Respons ingestion: $(cat "$RESP")"
-          jq -e '.ok == true and (.total.gagal // 0) == 0' "$RESP" >/dev/null \
-            || { echo "ASSERT GAGAL: ingestion melaporkan total.gagal > 0 atau ok != true"; exit 1; }
+          # Ringkasan per sumber (kelas + jumlah) — kegagalan TIDAK
+          # disembunyikan: kelas sementara pun tampil di log run.
+          jq -r '.per_sumber[]? | "\(.sumber_nama): kelas=\(.kelas // "-") baru=\(.baru // 0) duplikat=\(.duplikat // 0) gagal=\(.gagal // 0)"' "$RESP"
+          echo "Total: $(jq -c '.total' "$RESP")"
+          jq -e '.ok == true' "$RESP" >/dev/null \
+            || { echo "ASSERT GAGAL: ingestion melaporkan ok != true"; exit 1; }
+          # Gagal berat: dari total.gagal_berat (kode baru); bila
+          # tidak ada (kode lama), pakai aturan lama total.gagal.
+          GAGAL_BERAT="$(jq -r '.total.gagal_berat // empty' "$RESP")"
+          if [ -z "$GAGAL_BERAT" ]; then
+            echo "PERINGATAN: respons tanpa total.gagal_berat (kode lama?) — pakai aturan lama total.gagal."
+            GAGAL_BERAT="$(jq -r '.total.gagal // 0' "$RESP")"
+          fi
+          if [ "$GAGAL_BERAT" -gt 0 ]; then
+            echo "ASSERT GAGAL: ingestion melaporkan gagal_berat=$GAGAL_BERAT (kelas berat: invalid-feed / permanently-failed / galat engine)"
+            exit 1
+          fi
+          GAGAL="$(jq -r '.total.gagal // 0' "$RESP")"
+          if [ "$GAGAL" -gt 0 ]; then
+            echo "PERINGATAN: ingestion sukses dengan $GAGAL kegagalan sementara (lihat kelas per sumber di atas + pf_ingestion_runs)."
+          fi
