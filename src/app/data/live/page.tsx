@@ -1,5 +1,17 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
+
+// Halaman dirender per request (`instant = false`), BUKAN prerender
+// statis — 17 Nov 2026 (fitur izin browser, pola /jelajahi): sebagai
+// halaman statis murni, skrip bootstrap $RC React ikut terpanggang
+// TANPA nonce ke shell statis; CSP memblokirnya → $RC undefined →
+// hidrasi gagal (#419) → isi halaman ganda di DOM (h1=2, terbukti
+// sapuan CDP). Dengan `instant = false` + connection(), render
+// terjadi per request dalam konteks nonce proxy dan $RC membawa
+// nonce. JANGAN hapus tanpa menguji ulang /data/live di CDP
+// (h1 harus = 1, tanpa $RC error).
+export const instant = false;
 
 export const metadata: Metadata = {
   title: "Data Live",
@@ -86,7 +98,13 @@ const FITUR: {
   },
 ];
 
-export default function DataLive() {
+export default async function DataLive() {
+  // Render per request (bukan prerender statis): connection()
+  // memaksa halaman dirender dalam konteks request sehingga skrip
+  // bootstrap $RC React membawa nonce proxy (lihat komentar
+  // `instant = false` di atas — tanpa ini saja halaman tetap
+  // ter-prerender dan $RC tetap tanpa nonce).
+  await connection();
   return (
     <div className="wadah">
       <section className="hero" aria-labelledby="judul-data-live">
