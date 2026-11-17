@@ -14,6 +14,7 @@ import {
 } from "@/lib/explainer";
 import { createClient } from "@/lib/supabase/server";
 import TombolSimpan from "./TombolSimpan";
+import CatatanPribadi from "@/components/artikel/CatatanPribadi";
 import { urlSitus } from "@/lib/situs";
 
 // Metadata per artikel (judul asli di tab + SEO). notFound() di sini
@@ -289,6 +290,15 @@ export default async function PengetahuanDetail({
           />
         )}
       </article>
+
+      {/* P1-1 (integrator): catatan pribadi pada artikel
+          pengetahuan — prop pengetahuanId, pola sama seperti
+          halaman artikel berita. */}
+      <CatatanPribadi
+        pengetahuanId={artikel.id}
+        judulTarget={artikel.judul}
+        loggedIn={penggunaMasuk}
+      />
 
       {seri.length > 0 && (
         <section className="seksi" aria-labelledby="seksi-seri">
