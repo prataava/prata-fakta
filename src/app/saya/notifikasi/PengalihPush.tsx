@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { aktifkanPush, matikanPush } from "@/lib/notifikasi-push";
 
 // Pengalih langganan push VAPID (Gelombang B2-D, E3; izin sopan).
 // Alur: daftar service worker /sw.js → minta izin Notification
 // → pushManager.subscribe (kunci publik dari
-// NEXT_PUBLIC_VAPID_PUBLIC_KEY) → POST /api/push/langganan.
-// Berhenti: unsubscribe + DELETE /api/push/langganan.
+// NEXT_PUBLIC_VAPID_PUBLIC_KEY) → POST /api/notifications/
+// subscribe. Mekanika subscribe/unsubscribe tinggal di
+// @/lib/notifikasi-push (aktifkanPush/matikanPush); komponen ini
+// hanya mengatur izin + status + pesan + preferensi
+// push_notifikasi. Berhenti: unsubscribe + DELETE
+// /api/notifications/subscribe.
 // Bila kunci publik klien belum diatur (push belum
 // terkonfigurasi di deploy), komponen menampilkan penjelasan
 // jujur, bukan tombol yang tidak berfungsi.
@@ -19,17 +24,6 @@ import { useEffect, useState } from "react";
 // requestPermission() lagi — yang ditampilkan adalah petunjuk
 // mengaktifkan lewat pengaturan browser + tombol "Periksa lagi"
 // yang hanya membaca ulang Notification.permission.
-function kunciKeUint8(kunci: string): Uint8Array<ArrayBuffer> {
-  const pad = "=".repeat((4 - (kunci.length % 4)) % 4);
-  const b64 = (kunci + pad).replace(/-/g, "+").replace(/_/g, "/");
-  const mentah = window.atob(b64);
-  const out = new Uint8Array(new ArrayBuffer(mentah.length));
-  for (let i = 0; i < mentah.length; i++) {
-    out[i] = mentah.charCodeAt(i);
-  }
-  return out;
-}
-
 type Status =
   | "memuat"
   | "tidak-dukung"
@@ -122,22 +116,9 @@ export default function PengalihPush() {
           return;
         }
       }
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      const langganan = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: kunciKeUint8(kunciPublik),
-      });
-      const res = await fetch("/api/push/langganan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: langganan.toJSON() }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        setPesan(data?.error ?? "Gagal menyimpan langganan push.");
-        await langganan.unsubscribe().catch(() => undefined);
+      const hasil = await aktifkanPush();
+      if (!hasil.ok) {
+        setPesan(hasil.error);
         return;
       }
       // Aktifkan juga sakelar push_notifikasi agar pengiriman
@@ -166,17 +147,10 @@ export default function PengalihPush() {
     setSibuk(true);
     setPesan(null);
     try {
-      const reg = await navigator.serviceWorker.getRegistration("/sw.js");
-      const langganan = reg
-        ? await reg.pushManager.getSubscription()
-        : null;
-      if (langganan) {
-        await fetch("/api/push/langganan", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: langganan.endpoint }),
-        }).catch(() => undefined);
-        await langganan.unsubscribe().catch(() => undefined);
+      const hasil = await matikanPush();
+      if (!hasil.ok) {
+        setPesan("Gagal mematikan push. Coba lagi.");
+        return;
       }
       await fetch("/api/saya/preferensi", {
         method: "PATCH",
