@@ -12,6 +12,9 @@ import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoles, punyaRole, ROLES, type Role } from "@/lib/auth/roles";
 import { getKategori, type PfCategoryRow } from "@/lib/data";
+// Ops Center (Fase 12): daftar job dikenal dipakai getRingkasanOps.
+// kendali.ts tidak mengimpor data.ts — tidak ada siklus impor.
+import { DAFTAR_JOB_DIKENAL, type JobDikenal } from "./kendali";
 
 export const PERAN_STAF: Role[] = [
   ROLES.SUPER_ADMIN,
@@ -104,6 +107,9 @@ export type RingkasanAdmin = {
   terbit: number;
   draft: number;
   terjadwal: number;
+  /** Draf siap bulk publish (Fase 11): status draft + verifikasi
+   *  CROSS-CHECKED/VERIFIED. Dipakai panel 1-klik di /admin. */
+  draft_terverifikasi: number;
   antrean_verifikasi: number;
   belum_terkonfirmasi: number;
   dikoreksi: number;
@@ -141,6 +147,7 @@ export async function getRingkasanAdmin(): Promise<RingkasanAdmin> {
     terbit: 0,
     draft: 0,
     terjadwal: 0,
+    draft_terverifikasi: 0,
     antrean_verifikasi: 0,
     belum_terkonfirmasi: 0,
     dikoreksi: 0,
@@ -198,6 +205,16 @@ export async function getRingkasanAdmin(): Promise<RingkasanAdmin> {
     kosong.dikoreksi = dikoreksi ?? 0;
     kosong.sumber.total = sumberTotal ?? 0;
     kosong.sumber.aktif = sumberAktif ?? 0;
+
+    // Draf siap bulk publish (Fase 11): status draft + verifikasi
+    // CROSS-CHECKED/VERIFIED. Gagal baca -> 0 (jujur: panel
+    // menampilkan 0 + tombol nonaktif, bukan angka karangan).
+    const { count: draftTerverifikasi } = await supabase
+      .from("pf_articles")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "draft")
+      .in("status_verifikasi", ["CROSS-CHECKED", "VERIFIED"]);
+    kosong.draft_terverifikasi = draftTerverifikasi ?? 0;
 
     // Antrean verifikasi: draft/terjadwal ATAU status verifikasi
     // belum terkonfirmasi / disengketakan.
@@ -874,5 +891,422 @@ export async function getBriefAdmin(): Promise<{
     };
   } catch {
     return { brief: [], tersedia: false };
+  }
+}
+
+/* ============================================================
+   Operations Center /admin/ops (Fase 12, Worker G)
+   ============================================================ */
+
+export type SumberOps = {
+  id: string;
+  nama: string;
+  jenis: string;
+  url: string;
+  aktif: boolean;
+  prioritas: number;
+  terakhir_cek: string | null;
+  status_terakhir: string | null;
+  terakhir_diambil: string | null;
+  jumlah_item: number;
+  /** Kolom v22 (Worker A) — null bila kolom belum ada di DB. */
+  poll_interval_minutes: number | null;
+  last_success_at: string | null;
+  failure_count: number | null;
+  health_status: string | null;
+  cooldown_until: string | null;
+  /** Dari 50 run ingestion terakhir (bukan sepanjang masa). */
+  run_terakhir_status: string | null;
+  run_gagal_terakhir: number;
+};
+
+export type InboxOps = {
+  /** pf_raw_items.status = 'baru'. */
+  baru: number;
+  duplikat: number;
+  ditolak: number;
+  disalin_dari: number;
+  /** Proxy jujur "menunggu AI": item 'baru' (belum diproses
+   *  pipeline) — pipeline tidak punya antrean eksplisit. */
+  menunggu_ai: number;
+  /** pf_articles.status = 'draft'. */
+  draf: number;
+  /** Draft + status_verifikasi UNCONFIRMED/DISPUTED. */
+  menunggu_editor: number;
+  /** Draft + status_verifikasi CROSS-CHECKED/VERIFIED. */
+  siap_terbit: number;
+  terbit: number;
+};
+
+export type KinerjaOps = {
+  per_sumber: {
+    sumber: string;
+    run: number;
+    ditemukan: number;
+    baru: number;
+    duplikat: number;
+    gagal: number;
+  }[];
+  per_agen: {
+    agen: string;
+    berhasil: number;
+    gagal: number;
+    berjalan: number;
+    dilewati: number;
+  }[];
+  per_kategori: {
+    kategori_slug: string;
+    kategori_nama: string;
+    jumlah: number;
+  }[];
+};
+
+export type RingkasanOps = {
+  /** false bila query inti (pf_scheduled_jobs) gagal. */
+  tersedia: boolean;
+  db_ms: number | null;
+  jobs: (JobDikenal & {
+    tercatat: boolean;
+    aktif: boolean;
+    terakhir_jalan: string | null;
+    status_terakhir: string;
+    error_terakhir: string | null;
+  })[];
+  jobs_tersedia: boolean;
+  sumber: SumberOps[];
+  sumber_tersedia: boolean;
+  /** true hanya bila kolom kesehatan v22 (Worker A) terbaca. */
+  sumber_v22_tersedia: boolean;
+  inbox: InboxOps;
+  inbox_tersedia: boolean;
+  kinerja: KinerjaOps;
+  kinerja_tersedia: boolean;
+  ingestion_terakhir: IngestionRunAdmin[];
+};
+
+async function hitungEqOps(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tabel: string,
+  kolom: string,
+  nilai: string,
+): Promise<number | null> {
+  const { count, error } = await supabase
+    .from(tabel)
+    .select("id", { count: "exact", head: true })
+    .eq(kolom, nilai);
+  if (error) return null;
+  return count ?? 0;
+}
+
+/**
+ * Ringkasan gabungan /admin/ops — dirakit dari getter + tabel
+ * yang sudah ada (monitoring, kendali, sumber, pipeline AI,
+ * kinerja, API sehat). Setiap seksi punya flag tersedia sendiri:
+ * RLS menolak / tabel belum ada -> seksi menampilkan empty state
+ * jujur, BUKAN angka 0 (pola /observatorium).
+ */
+export async function getRingkasanOps(): Promise<RingkasanOps> {
+  const kosong: RingkasanOps = {
+    tersedia: false,
+    db_ms: null,
+    jobs: [],
+    jobs_tersedia: false,
+    sumber: [],
+    sumber_tersedia: false,
+    sumber_v22_tersedia: false,
+    inbox: {
+      baru: 0,
+      duplikat: 0,
+      ditolak: 0,
+      disalin_dari: 0,
+      menunggu_ai: 0,
+      draf: 0,
+      menunggu_editor: 0,
+      siap_terbit: 0,
+      terbit: 0,
+    },
+    inbox_tersedia: false,
+    kinerja: { per_sumber: [], per_agen: [], per_kategori: [] },
+    kinerja_tersedia: false,
+    ingestion_terakhir: [],
+  };
+  try {
+    await connection();
+    const supabase = await createClient();
+    const mulai = Date.now();
+
+    // --- Seksi A: jobs terjadwal ---
+    const { data: dataJobs, error: errJobs } = await supabase
+      .from("pf_scheduled_jobs")
+      .select("nama,aktif,terakhir_jalan,status_terakhir,error_terakhir")
+      .order("nama", { ascending: true });
+    kosong.db_ms = Date.now() - mulai;
+    if (!errJobs && dataJobs) {
+      const peta = new Map(
+        (dataJobs as {
+          nama: string;
+          aktif: boolean;
+          terakhir_jalan: string | null;
+          status_terakhir: string;
+          error_terakhir: string | null;
+        }[]).map((j) => [j.nama, j]),
+      );
+      kosong.jobs = DAFTAR_JOB_DIKENAL.map((d) => {
+        const baris = peta.get(d.nama);
+        return {
+          ...d,
+          tercatat: baris !== undefined,
+          aktif: baris?.aktif ?? true,
+          terakhir_jalan: baris?.terakhir_jalan ?? null,
+          status_terakhir: baris?.status_terakhir ?? "belum_pernah",
+          error_terakhir: baris?.error_terakhir ?? null,
+        };
+      });
+      kosong.jobs_tersedia = true;
+      kosong.tersedia = true;
+    }
+
+    // --- Seksi B: sumber + kesehatan ---
+    const { data: dataSumber, error: errSumber } = await supabase
+      .from("pf_sources")
+      .select(
+        "id,nama,jenis,url,aktif,prioritas,terakhir_cek,status_terakhir,terakhir_diambil,jumlah_item",
+      )
+      .order("nama", { ascending: true });
+    if (!errSumber && dataSumber) {
+      // Probe kolom v22 (Worker A): select terpisah agar
+      // ketiadaannya tidak menggagalkan select utama.
+      let v22: Map<string, {
+        poll_interval_minutes: number | null;
+        last_success_at: string | null;
+        failure_count: number | null;
+        health_status: string | null;
+        cooldown_until: string | null;
+      }> | null = null;
+      const { data: dataV22, error: errV22 } = await supabase
+        .from("pf_sources")
+        .select(
+          "id,poll_interval_minutes,last_success_at,failure_count,health_status,cooldown_until",
+        );
+      if (!errV22 && dataV22) {
+        v22 = new Map(
+          (dataV22 as {
+            id: string;
+            poll_interval_minutes: number | null;
+            last_success_at: string | null;
+            failure_count: number | null;
+            health_status: string | null;
+            cooldown_until: string | null;
+          }[]).map((r) => [r.id, r]),
+        );
+        kosong.sumber_v22_tersedia = true;
+      }
+      kosong.sumber = (dataSumber as {
+        id: string;
+        nama: string;
+        jenis: string;
+        url: string;
+        aktif: boolean;
+        prioritas: number;
+        terakhir_cek: string | null;
+        status_terakhir: string | null;
+        terakhir_diambil: string | null;
+        jumlah_item: number;
+      }[]).map((s) => {
+        const kolomV22 = v22?.get(s.id);
+        return {
+          ...s,
+          poll_interval_minutes: kolomV22?.poll_interval_minutes ?? null,
+          last_success_at: kolomV22?.last_success_at ?? null,
+          failure_count: kolomV22?.failure_count ?? null,
+          health_status: kolomV22?.health_status ?? null,
+          cooldown_until: kolomV22?.cooldown_until ?? null,
+          run_terakhir_status: null,
+          run_gagal_terakhir: 0,
+        };
+      });
+      kosong.sumber_tersedia = true;
+    }
+
+    // --- Seksi A + D: run ingestion terakhir (50) ---
+    const { data: dataRuns, error: errRuns } = await supabase
+      .from("pf_ingestion_runs")
+      .select(
+        "id,sumber_id,sumber_nama,status,dimulai_pada,selesai_pada,ditemukan,baru,duplikat,gagal,error",
+      )
+      .order("dimulai_pada", { ascending: false })
+      .limit(50);
+    if (!errRuns && dataRuns) {
+      const runs = dataRuns as (IngestionRunAdmin & {
+        sumber_id: string | null;
+      })[];
+      kosong.ingestion_terakhir = runs.slice(0, 10);
+      // Kesehatan per sumber dari run terakhir.
+      const perSumberRun = new Map<
+        string,
+        { status: string | null; gagal: number }
+      >();
+      for (const r of runs) {
+        const kunci = r.sumber_id ?? r.sumber_nama ?? "";
+        if (!kunci) continue;
+        const lama = perSumberRun.get(kunci);
+        if (!lama) {
+          perSumberRun.set(kunci, {
+            status: r.status,
+            gagal: r.status === "gagal" ? 1 : 0,
+          });
+        } else if (r.status === "gagal") {
+          lama.gagal += 1;
+        }
+      }
+      for (const s of kosong.sumber) {
+        const info =
+          perSumberRun.get(s.id) ?? perSumberRun.get(s.nama);
+        if (info) {
+          s.run_terakhir_status = info.status;
+          s.run_gagal_terakhir = info.gagal;
+        }
+      }
+      // Kinerja per sumber (agregat 50 run terakhir).
+      const agregat = new Map<
+        string,
+        {
+          sumber: string;
+          run: number;
+          ditemukan: number;
+          baru: number;
+          duplikat: number;
+          gagal: number;
+        }
+      >();
+      for (const r of runs) {
+        const nama = r.sumber_nama ?? "sumber tak dikenal";
+        const lama = agregat.get(nama) ?? {
+          sumber: nama,
+          run: 0,
+          ditemukan: 0,
+          baru: 0,
+          duplikat: 0,
+          gagal: 0,
+        };
+        lama.run += 1;
+        lama.ditemukan += r.ditemukan;
+        lama.baru += r.baru;
+        lama.duplikat += r.duplikat;
+        lama.gagal += r.gagal;
+        agregat.set(nama, lama);
+      }
+      kosong.kinerja.per_sumber = [...agregat.values()].sort(
+        (a, b) => b.run - a.run,
+      );
+      kosong.kinerja_tersedia = true;
+    }
+
+    // --- Seksi C: inbox ---
+    const [baru, duplikat, ditolak, disalin, draf, terbit] =
+      await Promise.all([
+        hitungEqOps(supabase, "pf_raw_items", "status", "baru"),
+        hitungEqOps(supabase, "pf_raw_items", "status", "duplikat"),
+        hitungEqOps(supabase, "pf_raw_items", "status", "ditolak"),
+        hitungEqOps(supabase, "pf_raw_items", "status", "disalin_dari"),
+        hitungEqOps(supabase, "pf_articles", "status", "draft"),
+        hitungEqOps(supabase, "pf_articles", "status", "terbit"),
+      ]);
+    const hitungArtikelVerifikasi = async (
+      verifikasi: string[],
+    ): Promise<number | null> => {
+      const { count, error } = await supabase
+        .from("pf_articles")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "draft")
+        .in("status_verifikasi", verifikasi);
+      if (error) return null;
+      return count ?? 0;
+    };
+    const [menungguEditor, siapTerbit] = await Promise.all([
+      hitungArtikelVerifikasi(["UNCONFIRMED", "DISPUTED"]),
+      hitungArtikelVerifikasi(["CROSS-CHECKED", "VERIFIED"]),
+    ]);
+    if (
+      baru !== null &&
+      duplikat !== null &&
+      ditolak !== null &&
+      disalin !== null &&
+      draf !== null &&
+      terbit !== null &&
+      menungguEditor !== null &&
+      siapTerbit !== null
+    ) {
+      kosong.inbox = {
+        baru,
+        duplikat,
+        ditolak,
+        disalin_dari: disalin,
+        menunggu_ai: baru,
+        draf,
+        menunggu_editor: menungguEditor,
+        siap_terbit: siapTerbit,
+        terbit,
+      };
+      kosong.inbox_tersedia = true;
+    }
+
+    // --- Seksi D: kinerja AI + kategori ---
+    const { data: dataAi, error: errAi } = await supabase
+      .from("pf_ai_runs")
+      .select("agen,status")
+      .order("dimulai_pada", { ascending: false })
+      .limit(200);
+    if (!errAi && dataAi) {
+      const perAgen = new Map<
+        string,
+        {
+          agen: string;
+          berhasil: number;
+          gagal: number;
+          berjalan: number;
+          dilewati: number;
+        }
+      >();
+      for (const r of dataAi as { agen: string; status: string }[]) {
+        const lama = perAgen.get(r.agen) ?? {
+          agen: r.agen,
+          berhasil: 0,
+          gagal: 0,
+          berjalan: 0,
+          dilewati: 0,
+        };
+        if (r.status === "berhasil") lama.berhasil += 1;
+        else if (r.status === "gagal") lama.gagal += 1;
+        else if (r.status === "berjalan") lama.berjalan += 1;
+        else if (r.status === "dilewati") lama.dilewati += 1;
+        perAgen.set(r.agen, lama);
+      }
+      kosong.kinerja.per_agen = [...perAgen.values()].sort(
+        (a, b) => b.berhasil + b.gagal - (a.berhasil + a.gagal),
+      );
+    }
+    const kategori = await getKategori();
+    const utama = kategori.filter((k) => !k.induk_id);
+    const { data: kolomKategori } = await supabase
+      .from("pf_articles")
+      .select("kategori_slug")
+      .limit(5000);
+    if (kolomKategori) {
+      const hitungKat = new Map<string, number>();
+      for (const r of kolomKategori as { kategori_slug: string | null }[]) {
+        if (!r.kategori_slug) continue;
+        hitungKat.set(r.kategori_slug, (hitungKat.get(r.kategori_slug) ?? 0) + 1);
+      }
+      kosong.kinerja.per_kategori = utama.map((k) => ({
+        kategori_slug: k.slug,
+        kategori_nama: k.nama,
+        jumlah: hitungKat.get(k.slug) ?? 0,
+      }));
+    }
+
+    return kosong;
+  } catch {
+    return kosong;
   }
 }

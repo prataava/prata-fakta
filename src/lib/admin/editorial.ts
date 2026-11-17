@@ -834,6 +834,117 @@ export async function terbitkanTerjadwal(
   return hasil;
 }
 
+export interface HasilTerbitkanMassal {
+  diterbitkan: { id: string; judul: string; slug: string }[];
+  dilewati: { id: string; judul: string; alasan: string }[];
+}
+
+/** Status verifikasi yang membuat draf menjadi kandidat bulk
+ *  publish (Fase 11): hanya CROSS-CHECKED/VERIFIED. UNCONFIRMED,
+ *  DEVELOPING, DISPUTED, dan CORRECTED tidak pernah masuk
+ *  kandidat — selaras dengan CHECK pf_articles.status_verifikasi
+ *  (migrasi v2 §1a). */
+const STATUS_VERIFIKASI_SIAP_TERBIT: StatusVerifikasi[] = [
+  "CROSS-CHECKED",
+  "VERIFIED",
+];
+
+/**
+ * Bulk publish (Fase 11, POST /api/admin/publish-verified) —
+ * terbitkan semua draf terverifikasi dalam satu panggilan.
+ *
+ * Kandidat = artikel status 'draft' DAN status_verifikasi
+ * CROSS-CHECKED/VERIFIED; bila opsi.articleIds diisi, hanya id
+ * itu yang disentuh (subset eksplisit, duplikat diabaikan).
+ * Dibatasi 100 kandidat per panggilan — sama seperti
+ * terbitkanTerjadwal (cukup untuk antrean editorial harian;
+ * sisanya terbit pada panggilan berikutnya).
+ *
+ * Setiap kandidat diterbitkan lewat terbitkanArtikel — JADI
+ * gate verifikasi + review editorial PENUH tetap berlaku:
+ * draf tanpa review 'setuju' (atau review kedaluwarsa) TIDAK
+ * terbit, melainkan masuk `dilewati` beserta alasannya. Bulk
+ * publish TIDAK PERNAH mem-bypass gate; ia hanya mengulang
+ * alur Terbitkan resmi untuk banyak artikel sekaligus. Alasan
+ * dilewati memakai pesan gate yang sama (GalatGateTerbit.alasan)
+ * agar operator melihat persis mengapa satu draf tertahan.
+ */
+export async function terbitkanMassalTerverifikasi(
+  adapter: AdminAdapter,
+  aktor: Aktor,
+  opsi?: { articleIds?: string[] },
+): Promise<HasilTerbitkanMassal> {
+  const hasil: HasilTerbitkanMassal = { diterbitkan: [], dilewati: [] };
+
+  let kandidat: Artikel[];
+  if (opsi?.articleIds !== undefined) {
+    const unik = [
+      ...new Set(
+        opsi.articleIds.filter(
+          (id) => typeof id === "string" && id.trim() !== "",
+        ),
+      ),
+    ];
+    kandidat = [];
+    for (const id of unik) {
+      const artikel = await adapter.getArtikel({ id });
+      if (!artikel) {
+        hasil.dilewati.push({
+          id,
+          judul: "(tidak ditemukan)",
+          alasan: "artikel tidak ditemukan.",
+        });
+        continue;
+      }
+      if (
+        artikel.status !== "draft" ||
+        !STATUS_VERIFIKASI_SIAP_TERBIT.includes(
+          artikel.status_verifikasi,
+        )
+      ) {
+        hasil.dilewati.push({
+          id,
+          judul: artikel.judul,
+          alasan:
+            `bukan draf terverifikasi (status '${artikel.status}', ` +
+            `verifikasi '${artikel.status_verifikasi}').`,
+        });
+        continue;
+      }
+      kandidat.push(artikel);
+    }
+  } else {
+    const { artikel } = await adapter.listArtikel({
+      status: "draft",
+      page: 1,
+      limit: 100,
+    });
+    kandidat = artikel.filter((a) =>
+      STATUS_VERIFIKASI_SIAP_TERBIT.includes(a.status_verifikasi),
+    );
+  }
+
+  for (const a of kandidat) {
+    try {
+      const baru = await terbitkanArtikel(adapter, a.id, aktor);
+      hasil.diterbitkan.push({
+        id: baru.id,
+        judul: baru.judul,
+        slug: baru.slug,
+      });
+    } catch (err) {
+      const alasan =
+        err instanceof GalatGateTerbit
+          ? err.alasan
+          : err instanceof Error
+            ? err.message
+            : "gagal tanpa keterangan.";
+      hasil.dilewati.push({ id: a.id, judul: a.judul, alasan });
+    }
+  }
+  return hasil;
+}
+
 // ---------- Review & verifikasi ----------
 
 export async function putuskanReview(
