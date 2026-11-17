@@ -36,6 +36,15 @@ function estimasiBacaMenit(isi: string): number {
   return Math.max(1, Math.ceil(kata / 200));
 }
 
+// ---------- Penanda "sedang diproses" (Fase 5, migrasi v23) ----------
+// Penanda diproses_pada dianggap basi sesudah 30 menit: satu
+// panggilan pipeline paling lama ~5 menit (gateway memutus di ~5
+// menit; 50 item ~7,5 menit), jadi penanda yang lebih tua dari
+// 30 menit pasti milik worker yang mati — boleh diklaim ulang run
+// berikutnya. 30 menit juga jauh lebih singkat dari interval cron
+// editorial (2 jam), jadi item yatim tidak menunggu lama.
+export const BATAS_BASI_TANDA_DIPROSES_MENIT = 30;
+
 export class SupabaseAiAdapter implements AiAdapter {
   private klien: SupabaseClient;
 
@@ -54,17 +63,12 @@ export class SupabaseAiAdapter implements AiAdapter {
     });
   }
 
-  async ambilAntrean(
-    limit: number,
-    mode: "terbaru" | "terlama" = "terbaru",
-  ): Promise<RawItemAntrean[]> {
+  // Kueri dasar antrean UNCONFIRMED dengan urutan yang sama untuk
+  // pemilihan kandidat (select "id") maupun pengambilan baris penuh.
+  private kueriAntrean(kolom: string, mode: "terbaru" | "terlama") {
     const kueri = this.klien
       .from("pf_raw_items")
-      .select(
-        "id, sumber_id, url, judul, ringkasan, isi_ringkas, penulis, " +
-          "waktu_terbit_asli, waktu_diambil, status, disalin_dari_id, " +
-          "metadata, pf_sources(nama, prioritas)",
-      )
+      .select(kolom)
       .eq("status_verifikasi", "UNCONFIRMED");
     if (mode === "terlama") {
       // P2-8 (integrasi B1): mode kejar — item TERTUA dulu
@@ -79,7 +83,69 @@ export class SupabaseAiAdapter implements AiAdapter {
         .order("waktu_terbit_asli", { ascending: false, nullsFirst: false })
         .order("waktu_diambil", { ascending: false });
     }
-    const { data, error } = await kueri.limit(limit);
+    return kueri;
+  }
+
+  async ambilAntrean(
+    limit: number,
+    mode: "terbaru" | "terlama" = "terbaru",
+    opsi: { klaim?: boolean } = {},
+  ): Promise<RawItemAntrean[]> {
+    const kolomPenuh =
+      "id, sumber_id, url, judul, ringkasan, isi_ringkas, penulis, " +
+      "waktu_terbit_asli, waktu_diambil, status, disalin_dari_id, " +
+      "metadata, pf_sources(nama, prioritas)";
+    // 1. Pilih kandidat (id saja, urutan antrean dipertahankan).
+    const { data: kandidat, error: errKandidat } = await this.kueriAntrean(
+      "id",
+      mode,
+    ).limit(limit);
+    if (errKandidat)
+      throw new Error(`ambilAntrean gagal: ${errKandidat.message}`);
+    const ids = (
+      (kandidat as unknown as Array<{ id: string }> | null) ?? []
+    ).map((b) => b.id);
+    if (ids.length === 0) return [];
+
+    // 2. Klaim atomik (Fase 5, bila diminta): UPDATE bersyarat —
+    // hanya baris yang penandanya masih kosong/basi yang berhasil
+    // diklaim. Dua worker yang memilih kandidat yang sama: UPDATE
+    // kedua mengevaluasi ulang WHERE sesudah commit pertama dan
+    // mendapat 0 baris untuk item yang sudah diklaim — item yang
+    // sedang diproses worker lain tidak pernah terambil.
+    // Kegagalan klaim (mis. kolom v23 belum diterapkan di produksi)
+    // TIDAK menggagalkan antrean: degradasi anggun ke perilaku lama
+    // (kandidat dikembalikan tanpa penanda); lock job tetap penjaga
+    // utama, penanda hanya pertahanan lapis kedua.
+    let idsTerpilih = ids;
+    if (opsi.klaim) {
+      try {
+        const batasBasi = new Date(
+          Date.now() - BATAS_BASI_TANDA_DIPROSES_MENIT * 60_000,
+        ).toISOString();
+        const { data: diklaim, error: errKlaim } = await this.klien
+          .from("pf_raw_items")
+          .update({ diproses_pada: new Date().toISOString() })
+          .in("id", ids)
+          .or(
+            `diproses_pada.is.null,diproses_pada.lt.${batasBasi}`,
+          )
+          .select("id");
+        if (errKlaim) throw errKlaim;
+        idsTerpilih = (
+          (diklaim as unknown as Array<{ id: string }> | null) ?? []
+        ).map((b) => b.id);
+        if (idsTerpilih.length === 0) return [];
+      } catch {
+        idsTerpilih = ids;
+      }
+    }
+
+    // 3. Ambil baris penuh untuk id terpilih (urutan antrean sama).
+    const { data, error } = await this.kueriAntrean(kolomPenuh, mode).in(
+      "id",
+      idsTerpilih,
+    );
     if (error) throw new Error(`ambilAntrean gagal: ${error.message}`);
     // Select memakai embed pf_sources: tipe bawaan supabase-js tidak
     // bisa mengurai string select ini, jadi baca lewat unknown.
@@ -89,6 +155,14 @@ export class SupabaseAiAdapter implements AiAdapter {
         | { nama?: string; prioritas?: number }
         | null
         | undefined;
+      // Foto sumber tersimpan di metadata.gambar_url (BUKAN kolom —
+      // pf_raw_items tidak punya kolom gambar_url; baca kolom itu
+      // akan gagal 42703 di produksi).
+      const meta = (baris.metadata as Record<string, unknown> | null) ?? null;
+      const gambarUrl =
+        meta && typeof meta.gambar_url === "string" && meta.gambar_url
+          ? meta.gambar_url
+          : null;
       return {
         id: baris.id as string,
         sumber_id: (baris.sumber_id as string | null) ?? null,
@@ -107,10 +181,37 @@ export class SupabaseAiAdapter implements AiAdapter {
         waktu_diambil: baris.waktu_diambil as string,
         status: baris.status as string,
         disalin_dari_id: (baris.disalin_dari_id as string | null) ?? null,
-        metadata:
-          (baris.metadata as Record<string, unknown> | null) ?? null,
+        gambar_url: gambarUrl,
+        metadata: meta,
       };
     });
+  }
+
+  // Tandai SATU item "sedang diproses" (Fase 5, migrasi v23) —
+  // dipakai pipeline untuk jalur hanyaItemId (satu item, bukan
+  // batch). Mengembalikan true bila penanda berhasil diklaim
+  // (kosong/basi), false bila item sedang diproses worker lain.
+  // Metode opsional (pola AdapterRekonsiliasi di pipeline.ts):
+  // adapter tanpa metode ini tetap jalan — penandaan satu item
+  // best-effort, lock job tetap penjaga utama. Bila kolom v23
+  // belum ada, mengembalikan false (bukan melempar).
+  async tandaiItemDiproses(id: string): Promise<boolean> {
+    try {
+      const batasBasi = new Date(
+        Date.now() - BATAS_BASI_TANDA_DIPROSES_MENIT * 60_000,
+      ).toISOString();
+      const { data, error } = await this.klien
+        .from("pf_raw_items")
+        .update({ diproses_pada: new Date().toISOString() })
+        .eq("id", id)
+        .or(`diproses_pada.is.null,diproses_pada.lt.${batasBasi}`)
+        .select("id")
+        .maybeSingle();
+      if (error) return false;
+      return data !== null && data !== undefined;
+    } catch {
+      return false;
+    }
   }
 
   // P2-8 (integrasi B1): waktu diambil item UNCONFIRMED tertua
@@ -363,6 +464,9 @@ export class SupabaseAiAdapter implements AiAdapter {
         mengapa_penting: d.mengapa_penting ?? null,
         belum_diketahui: d.belum_diketahui ?? null,
         raw_item_id: d.raw_item_id,
+        // Foto sumber ikut ke artikel agar halaman artikel tidak
+        // placeholder kosong (halaman sudah merender gambar_url).
+        gambar_url: d.gambar_url ?? null,
         estimasi_baca_menit: estimasiBacaMenit(d.isi),
       })
       .select("id")
@@ -380,6 +484,21 @@ export class SupabaseAiAdapter implements AiAdapter {
       .update({ status_verifikasi })
       .eq("id", id);
     if (error) throw new Error(`perbaruiStatusItem gagal: ${error.message}`);
+    // Fase 5 (v23): lepas penanda "sedang diproses" — item sudah
+    // diputuskan, tidak lagi menunggu di antrean. Best-effort dan
+    // TERPISAH dari update status di atas: bila kolom v23 belum ada,
+    // kegagalan di sini tidak boleh menggagalkan update status
+    // (penanda yang tertinggal dibersihkan oleh kebasian 30 menit).
+    // Jalur yang TIDAK memanggil perbaruiStatusItem (riset gagal,
+    // draf gagal, worker crash) mengandalkan kebasian itu.
+    try {
+      await this.klien
+        .from("pf_raw_items")
+        .update({ diproses_pada: null })
+        .eq("id", id);
+    } catch {
+      // Abaikan — penanda basi yang membersihkan.
+    }
   }
 
   async simpanMetadataItem(
@@ -584,6 +703,12 @@ export class SupabaseAiAdapter implements AiAdapter {
           | { nama?: string; prioritas?: number }
           | null
           | undefined;
+        // Foto sumber tersimpan di metadata.gambar_url (BUKAN kolom).
+        const meta = (baris.metadata as Record<string, unknown> | null) ?? null;
+        const gambarUrl =
+          meta && typeof meta.gambar_url === "string" && meta.gambar_url
+            ? meta.gambar_url
+            : null;
         return {
           id: baris.id as string,
           sumber_id: (baris.sumber_id as string | null) ?? null,
@@ -602,8 +727,8 @@ export class SupabaseAiAdapter implements AiAdapter {
           waktu_diambil: baris.waktu_diambil as string,
           status: baris.status as string,
           disalin_dari_id: (baris.disalin_dari_id as string | null) ?? null,
-          metadata:
-            (baris.metadata as Record<string, unknown> | null) ?? null,
+          gambar_url: gambarUrl,
+          metadata: meta,
         };
       });
   }

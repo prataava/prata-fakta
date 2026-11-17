@@ -17,7 +17,14 @@ export type AgenAi =
   | "trend_analysis"
   | "daily_brief"
   | "data_analysis"
-  | "editorial_quality";
+  | "editorial_quality"
+  | "quality_check"
+  | "analysis";
+  // Integrasi Global News 24/7 (17 Nov 2026): 'quality_check' +
+  // 'analysis' diizinkan CHECK pf_ai_runs_agen_check_v22 (31 nilai,
+  // migrasi v22). DB pra-v22 menolak keduanya (CHECK 23514) —
+  // pipeline mencatat ulang dengan agen v8 + detail.langkah, lihat
+  // jalankanLangkahAgenBaru di lib/ai/pipeline.ts.
 
 export type StatusRunAi = "berjalan" | "berhasil" | "gagal" | "dilewati";
 
@@ -87,6 +94,9 @@ export interface RawItemAntrean {
   waktu_diambil: string;
   status: string;
   disalin_dari_id: string | null;
+  // URL foto sumber (media:content/enclosure RSS, socialimage GDELT)
+  // — dibawa ke draf agar artikel terbit menampilkan foto.
+  gambar_url?: string | null;
   metadata: Record<string, unknown> | null;
 }
 
@@ -165,6 +175,9 @@ export interface SimpanArtikelInput {
   sumber_url: string;
   penulis_nama: string;
   raw_item_id: string;
+  // URL foto sumber — disalin dari item mentah (opsional: tidak semua
+  // item punya foto; artikel tanpa foto tetap tampil placeholder).
+  gambar_url?: string | null;
   fakta_penting: string[];
   kronologi: KronologiEntri[];
   mengapa_penting?: string;
@@ -220,7 +233,18 @@ export interface AiAdapter {
   // waktu terbit DESC. mode "terlama" (P2-8): urut waktu_diambil ASC
   // (item tertua dulu) — dipakai pipeline bila antrean tertua sudah
   // berumur > 7 hari, agar item lama tidak kelaparan selamanya.
-  ambilAntrean(limit: number, mode?: "terbaru" | "terlama"): Promise<RawItemAntrean[]>;
+  // Opsi `klaim` (Fase 5): true -> item yang dikembalikan ditandai
+  // "sedang diproses" (diproses_pada, migrasi v23) agar run lain
+  // tidak mengambilnya; false (bawaan) -> baca saja, untuk konsumen
+  // yang tidak memproses (Daily Brief, analisis tren,
+  // /api/ai/antrean). Bawaan false agar perilaku baca lama tidak
+  // berubah. Penanda yang tidak dibersihkan dianggap basi sesudah
+  // 30 menit (BATAS_BASI_TANDA_DIPROSES_MENIT).
+  ambilAntrean(
+    limit: number,
+    mode?: "terbaru" | "terlama",
+    opsi?: { klaim?: boolean },
+  ): Promise<RawItemAntrean[]>;
   // Waktu diambil item UNCONFIRMED tertua (ISO) atau null bila
   // antrean kosong — dipakai pipeline memutuskan mode kejar.
   ambilWaktuAntreanTertua(): Promise<string | null>;

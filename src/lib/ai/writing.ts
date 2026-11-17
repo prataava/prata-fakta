@@ -7,6 +7,10 @@
 //     angka/nama/tanggal/kutipan baru.
 //   - Bagian "Yang belum diketahui" JUJUR: menyatakan apa yang tidak
 //     dikatakan sumber, bukan mengarang.
+//   - Kutipan (klaim jenis 'kutipan') dibatasi 300 karakter SAAT
+//     DRAF DIBUAT (Fase 10, BATAS_KUTIPAN_DRAF) — bukan hanya di
+//     tampilan; klaim yang dipotong ditandai "…" dan klaim asli
+//     di pf_claims tetap utuh.
 //   - status='draft' (TIDAK PERNAH auto-terbit), penulis
 //     'Redaksi PRATA FAKTA (draf pipeline)' — label jujur (N-T1):
 //     draf ini hasil 10 langkah pipeline deterministik, bukan
@@ -23,6 +27,46 @@ import type {
 } from "./types.ts";
 
 export const PENULIS_DRAF_AI = "Redaksi PRATA FAKTA (draf pipeline)";
+
+// ---------- Batas kutipan (Fase 10) ----------
+// Kutipan di draf dibatasi 300 karakter — ditegakkan DI SINI, saat
+// draf dibuat (bukan hanya di tampilan). Sebelum Fase 10, batas
+// 300 karakter hanya hidup di research.ts (cariKalimatKutipan
+// memotong kutipan evidence) — klaim 'kutipan' yang panjang tetap
+// disalin utuh ke draf oleh susunDrafArtikel. Aturan:
+//   - klaim jenis 'kutipan' yang panjangnya > 300 karakter
+//     DIPOTONG ke 300 karakter (ekor dipotong, ditandai "…") di
+//     semua tempat draf memakai teks klaim itu (pembuka, daftar
+//     fakta, subjudul, fakta_penting).
+//   - klaim jenis lain TIDAK dipotong (bukan kutipan — angka/fakta
+//     panjang adalah ringkasan klaim, bukan kutipan verbatim).
+//   - pemotongan TIDAK mengubah klaim tersimpan di pf_claims —
+//     hanya teks yang tampil di draf. quality-check.ts
+//     (K1) memeriksa ulang draf hasil pemotongan ini.
+//   - klaimKutipanMelebihiBatas() dipakai pipeline/tests untuk
+//     mencatat klaim mana yang dipotong (transparansi).
+export const BATAS_KUTIPAN_DRAF = 300;
+
+/** Potong klaim 'kutipan' yang melebihi batas; jenis lain utuh. */
+export function potongKutipanPanjang(
+  klaim: KlaimTerekstrak,
+): KlaimTerekstrak {
+  if (klaim.jenis !== "kutipan") return klaim;
+  if (klaim.teks.length <= BATAS_KUTIPAN_DRAF) return klaim;
+  return {
+    ...klaim,
+    teks: `${klaim.teks.slice(0, BATAS_KUTIPAN_DRAF).trimEnd()}…`,
+  };
+}
+
+/** Klaim 'kutipan' dari daftar yang akan dipotong saat draf dibuat. */
+export function klaimKutipanMelebihiBatas(
+  klaim: KlaimTerekstrak[],
+): KlaimTerekstrak[] {
+  return klaim.filter(
+    (k) => k.jenis === "kutipan" && k.teks.length > BATAS_KUTIPAN_DRAF,
+  );
+}
 
 // ---------- Klasifikasi kategori (deterministik, kata kunci) ----------
 
@@ -149,12 +193,15 @@ function pastikanTitik(kalimat: string): string {
 }
 
 export function susunDrafArtikel(input: MasukanDraf): SimpanArtikelInput {
-  const { item, klaim, ringkasan, keputusan } = input;
-  if (klaim.length === 0) {
+  const { item, ringkasan, keputusan } = input;
+  if (input.klaim.length === 0) {
     throw new Error(
       "Draf membutuhkan minimal 1 klaim terverifikasi — item tanpa klaim tidak dibuatkan draf.",
     );
   }
+  // Fase 10: tegakkan batas kutipan 300 karakter SEBELUM teks klaim
+  // dipakai di bagian mana pun draf (klaim asli di pf_claims utuh).
+  const klaim = input.klaim.map(potongKutipanPanjang);
   const sumber = input.sumber.length > 0
     ? input.sumber
     : [{ nama: item.sumber_nama, url: item.url }];
@@ -194,6 +241,8 @@ export function susunDrafArtikel(input: MasukanDraf): SimpanArtikelInput {
     sumber_url: item.url,
     penulis_nama: PENULIS_DRAF_AI,
     raw_item_id: item.id,
+    // Foto sumber (bila item memilikinya) — dibawa ke artikel.
+    gambar_url: item.gambar_url ?? null,
     fakta_penting: klaim.map((k) => k.teks),
     kronologi: [
       {
