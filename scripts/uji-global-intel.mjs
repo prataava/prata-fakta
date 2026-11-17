@@ -47,6 +47,11 @@
 //   §G  Regresi K2 quality-check (temuan integrator): angka
 //       berpemisah ("Rp 16.500", "2,5") TERTELUSUR ke klaim;
 //       angka yang benar-benar tanpa sumber tetap ditolak.
+//   §H  Regresi PGRST108 ambilAntrean (run #27/#28, 17 Nov 2026):
+//       PostgREST menolak .order by foreignTable bila tabel asing
+//       tidak di-embed di select — select kandidat WAJIB meng-embed
+//       pf_sources(prioritas); satu-satunya pemakaian foreignTable
+//       di src/ ada di supabase-adapter.ts.
 //
 // BATAS UJI YANG JUJUR:
 // - "0 window.confirm di jalur admin" TIDAK BISA ditegakkan
@@ -661,6 +666,48 @@ cek(
   "G3 QC lolos untuk draf dari sumber bernama berangka (NT3 di pembuka bukan angka faktual)",
   qcG3.lolos,
   JSON.stringify(qcG3.pelanggaran),
+);
+
+// ---------- §H: regresi PGRST108 ambilAntrean (run #27/#28) ----------
+// PostgREST: .order("prioritas", { foreignTable: "pf_sources" })
+// tanpa pf_sources di-embed di select -> PGRST108 "'pf_sources'
+// is not an embedded resource in this request" -> HTTP 500 di
+// /api/ai/jalankan (terbukti ulang via REST anon 17 Nov 2026:
+// order-tanpa-embed gagal PGRST108, select-dengan-embed sah).
+// Penjaga statis: select kandidat WAJIB meng-embed
+// pf_sources(prioritas), dan tidak boleh ada pemakaian
+// foreignTable lain di src/ yang luput dari aturan ini.
+const adapterTeks = baca("src/lib/ai/supabase-adapter.ts");
+cek(
+  "H1 Select kandidat ambilAntrean meng-embed pf_sources(prioritas) — order by foreignTable tanpa embed = PGRST108 + HTTP 500",
+  adapterTeks.includes('"id, pf_sources(prioritas)"'),
+  "tanpa embed, PostgREST menolak order prioritas sumber",
+);
+cek(
+  "H2 Select baris penuh ambilAntrean meng-embed pf_sources(nama, prioritas)",
+  adapterTeks.includes("pf_sources(nama, prioritas)"),
+);
+function daftarTs(dir) {
+  const hasil = [];
+  for (const entri of fs.readdirSync(dir, { withFileTypes: true })) {
+    const penuh = path.join(dir, entri.name);
+    if (entri.isDirectory()) hasil.push(...daftarTs(penuh));
+    else if (/\.tsx?$/.test(entri.name)) hasil.push(penuh);
+  }
+  return hasil;
+}
+const pemakaiForeignTable = [];
+for (const berkas of daftarTs(DIR_SRC)) {
+  const teks = fs.readFileSync(berkas, "utf8");
+  if (teks.includes("foreignTable")) {
+    pemakaiForeignTable.push(path.relative(DIR_REPO, berkas));
+  }
+}
+cek(
+  "H3 Satu-satunya pemakaian foreignTable di src/ ada di supabase-adapter.ts (yang sudah di-embed)",
+  pemakaiForeignTable.length === 1 &&
+    pemakaiForeignTable[0] === "src/lib/ai/supabase-adapter.ts",
+  pemakaiForeignTable.join(", ") || "tidak ada",
 );
 
 console.log(`\nRINGKASAN global-intel: ${lolos} lolos, ${gagal} gagal.`);
