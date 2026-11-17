@@ -40,7 +40,61 @@ function namaSumberDariUrl(url: string): string {
   }
 }
 
-export default function JejakFakta({ jejak }: { jejak: JejakFakta }) {
+function normalisasiUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+// Peran sumber dari pf_article_sources (kolom peran, v8 §8:
+// 'utama' | 'koroborasi' | 'konteks' | 'bantahan' | NULL —
+// CHECK v8; nilai 'primer'/'sekunder' TIDAK valid dan ditolak
+// database, jadi jangan pernah dipakai). PerbandinganSumber sudah
+// mengambilnya lewat getPerbandinganSumber — halaman artikel
+// meneruskannya ke sini sebagai prop, tanpa query baru.
+// Peran 'utama' adalah nilai yang dipakai getPerbandinganSumber
+// untuk sumber awal artikel (sumber_url artikel).
+const LABEL_PERAN: Record<string, string> = {
+  utama: "Utama",
+  koroborasi: "Koroborasi",
+  konteks: "Konteks",
+  bantahan: "Bantahan",
+};
+
+export type PeranSumber = {
+  url: string | null;
+  nama: string;
+  peran: string | null;
+};
+
+function labelPeran(peran: string | null | undefined): string {
+  if (!peran) return "Peran belum ditentukan";
+  return LABEL_PERAN[peran] ?? peran;
+}
+
+export default function JejakFakta({
+  jejak,
+  peranSumber = [],
+}: {
+  jejak: JejakFakta;
+  /** Peran per sumber dari pf_article_sources (diteruskan halaman
+   *  artikel dari getPerbandinganSumber — tanpa query baru). */
+  peranSumber?: PeranSumber[];
+}) {
+  // Cocokkan bukti ke sumber tercatat: lewat URL dulu (tanpa
+  // garis miring akhir), lalu lewat nama sumber. Bila tidak ada
+  // yang cocok, peran sumber itu belum ditentukan di sistem.
+  const peranUntukBukti = (b: { sumber_url: string; sumber_nama: string | null }): string => {
+    const urlBukti = normalisasiUrl(b.sumber_url);
+    const cocok =
+      (urlBukti
+        ? peranSumber.find(
+            (s) => s.url && normalisasiUrl(s.url) === urlBukti,
+          )
+        : undefined) ??
+      (b.sumber_nama
+        ? peranSumber.find((s) => s.nama === b.sumber_nama)
+        : undefined);
+    return labelPeran(cocok?.peran);
+  };
   return (
     <section className="seksi" aria-labelledby="seksi-jejak-fakta">
       <div className="seksi-kepala">
@@ -89,6 +143,10 @@ export default function JejakFakta({ jejak }: { jejak: JejakFakta }) {
                           ) : (
                             (b.sumber_nama ?? "Sumber tidak bernama")
                           )}
+                          {" "}
+                          <span className="lencana">
+                            Peran: {peranUntukBukti(b)}
+                          </span>
                           {b.kutipan && (
                             <blockquote style={{ margin: "4px 0 0", color: "var(--ink-2)" }}>
                               &ldquo;{b.kutipan}&rdquo;
