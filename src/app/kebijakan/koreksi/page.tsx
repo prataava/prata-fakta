@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 
 export const metadata: Metadata = {
   title: "Koreksi & Hak Jawab",
@@ -6,7 +7,20 @@ export const metadata: Metadata = {
     "Cara melaporkan kesalahan di PRATA FAKTA dan prosedur koreksi serta hak jawab.",
 };
 
-export default function Koreksi() {
+// Halaman dirender per request (`instant = false` + connection() di
+// bawah), BUKAN prerender statis — 17 Nov 2026 (perbaikan CSP
+// $RT/$RV): sebagai halaman statis murni, boundary loading.tsx root
+// selesai di shell prerender sehingga skrip definisi $RV/$RC React
+// ikut terpanggang TANPA nonce; CSP (script-src nonce+hash)
+// memblokirnya → $RC undefined → hidrasi gagal (#419) → isi halaman
+// ganda di DOM (h1=2). connection() menunda segmen halaman sampai
+// request, jadi definisi $RV/$RC diterbitkan saat resume DENGAN
+// nonce. JANGAN hapus connection() tanpa menguji ulang halaman ini
+// di CDP (definisi $RV/$RC harus ber-nonce, h1 harus = 1).
+export const instant = false;
+
+export default async function Koreksi() {
+  await connection();
   return (
     <div className="wadah">
       <article className="prosa">
