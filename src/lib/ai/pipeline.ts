@@ -27,6 +27,15 @@
 //     'comparison'. Nama agen harfiah 'comparison' butuh migrasi
 //     aditif yang melonggarkan CHECK — di luar mandat paket ini,
 //     JANGAN diubah diam-diam (laporkan ke koordinator).
+//   CATATAN CHECK v22 (integrasi Global News 24/7, 17 Nov 2026):
+//     migrasi v22 MELONGGARKAN check itu menjadi 31 nilai
+//     (pf_ai_runs_agen_check_v22), termasuk 'comparison',
+//     'quality_check', dan 'analysis'. Langkah baru di bawah
+//     (analysis + quality_check) mencatat agen HARFIAH itu lewat
+//     jalankanLangkahAgenBaru; bila DB masih pra-v22, insert
+//     ditolak CHECK 23514 dan helper jatuh ke pola lama (agen v8
+//     + detail.langkah) — tanpa mengubah arti baris 'comparison'
+//     lama, yang tetap 'fact_verifikasi' + langkah 'comparison'.
 // SETIAP langkah pipeline dibungkus try/catch dan menulis pf_ai_runs
 // (berhasil/gagal/dilewati + durasi_ms + error/alasan). Satu langkah
 // gagal tidak menggagalkan item lain; satu item gagal tidak
@@ -42,11 +51,13 @@ import type {
   DipicuOleh,
   InputJenisAi,
   RawItemAntrean,
+  SimpanArtikelInput,
 } from "./types.ts";
 import { intiKlaim, telitiItem, cariKalimatKutipan, formatKlaimUntukMuse } from "./research.ts";
 import type { KlaimTerekstrak } from "./research.ts";
 import {
   analisisSumber,
+  skorKredibilitas,
   tierDariPrioritas,
 } from "./source-analysis.ts";
 import {
@@ -65,6 +76,29 @@ import { susunDrafArtikel } from "./writing.ts";
 import type { SumberDraf } from "./writing.ts";
 import { periksaKualitasDraf } from "./quality.ts";
 import type { HasilKualitas } from "./quality.ts";
+// Integrasi Global News 24/7 (17 Nov 2026): quality_check +
+// analysis (Fase 9, Worker H) + auto-publish Tier-1 (Fase 11,
+// Worker E). Impor data.ts/kendali.ts/auto-publish di sini
+// statis — tidak ada siklus (tidak satu pun modul itu mengimpor
+// pipeline.ts); kegagalan baca/panggil di titik wiring selalu
+// ditangkap try/catch agar tidak menggagalkan item.
+import {
+  periksaKualitasKlaimDraf,
+  type BuktiKlaim,
+} from "./quality-check.ts";
+import { sintesis5W1H } from "./analysis.ts";
+import { hitungFactScore } from "../fact-score.ts";
+import {
+  getJumlahKoreksiTerbuka,
+  getPerbandinganSumber,
+} from "../data.ts";
+import { getFlagsLayanan } from "../admin/kendali.ts";
+import {
+  nilaiFlagAutoPublish,
+  terbitkanOtomatis,
+  type HasilAutoPublish,
+} from "../admin/auto-publish.ts";
+import { buatAdminAdapter } from "../admin/supabase-adapter.ts";
 import { hitungTren } from "./trends.ts";
 import type { TopikTren } from "./trends.ts";
 import { entriBriefDariDraf, susunBrief } from "./brief.ts";
@@ -209,6 +243,62 @@ async function catatDilewati(
   } catch {
     // Pencatatan dilewati bersifat informatif; kegagalannya tidak
     // boleh menggagalkan pemrosesan item.
+  }
+}
+
+// Jalankan satu langkah dengan agen BARU (v22) + fallback pra-v22
+// (integrasi Global News 24/7, 17 Nov 2026).
+//   - Coba dulu agen harfiah (mis. 'quality_check' / 'analysis',
+//     diizinkan CHECK pf_ai_runs_agen_check_v22, 31 nilai).
+//   - Bila insert pf_ai_runs ditolak CHECK pra-v22 (kode 23514 /
+//     "violates check constraint"), catat ulang dengan agen lama
+//     yang diizinkan CHECK v8 + detail.langkah = nama langkah
+//     (pola 'comparison': 'fact_verification' + langkah).
+//   - Galat LAIN (termasuk galat dari fn itu sendiri, mis. draf
+//     gagal quality check) TIDAK pernah memicu fallback — fn
+//     murni di sini tidak melempar galat CHECK, jadi pencocokan
+//     pesan di bawah hanya menangkap penolakan CHECK di catatRun.
+//     Fallback menjalankan ulang fn (murni, idempotent); run
+//     harfiah yang gagal dicatat TIDAK PERNAH dibuat (catatRun
+//     melempar sebelum fn jalan), jadi tidak ada baris ganda.
+async function jalankanLangkahAgenBaru<T>(
+  adapter: AiAdapter,
+  agenLiteral: AgenAi,
+  agenFallback: AgenAi,
+  langkah: string,
+  inputRef: string,
+  inputJenis: InputJenisAi,
+  dipicuOleh: DipicuOleh,
+  fn: () => Promise<HasilLangkah<T>>,
+): Promise<T> {
+  try {
+    return await jalankanLangkah(
+      adapter,
+      agenLiteral,
+      inputRef,
+      inputJenis,
+      dipicuOleh,
+      fn,
+    );
+  } catch (err) {
+    const pesan = err instanceof Error ? err.message : String(err);
+    const ditolakCheck =
+      /violates check constraint|23514|pf_ai_runs_agen_check/i.test(pesan);
+    if (!ditolakCheck) throw err;
+    return await jalankanLangkah(
+      adapter,
+      agenFallback,
+      inputRef,
+      inputJenis,
+      dipicuOleh,
+      async () => {
+        const hasil = await fn();
+        return {
+          ...hasil,
+          detail: { ...(hasil.detail ?? {}), langkah },
+        };
+      },
+    );
   }
 }
 
@@ -553,6 +643,15 @@ async function verifikasiSatuItem(
 
   let jumlahEvidence = 0;
   let jumlahEvidenceIndependen = 0;
+  // Integrasi Global News 24/7 (17 Nov 2026): daftar evidence
+  // untuk quality_check (langkah 6b) + hitungan klaim berbukti
+  // untuk komponen C FACT SCORE auto-publish (langkah 10).
+  // Kutipan dihitung ulang dari teks sumber SAAT INI (deterministik,
+  // sama seperti saat evidence ditulis) — untuk baris evidence
+  // yang sudah ada dari run sebelumnya, barisnya tidak ditulis
+  // ulang tetapi kutipannya tetap diketahui dari teks kini.
+  const evidenceTercatat: BuktiKlaim[] = [];
+  const klaimDenganEvidence = new Set<string>();
   const kutipanTidakDitemukan: Array<{
     klaim_id: string;
     sumber_url: string;
@@ -595,6 +694,12 @@ async function verifikasiSatuItem(
         // melaporkan jumlahEvidence=0 dan quality gagal palsu.)
         jumlahEvidence += 1;
         if (independen) jumlahEvidenceIndependen += 1;
+        evidenceTercatat.push({
+          klaim_teks: klaim.teks,
+          sumber_url: sumberUrl,
+          kutipan: kutipan ?? null,
+        });
+        klaimDenganEvidence.add(klaimId);
         return;
       }
       await adapter.simpanBukti({
@@ -606,6 +711,12 @@ async function verifikasiSatuItem(
       });
       jumlahEvidence += 1;
       if (independen) jumlahEvidenceIndependen += 1;
+      evidenceTercatat.push({
+        klaim_teks: klaim.teks,
+        sumber_url: sumberUrl,
+        kutipan: kutipan ?? null,
+      });
+      klaimDenganEvidence.add(klaimId);
       if (!kutipan) {
         kutipanTidakDitemukan.push({
           klaim_id: klaimId,
@@ -837,6 +948,20 @@ async function verifikasiSatuItem(
   // ulang — jangan buat draf duplikat (bentrok slug).
   // Sumber draf = gabungan sumber independen kedua sinyal (judul +
   // koroborasi klaim), didedup per URL.
+  // Integrasi Global News 24/7 (17 Nov 2026) — urutan baru di
+  // dalam langkah 6 (draf dibangun IN-MEMORY dulu, baru disimpan):
+  //   6a. susunDrafArtikel (murni, tanpa DB).
+  //   6b. Analysis 5W+1H (analysis.ts) — bahan editor; pencatatan
+  //       run-nya best-effort (gagal catat tidak menggagalkan item).
+  //   6c. Quality check ketertelusuran (quality-check.ts) —
+  //       FAIL-CLOSED: draf yang gagal TIDAK disimpan, status item
+  //       TIDAK diubah (tetap UNCONFIRMED, dicoba lagi run
+  //       berikut), alasan tercatat di pf_ai_runs sebagai run
+  //       'gagal'. Berlaku juga bila draf sudah ada dari run lama
+  //       (draf pra-QC yang gagal tidak boleh lanjut ke langkah 8).
+  //   6d. Simpan draf (atau pakai ulang) — baru di sini draf
+  //       menyentuh DB. Langkah 7 (quality.ts) tetap berjalan
+  //       sesudahnya seperti sebelumnya.
   const sumberDrafMap = new Map<string, SumberDraf>();
   for (const s of independenJudul) {
     const nama = namaSumber.get(s.sumberId) ?? "Sumber tidak diketahui";
@@ -853,6 +978,121 @@ async function verifikasiSatuItem(
     }
   }
   const sumberDraf: SumberDraf[] = [...sumberDrafMap.values()];
+
+  // 6a. Draf in-memory (belum disimpan) — dipakai 6b/6c/6d + 7.
+  let draf: SimpanArtikelInput;
+  try {
+    draf = susunDrafArtikel({
+      item,
+      klaim: klaimTersimpan,
+      ringkasan,
+      keputusan: keputusanAkhir,
+      sumber: sumberDraf,
+    });
+  } catch {
+    // P1-2: draf GAGAL dibuat -> status item TIDAK diubah (tetap
+    // UNCONFIRMED di antrean, dicoba lagi run berikutnya) — item
+    // tidak hilang diam-diam.
+    hasil.gagal += 1;
+    return;
+  }
+
+  // 6b. Analysis 5W+1H (analysis.ts) — sintesis HANYA dari klaim
+  // terverifikasi (+ metadata yang dinyatakan eksplisit); slot
+  // tanpa pendukung dibiarkan kosong secara jujur. Hasilnya
+  // dicatat sebagai satu baris pf_ai_runs (agen harfiah
+  // 'analysis' pasca-v22, fallback 'article_writing' + langkah
+  // 'analysis' pra-v22). Best-effort: pencatatan gagal tidak
+  // menggagalkan item — ringkasan tetap diteruskan ke detail
+  // langkah writing (6d) bila tersedia.
+  let analisisTercatat = false;
+  let analisisRingkasan: string | null = null;
+  try {
+    const sintesis = await jalankanLangkahAgenBaru(
+      adapter,
+      "analysis",
+      "article_writing",
+      "analysis",
+      item.id,
+      "raw_item",
+      dipicu,
+      async () => {
+        const hasilAnalisis = sintesis5W1H({
+          klaim: klaimTersimpan,
+          judul: item.judul,
+          waktuTerbitAsli: item.waktu_terbit_asli,
+          sumberNama: item.sumber_nama,
+        });
+        return {
+          nilai: hasilAnalisis,
+          detail: {
+            ringkasan: hasilAnalisis.ringkasan,
+            slot_terisi: (
+              ["siapa", "apa", "kapan", "diMana", "mengapa", "bagaimana"] as const
+            ).filter((slot) => hasilAnalisis[slot].teks !== null),
+          },
+        };
+      },
+    );
+    analisisTercatat = true;
+    analisisRingkasan = sintesis.ringkasan;
+  } catch {
+    // Best-effort (lihat komentar di atas): item tetap diproses.
+    analisisTercatat = false;
+    analisisRingkasan = null;
+  }
+
+  // 6c. Quality check ketertelusuran (quality-check.ts) — FAIL-CLOSED.
+  // Draf yang gagal TIDAK disimpan (langkah 6d tidak jalan),
+  // status item TIDAK diubah (tetap UNCONFIRMED), dan alasan
+  // tercatat di pf_ai_runs (run 'gagal' agen quality_check /
+  // editorial_quality + detail.langkah). quality.ts (langkah 7)
+  // tetap dijalankan sesudahnya untuk draf yang LOLOS — modul
+  // ini MENAMBAH pemeriksaan ketertelusuran, bukan menggantikannya.
+  try {
+    await jalankanLangkahAgenBaru(
+      adapter,
+      "quality_check",
+      "editorial_quality",
+      "quality_check",
+      item.id,
+      "raw_item",
+      dipicu,
+      async () => {
+        const tanggalDiketahui = [
+          item.waktu_terbit_asli,
+          ...klaimTersimpan
+            .filter((k) => k.jenis === "tanggal")
+            .map((k) => k.teks),
+        ].filter((t): t is string => typeof t === "string" && t.length > 0);
+        const hasilQc = periksaKualitasKlaimDraf({
+          judul: draf.judul,
+          ringkasan: draf.ringkasan,
+          isi: draf.isi,
+          fakta: draf.fakta_penting,
+          sumber: sumberDraf,
+          klaim: klaimTersimpan,
+          evidence: evidenceTercatat,
+          tanggalDiketahui,
+        });
+        if (!hasilQc.lolos) {
+          throw new Error(
+            `quality_check gagal: ${hasilQc.pelanggaran.map((p) => p.kode).join(", ")}`,
+          );
+        }
+        return {
+          nilai: hasilQc,
+          detail: { lolos: true, jumlah_pelanggaran: 0 },
+        };
+      },
+    );
+  } catch {
+    // Fail-closed (lihat komentar di atas): draf tidak disimpan,
+    // status item tetap UNCONFIRMED, dicoba lagi run berikut.
+    hasil.gagal += 1;
+    return;
+  }
+
   let artikelId: string;
   let drafDipakaiUlang = false;
   try {
@@ -863,13 +1103,8 @@ async function verifikasiSatuItem(
       "raw_item",
       dipicu,
       async () => {
-        const draf = susunDrafArtikel({
-          item,
-          klaim: klaimTersimpan,
-          ringkasan,
-          keputusan: keputusanAkhir,
-          sumber: sumberDraf,
-        });
+        // Draf sudah dibangun in-memory di 6a (dan lolos
+        // quality_check di 6c) — di sini hanya simpan/pakai ulang.
         const adapterLuas = adapter as AiAdapter & {
           cariArtikelUntukItem?: (rawItemId: string) => Promise<string | null>;
         };
@@ -891,6 +1126,9 @@ async function verifikasiSatuItem(
               slug: draf.slug,
               dipakai_ulang: true,
               jumlah_klaim: klaimTersimpan.length,
+              analisis_tercatat: analisisTercatat,
+              analisis_ringkasan: analisisRingkasan,
+              quality_check: "lolos",
             },
           };
         }
@@ -902,6 +1140,9 @@ async function verifikasiSatuItem(
             slug: draf.slug,
             kategori_slug: draf.kategori_slug,
             jumlah_klaim: klaimTersimpan.length,
+            analisis_tercatat: analisisTercatat,
+            analisis_ringkasan: analisisRingkasan,
+            quality_check: "lolos",
           },
         };
       },
@@ -929,13 +1170,8 @@ async function verifikasiSatuItem(
       "artikel",
       dipicu,
       async () => {
-        const draf = susunDrafArtikel({
-          item,
-          klaim: klaimTersimpan,
-          ringkasan,
-          keputusan: keputusanAkhir,
-          sumber: sumberDraf,
-        });
+        // Draf yang sama seperti 6a (sudah lolos quality_check);
+        // dibangun ulang tidak perlu — pakai in-memory.
         const hasilKualitas = periksaKualitasDraf({
           judul: draf.judul,
           ringkasan: draf.ringkasan,
@@ -1004,6 +1240,152 @@ async function verifikasiSatuItem(
     });
   } catch {
     // Tautan gagal ditulis — rekonsiliasi (Tipe B) memperbaikinya.
+  }
+
+  // 10. Auto-publish Tier-1 (Fase 11, Worker E) — SESUDAH langkah 9.
+  // Gate penuh ada di terbitkanOtomatis (toggle aktif + FACT SCORE
+  // >= 85 + status draft + verifikasi CROSS-CHECKED/VERIFIED +
+  // verification record terakhir sejalan). Kegagalan di sini TIDAK
+  // PERNAH menggagalkan item: draf tetap draft, item tetap
+  // terhitung terverifikasi/cross-checked di atas.
+  //
+  // TEMUAN INTEGRATOR (17 Nov 2026) — jalur skor yang
+  // diinstruksikan header auto-publish.ts TIDAK PERNAH
+  // menghasilkan skor untuk draf pipeline:
+  //   (a) getPerbandinganSumber memfilter pf_articles.status =
+  //       'terbit' — draf ('draft') selalu tersedia=false;
+  //   (b) klaim pipeline terikat raw_item_id, bukan artikel_id —
+  //       getPerbandinganSumber membaca pf_claims by artikel_id,
+  //       jadi klaim draf pipeline selalu kosong.
+  // Karena itu, bila perbandingan tersedia, skor dihitung persis
+  // seperti halaman publik (jalur yang diinstruksikan); bila
+  // TIDAK tersedia, skor dihitung dari data verifikasi yang BARU
+  // diproduksi langkah 3–9 di atas, dengan rumus FACT SCORE yang
+  // SAMA (pemilik 17 Nov 2026) dan masukan yang SAMA maknanya:
+  //   A: akar independen pendukung — gabungan akar judul
+  //      (daftarSumberIndependen, sudah ter-resolusi rantai
+  //      salinan) + akar koroborator klaim (sumberId koroborator
+  //      SUDAH akar, lihat verification.ts).
+  //   B: skor kredibilitas tertinggi antar akar itu (90/75/60).
+  //   C: klaim dengan >= 1 evidence 'mendukung' (pipeline hanya
+  //      menulis arah 'mendukung', jadi 0 menentang selalu).
+  //   D: laporan koreksi terbuka — dibaca nyata via
+  //      getJumlahKoreksiTerbuka (draf baru: 0; bila baca gagal,
+  //      0 — draf baru tidak mungkin punya laporan).
+  // TIDAK ADA angka karangan: tiap komponen berasal dari data
+  // yang baru ditulis/diverifikasi run ini; sumber skor dicatat
+  // di detail run ('perbandingan' | 'pipeline').
+  // Konsekuensi yang JUJUR: draf 1-sumber tier-1 mendapat
+  // A=13,33 + B=30 + C=20 + D=10 = 73,33 (< 85) — TIDAK
+  // auto-terbit; butuh >= 2 akar independen (86,67+) — sejalan
+  // dengan maksud gerbang (hanya draf terkoroborasi kuat yang
+  // terbit otomatis).
+  let hasilAutoPublish: HasilAutoPublish | null = null;
+  let sumberSkorAutoPublish: "perbandingan" | "pipeline" | null = null;
+  try {
+    const perbandingan = await getPerbandinganSumber(artikelId);
+    const koreksiTerbuka = (await getJumlahKoreksiTerbuka(artikelId)) ?? 0;
+    let skor: number | null;
+    if (perbandingan.tersedia) {
+      sumberSkorAutoPublish = "perbandingan";
+      skor = hitungFactScore({
+        jumlahAkarPendukung: new Set(
+          perbandingan.bobot.flatMap((b) => b.akarPendukung),
+        ).size,
+        skorKredibilitasTertinggi: perbandingan.bobot.reduce<number | null>(
+          (maks, b) =>
+            b.skorTertinggi !== null &&
+            (maks === null || b.skorTertinggi > maks)
+              ? b.skorTertinggi
+              : maks,
+          null,
+        ),
+        jumlahKlaim: perbandingan.klaim.length,
+        jumlahKlaimDidukungTanpaMenentang: perbandingan.bobot.filter(
+          (b) => b.mendukung >= 1 && b.menentang === 0,
+        ).length,
+        laporanKoreksiTerbuka: koreksiTerbuka,
+      }).skor;
+    } else {
+      // Jalur pipeline-native (lihat TEMUAN INTEGRATOR di atas).
+      sumberSkorAutoPublish = "pipeline";
+      const kunciAkar = new Set<string>();
+      let skorTertinggi: number | null = null;
+      for (const s of independenJudul) {
+        kunciAkar.add(s.sumberId ?? `item:${s.itemAkar.id}`);
+        const sk = skorKredibilitas(s.tier);
+        if (skorTertinggi === null || sk > skorTertinggi) skorTertinggi = sk;
+      }
+      for (const kor of verifikasiKlaim.koroborator) {
+        kunciAkar.add(kor.sumberId ?? `item:${kor.itemId}`);
+        const sk = skorKredibilitas(kor.tier);
+        if (skorTertinggi === null || sk > skorTertinggi) skorTertinggi = sk;
+      }
+      skor = hitungFactScore({
+        jumlahAkarPendukung: kunciAkar.size,
+        skorKredibilitasTertinggi: skorTertinggi,
+        jumlahKlaim: klaimTersimpan.length,
+        jumlahKlaimDidukungTanpaMenentang: klaimDenganEvidence.size,
+        laporanKoreksiTerbuka: koreksiTerbuka,
+      }).skor;
+    }
+    const { flags } = await getFlagsLayanan();
+    const aktif = nilaiFlagAutoPublish(flags);
+    hasilAutoPublish = await terbitkanOtomatis(buatAdminAdapter(), {
+      artikelId,
+      factScore: skor,
+      pengaturan: { autoPublishTier1: aktif },
+    }, { id: null, email: "pipeline_editorial" });
+  } catch (err) {
+    // Kegagalan auto-publish (baca skor/flag, adapter admin, audit
+    // fail-closed di terbitkanOtomatis) TIDAK PERNAH menggagalkan
+    // item — draf tetap draft. Alasan dicatat di run di bawah.
+    hasilAutoPublish = null;
+    try {
+      const runId = await adapter.catatRun({
+        agen: "article_writing",
+        input_ref: artikelId,
+        input_jenis: "artikel",
+        dipicu_oleh: dipicu,
+      });
+      await adapter.tutupRun(runId, {
+        status: "gagal",
+        error: `auto_publish gagal: ${err instanceof Error ? err.message : String(err)}`,
+        durasi_ms: 0,
+        detail: { langkah: "auto_publish", sumber_skor: sumberSkorAutoPublish },
+      });
+    } catch {
+      // Pencatatan informatif; kegagalannya tidak menggagalkan item.
+    }
+  }
+  if (hasilAutoPublish) {
+    // Catat hasil ke pf_ai_runs agar terlihat di /admin (pola
+    // 'comparison': agen v8 + detail.langkah).
+    try {
+      const runId = await adapter.catatRun({
+        agen: "article_writing",
+        input_ref: artikelId,
+        input_jenis: "artikel",
+        dipicu_oleh: dipicu,
+      });
+      await adapter.tutupRun(runId, {
+        status: hasilAutoPublish.diterbitkan ? "berhasil" : "dilewati",
+        error: hasilAutoPublish.diterbitkan
+          ? undefined
+          : (hasilAutoPublish.alasan ?? undefined),
+        durasi_ms: 0,
+        output_ref: hasilAutoPublish.diterbitkan ? artikelId : undefined,
+        detail: {
+          langkah: "auto_publish",
+          diterbitkan: hasilAutoPublish.diterbitkan,
+          fact_score: hasilAutoPublish.factScore,
+          sumber_skor: sumberSkorAutoPublish,
+          alasan: hasilAutoPublish.alasan,
+        },
+      });
+    } catch {
+      // Pencatatan informatif; kegagalannya tidak menggagalkan item.
+    }
   }
 }
 
@@ -1310,9 +1692,17 @@ export async function jalankanPipelineEditorial(
   }
   hasil.modeAntrean = modeAntrean;
 
+  // Fase 5: jalur pemrosesan batch menandai item "sedang diproses"
+  // (klaim:true) agar run kedua yang lolos dari lock job (mis. lock
+  // kedaluwarsa di tengah run panjang) tidak mengambil item yang
+  // sama. Jalur hanyaItemId mengambil read-only dulu — mengklaim
+  // 500 item hanya untuk memproses satu item akan menandai antrean
+  // secara sia-sia — lalu menandai SATU item yang dipilih
+  // (best-effort, metode opsional adapter).
   const antrean = await adapter.ambilAntrean(
     opsi.hanyaItemId ? 500 : (opsi.limit ?? 10),
     modeAntrean,
+    opsi.hanyaItemId ? { klaim: false } : { klaim: true },
   );
   let daftar = antrean;
   if (opsi.hanyaItemId) {
@@ -1323,6 +1713,16 @@ export async function jalankanPipelineEditorial(
       return hasil;
     }
     daftar = [satu];
+    const luas = adapter as AiAdapter & {
+      tandaiItemDiproses?: (id: string) => Promise<boolean>;
+    };
+    try {
+      if (typeof luas.tandaiItemDiproses === "function") {
+        await luas.tandaiItemDiproses(satu.id);
+      }
+    } catch {
+      // Penandaan satu item best-effort (lock job tetap penjaga utama).
+    }
   }
 
   // Fase 1: riset SEMUA item dulu — klaim harus tersimpan sebelum
