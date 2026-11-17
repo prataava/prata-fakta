@@ -9,6 +9,7 @@ import {
   getJejakFakta,
   getJumlahKoreksiTerbuka,
   getPerbandinganSumber,
+  getPerbandinganDuaArtikel,
   getVersiArtikel,
   isBookmarked,
 } from "@/lib/data";
@@ -22,7 +23,8 @@ import PembacaArtikel from "@/components/artikel/PembacaArtikel";
 import LencanaFactScore from "@/components/artikel/LencanaFactScore";
 import JejakFakta from "@/components/artikel/JejakFakta";
 import MetodeVerifikasi from "@/components/artikel/MetodeVerifikasi";
-import PerbandinganSumber from "@/components/artikel/PerbandinganSumber";
+import CatatanPribadi from "@/components/artikel/CatatanPribadi";
+import SakelarPerbandingan from "@/components/artikel/SakelarPerbandingan";
 
 // Halaman artikel: data dibaca per request (slug dinamis) — rute diblokir
 // di server per request (pola resmi cacheComponents), bukan di-prerender.
@@ -118,6 +120,16 @@ export default async function HalamanArtikel({
   const bookmarkAwal = pengguna
     ? await isBookmarked(pengguna.id, artikel.id)
     : false;
+
+  // P1-3 (integrator): artikel kedua untuk mode Bersebelahan =
+  // artikel terkait pertama (sudah diambil di atas, tanpa query
+  // baru untuk daftarnya). Bila tidak ada artikel terkait,
+  // toggle Bersebelahan tetap tampil tapi mengarah ke
+  // /bandingkan — bukan perbandingan kosong yang menyesatkan.
+  const slugBanding = terkait[0]?.slug ?? null;
+  const perbandinganDua = slugBanding
+    ? await getPerbandinganDuaArtikel(slug, slugBanding)
+    : null;
   const estimasi = hitungEstimasiBaca(artikel);
 
   // Hitungan sumber untuk MetodeVerifikasi — dari perbandingan
@@ -357,6 +369,12 @@ export default async function HalamanArtikel({
           bookmarkAwal={bookmarkAwal}
         />
 
+        <CatatanPribadi
+          artikelId={artikel.id}
+          judulTarget={artikel.judul}
+          loggedIn={loggedIn}
+        />
+
         <JejakFakta jejak={jejak} peranSumber={perbandingan.sumber} />
         <MetodeVerifikasi
           statusVerifikasi={artikel.status_verifikasi}
@@ -364,7 +382,12 @@ export default async function HalamanArtikel({
           jumlahSumberIndependen={jumlahSumberIndependen}
           tersedia={perbandingan.tersedia}
         />
-        <PerbandinganSumber perbandingan={perbandingan} />
+        <SakelarPerbandingan
+          perbandingan={perbandingan}
+          perbandinganDua={perbandinganDua}
+          slug={slug}
+          slugBanding={slugBanding}
+        />
       </article>
     </div>
   );
