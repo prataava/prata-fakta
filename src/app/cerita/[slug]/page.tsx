@@ -106,6 +106,12 @@ export default async function CeritaDetail({
             href={`/timeline?cerita=${cerita.slug}`}
           >
             Lihat di Timeline
+          </Link>{" "}
+          <Link
+            className="tombol tombol-hantu"
+            href={`/graf/cerita/${cerita.slug}`}
+          >
+            Lihat di graf
           </Link>
         </p>
       </section>
