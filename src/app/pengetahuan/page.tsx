@@ -90,6 +90,9 @@ export default async function Pengetahuan({
         <p>
           <Link className="tombol tombol-primer" href="/kuis">
             Ikuti Kuis Harian
+          </Link>{" "}
+          <Link className="tombol tombol-hantu" href="/glosarium">
+            Lihat Glosarium
           </Link>
         </p>
       </section>
