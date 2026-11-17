@@ -968,6 +968,13 @@ a.kartu:hover {
     border-radius: 0;
   }
 
+  .kartu-fitur .kartu-gambar {
+    height: 100%;
+    min-height: 240px;
+    border-radius: 0;
+    aspect-ratio: auto;
+  }
+
   .kartu-fitur .kartu-isi {
     padding: 24px;
     gap: 10px;
@@ -1678,6 +1685,20 @@ a.kartu:hover {
   text-transform: uppercase;
   text-align: center;
   padding: 16px;
+}
+
+/* ---------- Thumbnail kartu (foto sumber, bila ada) ---------- */
+/* Rasio 16:9, crop tengah — samakan tinggi semua kartu daftar
+ * (beranda / arsip / kategori / cari). Tanpa foto: placeholder
+ * di atas yang tampil — kartu tidak pernah kosong. */
+.kartu-gambar {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 .placeholder-gambar-besar {
