@@ -17,12 +17,23 @@ export interface OpsiFetchGdelt {
   maxRecords?: number;
   timeoutMs?: number;
   fetchFn?: typeof fetch;
+  // Conditional GET (Fase 3/6): diteruskan apa adanya; GDELT boleh
+  // mengabaikannya — bila server menjawab 304, fetchGdelt
+  // mengembalikan tidakBerubah=true seperti fetchRss.
+  etag?: string | null;
+  lastModified?: string | null;
 }
 
 export interface HasilFetchGdelt {
   items: ItemMentah[];
   httpStatus: number;
   durasiMs: number;
+  /** True bila server menjawab 304 Not Modified. */
+  tidakBerubah?: boolean;
+  /** ETag dari respons (bila server mengirimnya). */
+  etag?: string | null;
+  /** Last-Modified dari respons (bila server mengirimnya). */
+  lastModified?: string | null;
 }
 
 const URL_DASAR_GDELT = "https://api.gdeltproject.org/api/v2/doc/doc";
@@ -82,6 +93,10 @@ export async function fetchGdelt(
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PRATA-FAKTA-Ingestion/1.0",
           Accept: "application/json",
+          ...(opsi.etag ? { "If-None-Match": opsi.etag } : {}),
+          ...(opsi.lastModified
+            ? { "If-Modified-Since": opsi.lastModified }
+            : {}),
         },
         signal: AbortSignal.timeout(timeoutMs),
       },
@@ -100,6 +115,18 @@ export async function fetchGdelt(
     throw new GalatSementara(
       `Gagal mengambil GDELT untuk topik "${topik}" (${Date.now() - mulai} ms): ${pesan}`,
     );
+  }
+  if (respons.status === 304) {
+    // 304 Not Modified — sama seperti fetchRss: 0 item, bukan galat.
+    return {
+      items: [],
+      httpStatus: 304,
+      durasiMs: Date.now() - mulai,
+      tidakBerubah: true,
+      etag: respons.headers?.get("etag") ?? opsi.etag ?? null,
+      lastModified:
+        respons.headers?.get("last-modified") ?? opsi.lastModified ?? null,
+    };
   }
   if (!respons.ok) {
     throw buatGalatHttp(
@@ -175,5 +202,11 @@ export async function fetchGdelt(
     }
   }
 
-  return { items, httpStatus: respons.status, durasiMs: Date.now() - mulai };
+  return {
+    items,
+    httpStatus: respons.status,
+    durasiMs: Date.now() - mulai,
+    etag: respons.headers?.get("etag") ?? null,
+    lastModified: respons.headers?.get("last-modified") ?? null,
+  };
 }

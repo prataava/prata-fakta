@@ -79,6 +79,23 @@ export interface KesehatanSumber {
 /** Ambang gagal beruntun untuk status 'gagal' (3x = sumber mati). */
 export const AMBANG_GAGAL_BERUNTUN = 3;
 
+/**
+ * Status run yang dihitung sebagai "gagal" untuk streak (Fase 3):
+ * 'gagal' lama + kelas galat baru yang menandakan sumber GAGAL
+ * diambil (rate-limited / unavailable / invalid-feed /
+ * permanently-failed). 'dilewati'/'disabled' BUKAN kegagalan
+ * (sumber sengaja tidak diambil) dan memutus streak seperti
+ * 'selesai'/'sebagian' — kalau tidak, sumber yang di-rate-limit
+ * GDELT akan tampil "sehat" di dasbor kesehatan.
+ */
+export const STATUS_RUN_GAGAL: ReadonlySet<string> = new Set([
+  "gagal",
+  "rate-limited",
+  "unavailable",
+  "invalid-feed",
+  "permanently-failed",
+]);
+
 function keTanggal(iso: string | null | undefined): Date | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -115,7 +132,7 @@ export function hitungKesehatanSumber(input: {
 
   let gagalBeruntun = 0;
   for (const r of selesai) {
-    if (r.status === "gagal") gagalBeruntun += 1;
+    if (STATUS_RUN_GAGAL.has(r.status)) gagalBeruntun += 1;
     else break;
   }
 

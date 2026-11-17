@@ -32,11 +32,24 @@ export interface OpsiFetchRss {
   // JANGAN PERNAH diisi di jalur produksi: allowlist adalah
   // pertahanan lapis-2 SSRF untuk ingestion (Tahap 13B).
   lewatiAllowlist?: boolean;
+  // Conditional GET (Fase 3/6): nilai ETag / Last-Modified dari
+  // pengambilan sebelumnya. Bila diisi, dikirim sebagai
+  // If-None-Match / If-Modified-Since; server yang mendukung
+  // menjawab 304 dan fetchRss mengembalikan tidakBerubah=true
+  // tanpa item (engine tidak menyimpan apa pun).
+  etag?: string | null;
+  lastModified?: string | null;
 }
 
 export interface HasilFetchRss {
   items: ItemMentah[];
   httpStatus: number;
+  /** True bila server menjawab 304 Not Modified (feed tidak berubah). */
+  tidakBerubah?: boolean;
+  /** ETag dari respons (bila server mengirimnya). */
+  etag?: string | null;
+  /** Last-Modified dari respons (bila server mengirimnya). */
+  lastModified?: string | null;
 }
 
 const USER_AGENT =
@@ -321,13 +334,18 @@ export async function fetchRss(
   try {
     // Gate Fase 8 (T6): fetchAman, bukan fetch mentah — redirect ke
     // host privat ditolak di tiap hop, bukan hanya URL awal.
+    // Conditional GET (Fase 3/6): If-None-Match / If-Modified-Since
+    // hanya dikirim bila nilainya ada (header kosong tidak dikirim).
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+      Accept: "application/rss+xml, application/xml, text/xml, */*",
+    };
+    if (opsi.etag) headers["If-None-Match"] = opsi.etag;
+    if (opsi.lastModified) headers["If-Modified-Since"] = opsi.lastModified;
     respons = await fetchAman(
       url,
       {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "application/rss+xml, application/xml, text/xml, */*",
-        },
+        headers,
         signal: AbortSignal.timeout(timeoutMs),
       },
       ambil,
@@ -352,6 +370,20 @@ export async function fetchRss(
     }
     throw new GalatSementara(`Gagal mengambil feed ${url}: ${pesan}`);
   }
+  if (respons.status === 304) {
+    // 304 Not Modified: feed tidak berubah sejak pengambilan lalu.
+    // BUKAN galat (Response.ok false untuk 304, jadi dicek SEBELUM
+    // cabang !ok di bawah). Kembalikan 0 item tanpa membaca body —
+    // engine tidak menyimpan apa pun dan tidak menandai basi.
+    return {
+      items: [],
+      httpStatus: 304,
+      tidakBerubah: true,
+      etag: respons.headers?.get("etag") ?? opsi.etag ?? null,
+      lastModified:
+        respons.headers?.get("last-modified") ?? opsi.lastModified ?? null,
+    };
+  }
   if (!respons.ok) {
     throw buatGalatHttp(
       respons.status,
@@ -360,6 +392,23 @@ export async function fetchRss(
     );
   }
   const xml = await bacaTeksTerbatas(respons);
+  // Feed bukan XML RSS/Atom sama sekali (mis. halaman HTML error /
+  // JSON / teks acak) = feed INVALID, bukan feed kosong: bedakan
+  // dari feed valid yang kebetulan 0 item (masih punya <rss>/<feed>
+  // /<channel>). Tanpa pemeriksaan ini, feed rusak diam-diam jadi
+  // "0 item" dan lolos sebagai sukses/basi. Pesan diawali "Feed
+  // bukan XML" agar klasifikasi galat (ketahanan.ts) mengenalinya
+  // sebagai kelas invalid-feed.
+  if (!/<\s*(rss|feed|rdf(?::RDF)?|channel)\b/i.test(xml)) {
+    throw new Error(
+      `Feed bukan XML RSS/Atom yang valid (${url}): tidak ada penanda <rss>/<feed>/<channel>`,
+    );
+  }
   const items = parseRss(xml);
-  return { items, httpStatus: respons.status };
+  return {
+    items,
+    httpStatus: respons.status,
+    etag: respons.headers?.get("etag") ?? null,
+    lastModified: respons.headers?.get("last-modified") ?? null,
+  };
 }
