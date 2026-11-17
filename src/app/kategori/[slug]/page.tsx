@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -14,6 +15,21 @@ import { createClient } from "@/lib/supabase/server";
 export function generateStaticParams() {
   return KATEGORI_UTAMA.map((k) => ({ slug: k.slug }));
 }
+
+// Halaman dirender per request (`instant = false` + connection() di
+// bawah), BUKAN prerender statis — 17 Nov 2026 (perbaikan CSP
+// $RT/$RV): sebagai halaman statis murni, boundary loading.tsx root
+// selesai di shell prerender sehingga skrip definisi $RV/$RC React
+// ikut terpanggang TANPA nonce; CSP (script-src nonce+hash)
+// memblokirnya → $RC undefined → hidrasi gagal (#419) → isi halaman
+// ganda di DOM (h1=2). connection() menunda segmen halaman sampai
+// request, jadi definisi $RV/$RC diterbitkan saat resume DENGAN
+// nonce. generateStaticParams di atas dipertahankan (daftar slug
+// tetap dipakai prefetch/metadata), tetapi TIDAK LAGI berarti
+// halaman di-prerender — JANGAN hapus connection() tanpa menguji
+// ulang halaman ini di CDP (definisi $RV/$RC harus ber-nonce,
+// h1 harus = 1).
+export const instant = false;
 
 export async function generateMetadata({
   params,
@@ -41,6 +57,7 @@ export default async function HalamanKategori({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  await connection();
   const { slug } = await params;
   const kategori = cariKategori(slug);
   if (!kategori) notFound();
@@ -93,10 +110,9 @@ export default async function HalamanKategori({
 }
 
 // Tombol Ikuti kategori (P1-5) — dibaca di dalam Suspense agar
-// shell kategori tetap bisa di-prerender (generateStaticParams)
-// sementara status login/ikuti mengalir dinamis. Komponen dan
-// logika yang sama dengan permukaan topik lain
-// (TombolIkutiTopik), bukan duplikasi.
+// status login/ikuti mengalir dinamis (streaming) sementara hero
+// halaman sudah tampil. Komponen dan logika yang sama dengan
+// permukaan topik lain (TombolIkutiTopik), bukan duplikasi.
 async function IkutiKategori({ slug }: { slug: string }) {
   let masuk = false;
   let mengikuti = false;
@@ -128,8 +144,8 @@ async function IkutiKategori({ slug }: { slug: string }) {
   );
 }
 
-// Daftar artikel dibaca di dalam Suspense agar shell kategori tetap bisa
-// di-prerender (generateStaticParams) sementara datanya mengalir dinamis.
+// Daftar artikel dibaca di dalam Suspense agar datanya mengalir
+// dinamis (streaming) sementara hero + subkategori sudah tampil.
 async function DaftarArtikelKategori({
   slug,
   nama,
