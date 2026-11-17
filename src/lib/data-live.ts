@@ -360,79 +360,142 @@ export async function getSurah(nomor: number): Promise<Hasil<SurahDetail>> {
 }
 
 /* ============================================================
-   5. Hadis — api.hadith.gading.dev (tanpa kunci)
-   CATATAN 16 Nov 2026: host TIDAK TERCAPAI dari VM (curl HTTP 000)
-   dan dari fetch browser (DNS/timeout). Halaman /data/live/hadis
-   tetap dibangun dengan EmptyState jujur bila API mati — bila
-   host pulih, halaman langsung berfungsi tanpa perubahan kode.
+   5. Hadis Arbain Nawawi — api.myquran.com (tanpa kunci)
+   RIWAYAT: penyedia hadis lama MATI (curl VM HTTP 000 sejak
+   16 Nov 2026, tiga jalur; dikonfirmasi lagi 17 Nov 2026:
+   curl exit 52 "Empty reply from server") — DIHAPUS dari kode,
+   jangan dijadikan primary maupun fallback (endpoint mati =
+   fallback palsu). Primary kini MyQuran (terverifikasi hidup
+   dari VM 17 Nov 2026 11.56 WIB: HTTP 200, 42 hadis).
+   Bila primary tidak terjangkau → korpus statis 3 hadis
+   terverifikasi (lihat HADIS_KORPUS) dengan label jujur.
    ============================================================ */
 
-export type KitabHadis = {
-  slug: string;
-  nama: string;
-  namaArab: string | null;
-  jumlahHadis: number;
-};
-
-export type HadisItem = {
+export type HadisArbain = {
   nomor: number;
+  judul: string;
   arab: string;
   terjemahan: string;
 };
 
-export async function getDaftarKitab(): Promise<Hasil<KitabHadis[]>> {
-  const hasil = await ambilJson<unknown>(
-    "https://api.hadith.gading.dev/books",
-    3600,
-    "hadis-kitab",
-  );
-  if (!hasil.ok || !adalahObjek(hasil.data)) return { ok: false };
-  const data = (hasil.data as Record<string, unknown>).data;
-  if (!Array.isArray(data)) return { ok: false };
-  const daftar: KitabHadis[] = [];
-  for (const r of data as unknown[]) {
-    if (!adalahObjek(r)) continue;
-    const slug = teks(r.slug);
-    const nama = teks(r.name);
-    if (!slug || !nama) continue;
-    daftar.push({
-      slug,
-      nama,
-      namaArab: teks(r.name_ar) ?? teks(r.arabic) ?? null,
-      jumlahHadis: angka(r.total) ?? angka(r.available) ?? 0,
-    });
-  }
-  if (daftar.length === 0) return { ok: false };
-  return { ok: true, data: daftar };
+/** Dari mana isi hadis di halaman berasal. */
+export type SumberHadis = "myquran" | "korpus";
+
+export type HadisArbainHasil = {
+  hadis: HadisArbain[];
+  sumber: SumberHadis;
+  /** Waktu ISO saat primary berhasil diambil; null untuk korpus statis. */
+  diambilPada: string | null;
+};
+
+/** Label penyedia yang jujur — dipakai halaman /data/live/hadis. */
+export const LABEL_SUMBER_HADIS: Record<SumberHadis, string> = {
+  myquran: "MyQuran API (Hadis Arbain Nawawi)",
+  korpus: "Korpus terverifikasi",
+};
+
+const HADIS_ARBAIN_URL =
+  "https://api.myquran.com/v2/hadits/arbain/semua";
+
+/**
+ * Korpus statis — HANYA 3 hadis terverifikasi, disalin VERBATIM
+ * (termasuk salah ketik sumbernya: "keapda", "adia", spasi ganda)
+ * dari respons MyQuran yang terverifikasi dari VM pada 17 Nov 2026
+ * 11.56 WIB (No. 1, 12, 15 — rujukan di akhir tiap terjemahan:
+ * No. 1 al-Bukhari (1) & Muslim (1907); No. 12 At-Tirmidzi;
+ * No. 15 HR. al-Bukhari dan Muslim). Ditampilkan HANYA bila primary
+ * tidak terjangkau; JANGAN ditambah, diubah, atau dikarang isinya.
+ */
+const HADIS_KORPUS: HadisArbain[] = [
+  {
+    nomor: 1,
+    judul: "Amalan Bergantung pada Niat",
+    arab: "عَنْ أَمِيرِ المُؤمِنينَ أَبي حَفْصٍ عُمَرَ بْنِ الخَطَّابِ رَضيَ اللهُ عنْهُ قَالَ: سَمِعْتُ رَسُولَ اللهِ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ يَقُوْلُ: (( إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ، وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَِى اللهِ وَرَسُوْلِهِ فَهِجْرَتُهُ إِلَى اللهِ وَرَسُوْلِهِ، وَمَنْ كَانَتْ هِجْرَتُهُ لِدُنْيَا يُصِيْبُهَا، أَوْ امْرَأَةٍ يَنْكِحُهَا، فَهِجْرَتُهُ إِلَى مَا هَاجَرَ إِلَيْهِ )). رَوَاهُ إِمَامَا الْمُحَدِّثِيْنَ أَبُوْ عَبْدِ اللهِ مُحَمَّدُ بْنُ إِسْمَاعِيْلَ بْنِ إِبْرَاهِيْمَ بْنِ الْمُغِيْرَةِ بْنِ بَرْدِزْبَهْ الْبُخَارِيُّ، وَأَبُوْ الْحُسَيْنِ مُسْلِمُ بْنُ الْحَجَّاجِ بْنِ مُسْلِمٍ الْقُشَيْرِيّ النَّيْسَابُوْرِيّ، فِيْ صَحِيْحَيْهِمَا اللَّذَيْنِ هُمَا أَصَحُّ الْكُتُبِ اْلمُصَنَّفَةِ.",
+    terjemahan:
+      "Dari Amirul Mukminin Abu Hafsh Umar bin Al Khaththab adia berkata: ‘Aku mendengar Rasulullah shalallahu alaihi wasalam bersabda: “Amalan-amalan itu hanyalah tergantung pada niatnya. Dan setiap orang itu hanyalah akan dibalas berdasarkan apa yang ia niatkan. Maka barang siapa yang hijrahnya kepada Allah dan Rasul-Nya, maka hijrahnya keapda Allah dan Rasul-Nya. Namun barang siapa yang hijrahnya untuk mendapatkan dunia atau seorang wanita yang ingin ia nikahi, maka hijrahnya kepada apa yang ia niatkan tersebut.” (Diriwayatkan oleh dua Imamnya para ahli hadits, Abu Abdillah Muhammad bin Isma’il bin Ibrahim bin Al Mughirah bin Bardizbah Al Bukhari dan Abul Husain Muslim bin Al Hajjaj  bin Muslim Al Qusyairi An Naisaburi dalam dua kitab shahih mereka, yang keduanya merupakan kitab yang paling shahih diantara kitab-kitab yang ada.). Diriwayatkan oleh al Bukhari (1) dan Muslim (1907).",
+  },
+  {
+    nomor: 12,
+    judul: "Meninggalkan Perkara yang tidak Bermanfaat",
+    arab: "عَنْ أَبِيْ هُرَيْرَةَ رَضِيَ اللهُ عَنْهُ قَالَ: قَالَ رَسُوْلُ اللهِ صلى الله عليه وسلّم : (مِنْ حُسْنِ إِسْلامِ المَرْءِ تَرْكُهُ مَا لاَيَعْنِيْهِ) حَدِيْثٌ حَسَنٌ، رَوَاهُ التِّرْمِذِي وَغَيْرُهُ هَكَذَا.",
+    terjemahan:
+      "Dari Abu Hurairah radhiyallahu ‘anhu, dia berkata: “Rasulullah shallallahu ‘alaihi wa sallam bersabda: ”Termasuk kebaikan Islam seseorang adalah dia meninggalkan perkara yang tidak bermanfaat baginya.” (Hadits Hasan, diriwayatkan oleh At Tirmidzi dan selainnya seperti ini)",
+  },
+  {
+    nomor: 15,
+    judul: "Barangsiapa Beriman kepada Allah dan Hari Akhir",
+    arab: "عَن أَبِي هُرَيْرَةَ رضي الله عنه قَالَ: قَالَ رَسُولَ اللهِ صلى الله عليه وسلم: (مَنْ كَانَ يُؤمِنُ بِاللهِ وَاْليَوْمِ الآخِرِ فَلْيَقُلْ خَيْراً أَو لِيَصْمُتْ، وَمَنْ كَانَ يُؤمِنُ بِاللهِ وَاْليَومِ الآخِرِ فَلاَ يُؤْذِ جَارَهُ، ومَنْ كَانَ يُؤمِنُ بِاللهِ واليَومِ الآخِرِ فَلْيُكْرِمْ ضَيْفَهُ) رَوَاهُ اْلبُخَارِي وَمُسْلِمٌ.",
+    terjemahan:
+      "Dari Abu Hurairah radhiyallahu ‘anhu dia berkata, Rasulullah shallallahu ‘alaihi wa sallam bersabda: ”Barangsiapa yang beriman kepada Allah subhanahu wa ta’ala dan hari akhir maka hendaknya dia berbicara yang baik atau (kalau tidak bisa hendaknya) dia diam. Barangsiapa yang beriman kepada Allah dan hari akhir maka janganlah ia menyakiti tetangganya. Barangsiapa yang beriman kepada Allah dan hari akhir maka hendaknya dia memuliakan tamunya.” (HR. al Bukhari dan Muslim)",
+  },
+];
+
+/** Satu baris respons MyQuran → HadisArbain; baris tak dikenal → null. */
+function barisHadisArbain(r: unknown): HadisArbain | null {
+  if (!adalahObjek(r)) return null;
+  // Bentuk nyata MyQuran (terverifikasi 17 Nov 2026): tiap item
+  // { no: "1" (STRING), judul, arab, indo } — no BUKAN number.
+  const nomor = angka(r.no);
+  const arab = teks(r.arab);
+  const terjemahan = teks(r.indo);
+  if (nomor === null || !arab || !terjemahan) return null;
+  return {
+    nomor,
+    judul: teks(r.judul) ?? `Hadis Arbain ${nomor}`,
+    arab,
+    terjemahan,
+  };
 }
 
-export async function getHadis(
-  kitab: string,
-  nomorAwal: number,
-  nomorAkhir: number,
-): Promise<Hasil<{ kitab: string; hadis: HadisItem[] }>> {
-  const hasil = await ambilJson<unknown>(
-    `https://api.hadith.gading.dev/books/${encodeURIComponent(kitab)}?range=${nomorAwal}-${nomorAkhir}`,
-    3600,
-    "hadis-isi",
-  );
-  if (!hasil.ok || !adalahObjek(hasil.data)) return { ok: false };
-  const data = (hasil.data as Record<string, unknown>).data;
-  if (!Array.isArray(data)) return { ok: false };
-  const hadis: HadisItem[] = [];
+/**
+ * Respons MyQuran apa adanya → daftar valid (diurutkan per nomor).
+ * Diekspor untuk uji: bentuk tak dikenal → [] (jujur, bukan crash).
+ */
+export function uraiHadisArbain(badan: unknown): HadisArbain[] {
+  if (!adalahObjek(badan)) return [];
+  const data = badan.data;
+  if (!Array.isArray(data)) return [];
+  const daftar: HadisArbain[] = [];
   for (const r of data as unknown[]) {
-    if (!adalahObjek(r)) continue;
-    const nomor = angka(r.number);
-    const arab = teks(r.arab);
-    const id = adalahObjek(r.id)
-      ? teks((r.id as Record<string, unknown>).translation) ??
-        teks((r.id as Record<string, unknown>).text)
-      : teks(r.translation);
-    if (nomor === null || !arab) continue;
-    hadis.push({ nomor, arab, terjemahan: id ?? "" });
+    const h = barisHadisArbain(r);
+    if (h) daftar.push(h);
   }
-  if (hadis.length === 0) return { ok: false };
-  return { ok: true, data: { kitab, hadis } };
+  daftar.sort((a, b) => a.nomor - b.nomor);
+  return daftar;
+}
+
+/**
+ * Hadis Arbain Nawawi — TIDAK PERNAH throw (pola Hasil<T>).
+ * Primary: MyQuran (TTL 86400, mengikuti fetcher konten statis
+ * lain seperti Al-Qur'an/sholat). Primary TIDAK TERJANGKAU
+ * (fetch gagal / HTTP bukan 2xx) → korpus statis 3 hadis dengan
+ * sumber "korpus". Primary MENJAWAB tapi bentuknya tak dikenal
+ * (0 baris valid) → { ok: false } jujur, supaya perubahan kontrak
+ * API tidak ditutupi fallback diam-diam — halaman menampilkan
+ * EmptyState.
+ */
+export async function getHadisArbain(): Promise<Hasil<HadisArbainHasil>> {
+  const hasil = await ambilJson<unknown>(
+    HADIS_ARBAIN_URL,
+    86400,
+    "hadis-arbain",
+  );
+  if (!hasil.ok) {
+    return {
+      ok: true,
+      data: { hadis: HADIS_KORPUS, sumber: "korpus", diambilPada: null },
+    };
+  }
+  const daftar = uraiHadisArbain(hasil.data);
+  if (daftar.length === 0) return { ok: false };
+  return {
+    ok: true,
+    data: {
+      hadis: daftar,
+      sumber: "myquran",
+      diambilPada: new Date().toISOString(),
+    },
+  };
 }
 
 /* ============================================================

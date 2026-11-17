@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import EmptyState from "@/components/EmptyState";
+import DialogKonfirmasi from "@/components/admin/DialogKonfirmasi";
 
 type Episode = {
   id: string;
@@ -33,6 +34,9 @@ export default function AdminPodcast() {
   const [galat, setGalat] = useState<string | null>(null);
   const [pesan, setPesan] = useState<string | null>(null);
   const [sibuk, setSibuk] = useState(false);
+  // Episode yang menunggu konfirmasi hapus (dialog dalam-halaman,
+  // bukan window.confirm — dialog bawaan ditolak otomatisasi).
+  const [hapusTarget, setHapusTarget] = useState<Episode | null>(null);
   const [briefPilihan, setBriefPilihan] = useState<Pilihan[]>([]);
   const [artikelPilihan, setArtikelPilihan] = useState<Pilihan[]>([]);
 
@@ -184,9 +188,7 @@ export default function AdminPodcast() {
   }
 
   async function hapus(ep: Episode) {
-    if (!window.confirm(`Hapus episode “${ep.judul}”? Riwayat dan playlist episode ini ikut terhapus.`)) {
-      return;
-    }
+    setHapusTarget(null);
     setSibuk(true);
     try {
       const res = await fetch(`/api/admin/podcast/${ep.id}`, {
@@ -367,7 +369,7 @@ export default function AdminPodcast() {
                   type="button"
                   className="tombol"
                   disabled={sibuk}
-                  onClick={() => hapus(ep)}
+                  onClick={() => setHapusTarget(ep)}
                 >
                   Hapus
                 </button>
@@ -376,6 +378,22 @@ export default function AdminPodcast() {
           ))}
         </div>
       )}
+      <DialogKonfirmasi
+        terbuka={hapusTarget !== null}
+        judul="Hapus episode?"
+        pesan={
+          hapusTarget
+            ? `Hapus episode “${hapusTarget.judul}”? Riwayat dan playlist episode ini ikut terhapus.`
+            : ""
+        }
+        labelKonfirmasi="Ya, hapus"
+        varian="bahaya"
+        sibuk={sibuk}
+        onKonfirmasi={() => {
+          if (hapusTarget) void hapus(hapusTarget);
+        }}
+        onTutup={() => setHapusTarget(null)}
+      />
     </section>
   );
 }

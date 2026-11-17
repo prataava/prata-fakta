@@ -35,11 +35,14 @@ async function BannerPemeliharaan() {
   );
 }
 
-// Header (server component) — kini sinkron: seluruh isi statis
-// (SearchBar, ThemeToggle, NotifikasiBadge, AuthArea,
-// PelacakKunjungan, HeaderNav semuanya client component atau
-// statis), sehingga shell-nya bisa di-prerender. Satu-satunya
-// akses data runtime (banner di atas) sudah di dalam Suspense.
+// Header (server component) — masthead Swiss (17 Nov 2026):
+// baris atas (logo + cari + aksi) + sub-bar navigasi berbatas
+// 1px (.header-subbar, lebar penuh, isi dalam .wadah).
+// Struktur isi TIDAK berubah: SearchBar, ThemeToggle,
+// NotifikasiBadge, AuthArea, PelacakKunjungan, HeaderNav
+// semuanya client component atau statis, sehingga shell-nya
+// bisa di-prerender. Satu-satunya akses data runtime (banner)
+// sudah di dalam Suspense.
 export default function Header() {
   return (
     <>
@@ -67,7 +70,11 @@ export default function Header() {
             <AuthArea />
           </div>
         </div>
-        <HeaderNav />
+      </div>
+      <div className="header-subbar">
+        <div className="wadah">
+          <HeaderNav />
+        </div>
       </div>
     </header>
     </>

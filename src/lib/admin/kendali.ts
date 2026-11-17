@@ -15,12 +15,22 @@
 // - Temuan scheduler gate yang RELEVAN (LAPORAN-FASE-8 §10.3)
 //   sesudah Tahap 13C: F6 TERTUTUP (terakhir_jalan diperbarui
 //   run cron lewat klaim + selesai job di tiap endpoint);
-//   F7 TERTUTUP untuk 5 job cron (seed 5 job di §14; pemicu
-//   manual 8 job — digest/podcast/riset tetap 400 jujur karena
-//   belum ada endpoint pemicu); F2 TERTUTUP (editorial.yml
-//   dipecah jadi 3 workflow; 'keduanya' diganti dispatch
-//   per-workflow — lihat header tiap workflow); F12 TERTUTUP
-//   (backoff gate 6 jam via penanda audit 'sistem.job').
+//   F7 TERTUTUP SEBAGIAN untuk 5 job cron (seed 5 job di §14;
+//   pemicu manual 8 job — digest/podcast/riset tetap 400 jujur).
+//   FASE 12 (Worker G, 17 Nov 2026): F7 DITUTUP SECARA JUJUR —
+//   ketiga job itu TIDAK PUNYA backend yang bisa dipicu (bukti
+//   grep, lihat ALASAN_TANPA_PEMICU): digest tidak punya satu
+//   pun generator/route/workflow di repo; podcast TTS hanya
+//   jalan di workflow GitHub Actions podcast-tts.yml (dispatch
+//   manual + input suara + konfirmasi lisensi — TIDAK bisa
+//   dipicu 1-klik dari aplikasi tanpa token GitHub dan tanpa
+//   melewati gerbang lisensi); riset tidak punya batch job —
+//   laporan dibuat manual editor lewat POST /api/admin/riset.
+//   Membuat endpoint "jalankan" untuk ketiganya berarti
+//   memalsukan sebuah run — DILARANG. Yang DILENGKAPI sebagai
+//   gantinya: kontrol antrean pause/resume/disable/enable untuk
+//   KEDELAPAN job (kontrolJob, audit 'sistem.job') + reprocess
+//   (= jalankan ulang) untuk 5 job yang memang bisa jalan.
 //   Sisa: digest/podcast/riset belum punya endpoint pemicu;
 //   kolom backoff khusus artikel masih berupa SQL usulan (§14).
 // - Aksi audit yang dipakai ('sistem.flag', 'sistem.job') SUDAH
@@ -30,7 +40,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AWALAN_BELUM_SIAP } from "./types";
+import type { NamaJob } from "./types";
 import { catatAuditWajib } from "./audit";
+import { perbaruiJob } from "./editorial";
+import { buatAdminAdapter } from "./supabase-adapter";
 
 /* ============================================================
    Feature flags (pf_system_settings)
@@ -79,6 +92,14 @@ export const DAFTAR_FLAG: DefinisiFlag[] = [
     label: "Pipeline editorial aktif",
     deskripsi:
       "Bila nonaktif, POST /api/ai/jalankan menolak dengan 503 jujur (ditegakkan Tahap 13C). Bila flag belum disetel, pipeline berjalan (bawaan aktif).",
+    jenis: "boolean",
+    bawaan: true,
+  },
+  {
+    kunci: "auto_publish_tier1",
+    label: "Auto-publish Tier-1 (FACT SCORE ≥85)",
+    deskripsi:
+      "Bila aktif, pipeline editorial otomatis menerbitkan draf Tier-1 (status verifikasi CROSS-CHECKED/VERIFIED) yang FACT SCORE-nya ≥85, tanpa menunggu review manual — disetujui pemilik 17 Nov 2026. Setiap auto-publish tercatat di audit log (aksi artikel.terbit, sesudah.auto_publish=true + fact_score). Bila nonaktif, draf Tier-1 tetap menunggu Terbitkan manual. Bila flag belum disetel, nilainya bawaan aktif.",
     jenis: "boolean",
     bawaan: true,
   },
@@ -314,7 +335,24 @@ export interface JobDikenal {
   jadwal_workflow: string;
   /** true bila job ini punya endpoint pemicu manual. */
   bisa_dipicu: boolean;
+  /** Alasan jujur bila bisa_dipicu false (ditampilkan di UI). */
+  alasan_tanpa_pemicu?: string;
 }
+
+/**
+ * Alasan per job tanpa pemicu manual — hasil verifikasi grep
+ * 17 Nov 2026 (Worker G), BUKAN asumsi. Dipakai UI kendali/ops
+ * agar operator tahu KENAPA tombol jalankan tidak ada, dan apa
+ * jalur manual yang benar untuk tiap job.
+ */
+export const ALASAN_TANPA_PEMICU: Record<string, string> = {
+  digest:
+    "Tidak ada job digest di repo: tidak ada generator, route, maupun workflow untuk digest personal (hanya disebut di deskripsi preferensi). Tidak ada yang bisa dipicu — membuat endpoint-nya berarti memalsukan sebuah run.",
+  podcast:
+    "Podcast TTS hanya jalan di workflow GitHub Actions podcast-tts.yml (dispatch manual, wajib input suara + konfirmasi lisensi — gerbang lisensi suara id_ID). Aplikasi tidak punya token GitHub dan tidak boleh melewati gerbang lisensi; picu dari tab Actions dengan suara yang lisensinya sudah diverifikasi.",
+  riset:
+    "Tidak ada batch job riset: laporan riset dibuat satu per satu oleh editor lewat POST /api/admin/riset (status awal selalu draft). Tidak ada proses terjadwal yang bisa dipicu ulang.",
+};
 
 /** 8 nama job yang diizinkan CHECK pf_scheduled_jobs (v8 §5b).
  *  Seed v5 berisi 3 baris (ingestion, editorial, brief); seed
@@ -357,18 +395,21 @@ export const DAFTAR_JOB_DIKENAL: JobDikenal[] = [
     label: "Digest personal (My Prata)",
     jadwal_workflow: "Belum ada workflow aktif",
     bisa_dipicu: false,
+    alasan_tanpa_pemicu: ALASAN_TANPA_PEMICU["digest"],
   },
   {
     nama: "podcast",
     label: "Podcast",
     jadwal_workflow: "Belum ada workflow aktif",
     bisa_dipicu: false,
+    alasan_tanpa_pemicu: ALASAN_TANPA_PEMICU["podcast"],
   },
   {
     nama: "riset",
     label: "Riset",
     jadwal_workflow: "Belum ada workflow aktif",
     bisa_dipicu: false,
+    alasan_tanpa_pemicu: ALASAN_TANPA_PEMICU["riset"],
   },
 ];
 
@@ -610,6 +651,121 @@ export async function pemicuJobManual(
     catatan: barisDiperbarui
       ? null
       : "Baris job belum tercatat di pf_scheduled_jobs (seed 5 job belum diterapkan — lihat LAPORAN-FASE-8 §14); status terakhir tidak tersimpan di tabel.",
+  };
+}
+
+/* ============================================================
+   Kontrol antrean (Fase 12, Worker G) — pause / resume /
+   disable / enable / reprocess, untuk KEDELAPAN job.
+   ============================================================ */
+
+export const AKSI_KONTROL_VALID = [
+  "pause",
+  "resume",
+  "disable",
+  "enable",
+  "reprocess",
+] as const;
+
+export type AksiKontrol = (typeof AKSI_KONTROL_VALID)[number];
+
+/**
+ * Keadaan `aktif` sesudah aksi kontrol — fungsi MURNI (dipakai
+ * baterai uji idempotensi). pause/disable -> false;
+ * resume/enable -> true; reprocess tidak mengubah keadaan job
+ * (null = "jalankan ulang", bukan ubah flag).
+ */
+export function aktifSesudahKontrol(
+  aksi: AksiKontrol,
+  aktifSekarang: boolean,
+): boolean | null {
+  void aktifSekarang;
+  if (aksi === "pause" || aksi === "disable") return false;
+  if (aksi === "resume" || aksi === "enable") return true;
+  return null;
+}
+
+export interface HasilKontrolJob {
+  job: string;
+  aksi: AksiKontrol;
+  ok: boolean;
+  /** Keadaan aktif sesudah kontrol (null untuk reprocess). */
+  aktif: boolean | null;
+  /** Hasil downstream (hanya reprocess). */
+  hasil: unknown;
+  baris_job_diperbarui: boolean;
+  catatan: string | null;
+}
+
+/**
+ * Kontrol satu job (HANYA super_admin — ditegakkan route).
+ *
+ * - pause/disable/resume/enable: ubah flag `aktif` di
+ *   pf_scheduled_jobs lewat perbaruiJob() (editorial.ts) — audit
+ *   'sistem.job' fail-closed + compensating restore nilai lama
+ *   bila audit gagal. IDEMPOTEN: pause atas job yang sudah
+ *   nonaktif (atau resume atas job yang sudah aktif) tetap
+ *   menulis nilai yang sama dan mengembalikan keadaan yang sama.
+ *   Menonaktifkan job TIDAK membatalkan run yang sedang jalan;
+ *   yang dihentikan hanyalah run terjadwal berikutnya.
+ * - reprocess: jalankan ulang job lewat pemicuJobManual() —
+ *   idempoten karena engine ingestion/pipeline dedup + lock
+ *   (pemicu ulang tidak menduplikasi item). Untuk digest/
+ *   podcast/riset, pemicuJobManual melempar galat jujur
+ *   'belum bisa dipicu' (route memetakan ke 400) — tidak ada
+ *   run palsu yang dibuat.
+ */
+export async function kontrolJob(
+  nama: string,
+  aksi: string,
+  aktor: AktorKendali,
+  origin: string,
+  cookie: string | null,
+): Promise<HasilKontrolJob> {
+  const dikenal = DAFTAR_JOB_DIKENAL.find((j) => j.nama === nama);
+  if (!dikenal) {
+    throw new Error(`Job '${nama}' tidak dikenal.`);
+  }
+  if (!(AKSI_KONTROL_VALID as readonly string[]).includes(aksi)) {
+    throw new Error(
+      `Aksi '${aksi}' tidak dikenal (yang dikenal: ${AKSI_KONTROL_VALID.join(", ")}).`,
+    );
+  }
+  const aksiValid = aksi as AksiKontrol;
+
+  if (aksiValid === "reprocess") {
+    const hasil = await pemicuJobManual(nama, aktor, origin, cookie);
+    return {
+      job: nama,
+      aksi: aksiValid,
+      ok: hasil.ok,
+      aktif: null,
+      hasil: hasil.hasil,
+      baris_job_diperbarui: hasil.baris_job_diperbarui,
+      catatan: hasil.catatan,
+    };
+  }
+
+  const aktifBaru = aktifSesudahKontrol(aksiValid, true);
+  // perbaruiJob (editorial.ts) butuh adapter + aktor editorial;
+  // AktorKendali kompatibel secara struktural (id/email/ip).
+  const adapter = buatAdminAdapter();
+  const sesudah = await perbaruiJob(
+    adapter,
+    { nama: nama as NamaJob, patch: { aktif: aktifBaru ?? false } },
+    { id: aktor.id, email: aktor.email, ip: aktor.ip },
+  );
+  return {
+    job: nama,
+    aksi: aksiValid,
+    ok: true,
+    aktif: sesudah.aktif ?? aktifBaru,
+    hasil: null,
+    baris_job_diperbarui: true,
+    catatan:
+      aktifBaru === false
+        ? "Job dinonaktifkan: run terjadwal berikutnya dilewati. Run yang sedang jalan (bila ada) tidak dibatalkan."
+        : null,
   };
 }
 

@@ -11,6 +11,28 @@ import type {
   ItemSimpan,
   PatchTutupRun,
 } from "./engine.ts";
+import {
+  petakanStatusRunAman,
+  type KeadaanSumberMentah,
+} from "./ketahanan.ts";
+import type { BarisItemKlaster } from "./klaster.ts";
+
+// Kolom v22 pf_sources (migrasi Worker A). Dipakai untuk mendeteksi
+// galat "kolom belum ada" pada fallback fail-soft di bawah.
+const KOLOM_V22 = [
+  "poll_interval_minutes",
+  "cooldown_until",
+  "failure_count",
+  "health_status",
+  "etag",
+  "last_modified",
+  "last_success_at",
+] as const;
+
+function pesanMenyebutKolomV22(pesan: string): boolean {
+  const rendah = pesan.toLowerCase();
+  return KOLOM_V22.some((k) => rendah.includes(k));
+}
 
 function ambilEnv(nama: string): string | undefined {
   const nilai = process.env[nama];
@@ -70,29 +92,34 @@ export class SupabaseIngestionAdapter implements IngestionAdapter {
     }));
   }
 
-  async simpanItem(item: ItemSimpan): Promise<void> {
-    const { error } = await this.klien.from("pf_raw_items").insert({
-      sumber_id: item.sumber_id,
-      run_id: item.run_id,
-      url: item.url,
-      hash_url: item.hash_url,
-      judul: item.judul,
-      hash_judul: item.hash_judul,
-      ringkasan: item.ringkasan,
-      isi_ringkas: item.isi_ringkas,
-      penulis: item.penulis,
-      waktu_terbit_asli: item.waktu_terbit_asli
-        ? item.waktu_terbit_asli.toISOString()
-        : null,
-      waktu_diambil: item.waktu_diambil.toISOString(),
-      status: item.status,
-      status_verifikasi: item.status_verifikasi,
-      disalin_dari_id: item.disalin_dari_id,
-      diterbitkan_ulang: item.diterbitkan_ulang,
-      alasan: item.alasan,
-      metadata: item.metadata,
-    });
+  async simpanItem(item: ItemSimpan): Promise<string | void> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .insert({
+        sumber_id: item.sumber_id,
+        run_id: item.run_id,
+        url: item.url,
+        hash_url: item.hash_url,
+        judul: item.judul,
+        hash_judul: item.hash_judul,
+        ringkasan: item.ringkasan,
+        isi_ringkas: item.isi_ringkas,
+        penulis: item.penulis,
+        waktu_terbit_asli: item.waktu_terbit_asli
+          ? item.waktu_terbit_asli.toISOString()
+          : null,
+        waktu_diambil: item.waktu_diambil.toISOString(),
+        status: item.status,
+        status_verifikasi: item.status_verifikasi,
+        disalin_dari_id: item.disalin_dari_id,
+        diterbitkan_ulang: item.diterbitkan_ulang,
+        alasan: item.alasan,
+        metadata: item.metadata,
+      })
+      .select("id")
+      .single();
     if (error) throw new Error(`simpanItem gagal: ${error.message}`);
+    return data?.id as string | undefined;
   }
 
   async buatRun(input: {
@@ -116,9 +143,13 @@ export class SupabaseIngestionAdapter implements IngestionAdapter {
   }
 
   async tutupRun(id: string, patch: PatchTutupRun): Promise<void> {
-    const { error } = await this.klien
-      .from("pf_ingestion_runs")
-      .update({
+    // Percobaan 1: status + kelas_gagal apa adanya (butuh migrasi
+    // v22/v24 di produksi). Bila gagal, fallback bertahap agar run
+    // tidak menggantung 'berjalan' selamanya di DB lama:
+    //   2. tanpa kelas_gagal (kolom belum ada);
+    //   3. status dipetakan ke nilai CHECK-aman v3.
+    const percobaan: Array<Record<string, unknown>> = [
+      {
         selesai_pada: patch.selesai_pada.toISOString(),
         status: patch.status,
         ditemukan: patch.ditemukan,
@@ -127,9 +158,38 @@ export class SupabaseIngestionAdapter implements IngestionAdapter {
         ditolak: patch.ditolak,
         gagal: patch.gagal,
         error: patch.error,
-      })
-      .eq("id", id);
-    if (error) throw new Error(`tutupRun gagal: ${error.message}`);
+        ...(patch.kelasGagal !== undefined
+          ? { kelas_gagal: patch.kelasGagal }
+          : {}),
+      },
+    ];
+    const tanpaKelas = { ...percobaan[0] };
+    delete tanpaKelas.kelas_gagal;
+    percobaan.push(tanpaKelas);
+    percobaan.push({
+      ...tanpaKelas,
+      status: petakanStatusRunAman(patch.status),
+    });
+    let galatTerakhir: string | null = null;
+    for (const body of percobaan) {
+      const { error } = await this.klien
+        .from("pf_ingestion_runs")
+        .update(body)
+        .eq("id", id);
+      if (!error) return;
+      galatTerakhir = error.message;
+      const pesan = error.message.toLowerCase();
+      // Hanya lanjut ke fallback bila galatnya memang soal kolom /
+      // CHECK; galat lain (mis. jaringan) langsung dilempar agar
+      // pemanggil tahu pencatatan gagal.
+      const soalKolom =
+        pesan.includes("kelas_gagal") ||
+        pesan.includes("column") ||
+        pesan.includes("check constraint") ||
+        pesan.includes("violates check");
+      if (!soalKolom) break;
+    }
+    throw new Error(`tutupRun gagal: ${galatTerakhir}`);
   }
 
   async daftarJudulBaruSejak(sejak: Date, batas = 500): Promise<
@@ -284,6 +344,184 @@ export class SupabaseIngestionAdapter implements IngestionAdapter {
       })
       .eq("id", id);
     if (error) throw new Error(`perbaruiSumber gagal: ${error.message}`);
+  }
+
+  // ---------- Metode Fase 3 + 6 (v22, fail-soft) ----------
+
+  /**
+   * Baca keadaan v22 satu sumber. Bila kolom v22 belum ada di DB
+   * (migrasi belum diterapkan), PostgREST menolak select -> kembalikan
+   * null (bukan melempar): engine memakai bawaan dan tetap jalan.
+   * Galat lain (mis. jaringan) juga menghasilkan null — keadaan
+   * yang tidak bisa dibaca TIDAK BOLEH menghentikan ingestion.
+   */
+  async bacaKeadaanSumber(
+    sumberId: string,
+  ): Promise<KeadaanSumberMentah | null> {
+    const { data, error } = await this.klien
+      .from("pf_sources")
+      .select(
+        "poll_interval_minutes,cooldown_until,failure_count,health_status,etag,last_modified,terakhir_cek,last_success_at",
+      )
+      .eq("id", sumberId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const baris = data as Record<string, unknown>;
+    const ambilTanggal = (kunci: string): string | null => {
+      const nilai = baris[kunci];
+      return typeof nilai === "string" ? nilai : null;
+    };
+    return {
+      poll_interval_minutes:
+        typeof baris.poll_interval_minutes === "number"
+          ? (baris.poll_interval_minutes as number)
+          : null,
+      cooldown_until: ambilTanggal("cooldown_until"),
+      failure_count:
+        typeof baris.failure_count === "number"
+          ? (baris.failure_count as number)
+          : null,
+      health_status:
+        typeof baris.health_status === "string"
+          ? (baris.health_status as string)
+          : null,
+      etag: typeof baris.etag === "string" ? (baris.etag as string) : null,
+      last_modified: ambilTanggal("last_modified"),
+      terakhir_cek: ambilTanggal("terakhir_cek"),
+      last_success_at: ambilTanggal("last_success_at"),
+    };
+  }
+
+  /**
+   * Tulis sebagian keadaan v22. Fail-soft dua lapis (TIDAK PERNAH
+   * melempar): bila update penuh gagal karena menyebut kolom v22
+   * (kolom belum ada), ulangi hanya dengan terakhir_cek (kolom v1,
+   * selalu ada); bila itu pun gagal, diam — ingestion tetap jalan.
+   * Nilai Date diubah ke ISO; null eksplisit dipertahankan (untuk
+   * menghapus cooldown_until sesudah sukses).
+   */
+  async tulisKeadaanSumber(
+    sumberId: string,
+    patch: KeadaanSumberMentah,
+  ): Promise<void> {
+    const keIso = (nilai: Date | string | null | undefined): string | null => {
+      if (nilai === null || nilai === undefined) return null;
+      if (nilai instanceof Date) {
+        return Number.isNaN(nilai.getTime()) ? null : nilai.toISOString();
+      }
+      return nilai;
+    };
+    const body: Record<string, unknown> = {};
+    if (patch.poll_interval_minutes !== undefined) {
+      body.poll_interval_minutes = patch.poll_interval_minutes;
+    }
+    if (patch.cooldown_until !== undefined) {
+      body.cooldown_until = keIso(patch.cooldown_until);
+    }
+    if (patch.failure_count !== undefined) {
+      body.failure_count = patch.failure_count;
+    }
+    if (patch.health_status !== undefined) {
+      body.health_status = patch.health_status;
+    }
+    if (patch.etag !== undefined) body.etag = patch.etag;
+    if (patch.last_modified !== undefined) {
+      body.last_modified = keIso(patch.last_modified);
+    }
+    if (patch.terakhir_cek !== undefined) {
+      body.terakhir_cek = keIso(patch.terakhir_cek);
+    }
+    if (patch.last_success_at !== undefined) {
+      body.last_success_at = keIso(patch.last_success_at);
+    }
+    if (Object.keys(body).length === 0) return;
+    const { error } = await this.klien
+      .from("pf_sources")
+      .update(body)
+      .eq("id", sumberId);
+    if (!error) return;
+    if (!pesanMenyebutKolomV22(error.message)) return;
+    // Fallback: hanya terakhir_cek (kolom v1) bila patch membawanya.
+    if (body.terakhir_cek !== undefined) {
+      await this.klien
+        .from("pf_sources")
+        .update({ terakhir_cek: body.terakhir_cek })
+        .eq("id", sumberId);
+    }
+  }
+
+  /**
+   * Cari item berdasarkan GUID RSS (metadata->>guid). GUID disimpan
+   * di metadata jsonb, bukan kolom sendiri (Fase 3, butir 8:
+   * GUID hanya kunci dedup tambahan). Galat apa pun -> null
+   * (dedup GUID dilewati; dedup URL/judul tetap jalan).
+   */
+  async cariGuid(guid: string): Promise<{ id: string } | null> {
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("id")
+      .eq("metadata->>guid", guid)
+      .maybeSingle();
+    if (error || !data) return null;
+    return { id: data.id as string };
+  }
+
+  // ---------- Metode Fase 7 (klaster v24, best-effort) ----------
+
+  /** Baca baris minimal item tersimpan untuk pengelompokan klaster. */
+  async bacaItemUntukKlaster(
+    itemIds: string[],
+  ): Promise<BarisItemKlaster[]> {
+    if (itemIds.length === 0) return [];
+    const { data, error } = await this.klien
+      .from("pf_raw_items")
+      .select("id, judul, sumber_id, waktu_terbit_asli, waktu_diambil")
+      .in("id", itemIds);
+    if (error) throw new Error(`bacaItemUntukKlaster gagal: ${error.message}`);
+    return (data ?? []).map((baris) => ({
+      id: baris.id as string,
+      judul: baris.judul as string,
+      sumber_id: (baris.sumber_id as string | null) ?? null,
+      waktu_terbit_asli: (baris.waktu_terbit_asli as string | null) ?? null,
+      waktu_diambil: baris.waktu_diambil as string,
+    }));
+  }
+
+  /**
+   * Simpan satu klaster + anggotanya (upsert berdasarkan kunci;
+   * anggota duplikat diabaikan). Melempar bila tabel v24 belum ada —
+   * engine menangkapnya dan melanjutkan ingestion tanpa klaster.
+   */
+  async simpanKlaster(input: {
+    kunci: string;
+    judul: string;
+    itemIds: string[];
+  }): Promise<string | void> {
+    const { data, error } = await this.klien
+      .from("pf_item_clusters")
+      .upsert(
+        { kunci: input.kunci, judul: input.judul },
+        { onConflict: "kunci" },
+      )
+      .select("id")
+      .single();
+    if (error) throw new Error(`simpanKlaster gagal: ${error.message}`);
+    const clusterId = data.id as string;
+    if (input.itemIds.length > 0) {
+      const { error: errorAnggota } = await this.klien
+        .from("pf_item_cluster_members")
+        .upsert(
+          input.itemIds.map((rawItemId) => ({
+            cluster_id: clusterId,
+            raw_item_id: rawItemId,
+          })),
+          { onConflict: "cluster_id,raw_item_id" },
+        );
+      if (errorAnggota) {
+        throw new Error(`simpanKlaster (anggota) gagal: ${errorAnggota.message}`);
+      }
+    }
+    return clusterId;
   }
 }
 

@@ -9,7 +9,13 @@ import {
   responRateLimitBelumSiap,
 } from "@/lib/ai/route-auth";
 import { cobaServiceClient } from "@/lib/supabase/service";
-import { klaimJob, selesaikanJob } from "@/lib/scheduler/jobs";
+import {
+  INTERVAL_HEARTBEAT_MENIT,
+  klaimJob,
+  perbaruiHeartbeat,
+  selesaikanJob,
+  statusHttpUntukKlaim,
+} from "@/lib/scheduler/jobs";
 import { bacaFlag } from "@/lib/scheduler/flags";
 import { catatGalatRoute } from "@/lib/analytics/galat";
 
@@ -106,26 +112,43 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- Lock server-side (Tahap 13C, F3) + F6 ---
-  // Service client tak tersedia -> jalan tanpa lock (adapter di
-  // atas sudah membuktikan service key ada, jadi ini hanya
-  // pertahanan bila klien flag gagal dibuat).
+  // --- Lock server-side (Tahap 13C, F3) + F6 + heartbeat (Fase 5) ---
+  // Fail-CLOSED seperti /api/ingestion/jalankan: lock tidak tersedia
+  // / tidak terbaca -> 503 jujur, JANGAN jalan tanpa lock. Lock
+  // dipegang run lain -> 409. (Sebelumnya: tersedia=false tetap
+  // jalan dengan infoLock 'tidak-tersedia' — fail-open, bertentangan
+  // dengan janji jobs.ts:19-23 dan dengan perilaku ingestion.)
+  // Service client tak tersedia -> 503 juga (adapter di atas sudah
+  // membuktikan service key ada, jadi ini hanya pertahanan).
   const klaim = klienFlag
     ? await klaimJob(klienFlag, "editorial")
     : { diklaim: false, tersedia: false, alasan: "service key belum diatur" };
-  if (klaim.tersedia && !klaim.diklaim) {
+  if (!klaim.diklaim) {
+    const status = statusHttpUntukKlaim(klaim);
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Job pipeline editorial sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai.",
+          status === 409
+            ? "Job pipeline editorial sedang berjalan (lock server-side). Coba lagi setelah run sebelumnya selesai."
+            : `Lock pipeline editorial tidak tersedia (${klaim.alasan ?? "tanpa keterangan"}). Pipeline ditolak agar tidak jalan tanpa lock.`,
       },
-      { status: 409 },
+      { status },
     );
   }
-  const infoLock = klaim.diklaim
-    ? "diklaim"
-    : `tidak-tersedia (${klaim.alasan ?? "tanpa keterangan"})`;
+  const infoLock = "diklaim";
+
+  // Heartbeat (Fase 5): lock 15 menit < timeout workflow 30 menit,
+  // jadi run yang sah tapi panjang bisa kehilangan lock di tengah
+  // jalan. Selama run hidup, perbarui terakhir_jalan tiap 5 menit
+  // agar lock tetap segar; bila worker crash, detak berhenti dan
+  // lock kedaluwarsa 15 menit sesudah detak terakhir (bukan 15 menit
+  // sesudah klaim). Best-effort: kegagalan satu detak tidak
+  // membatalkan run. Dihentikan di finally, SEBELUM selesaikanJob
+  // menutup lock.
+  const detakHeartbeat = setInterval(() => {
+    if (klienFlag) void perbaruiHeartbeat(klienFlag, "editorial");
+  }, INTERVAL_HEARTBEAT_MENIT * 60_000);
 
   let okRun = false;
   let galatRun: string | null = null;
@@ -167,8 +190,10 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   } finally {
-    // F6: terakhir_jalan + status_terakhir diperbarui di AKHIR
-    // setiap run cron (berhasil maupun gagal).
+    // Hentikan heartbeat dulu (jangan perbarui lock yang sudah
+    // ditutup), lalu F6: terakhir_jalan + status_terakhir
+    // diperbarui di AKHIR setiap run cron (berhasil maupun gagal).
+    clearInterval(detakHeartbeat);
     if (klienFlag) {
       await selesaikanJob(klienFlag, "editorial", okRun, galatRun);
     }

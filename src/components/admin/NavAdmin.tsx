@@ -42,7 +42,12 @@ export const NAV_ADMIN: {
   {
     // Advanced Admin Control Center (Gelombang 2, Area 14).
     grup: "Kendali",
-    tautan: [{ href: "/admin/kendali", label: "Kendali" }],
+    tautan: [
+      { href: "/admin/kendali", label: "Kendali" },
+      // Fase 12 (Worker G): Operations Center — status live,
+      // kesehatan sumber, inbox, performa, kontrol antrean.
+      { href: "/admin/ops", label: "Ops Center" },
+    ],
   },
   {
     // Monitoring (Gelombang 2, Area 14) — angka nyata dari tabel.

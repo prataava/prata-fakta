@@ -486,7 +486,10 @@ try {
     };
     const hasil = await cobaUlang(flaky, { percobaanMaks: 3, jedaAwalMs: 10, tidur: async (ms) => { jeda.push(ms); } });
     cek("retry: 429 (Retry-After 0) lalu 500 lalu sukses = 3 percobaan", hasil.nilai === "sukses" && hasil.percobaan === 3 && panggilan === 3, `jeda=${JSON.stringify(jeda)}`);
-    cek("retry: Retry-After mengalahkan backoff (jeda pertama 0, lalu 10x2)", jeda[0] === 0 && jeda[1] === 20, `jeda=${JSON.stringify(jeda)}`);
+    // Fase 3 (jitter): jeda kedua TIDAK LAGI persis 20 ms — backoff
+    // 10x2 dengan jitter ±25–50% (15–30 ms). Jeda pertama tetap 0
+    // (Retry-After 0 x jitter berapa pun = 0).
+    cek("retry: Retry-After mengalahkan backoff (jeda pertama 0, lalu ~10x2)", jeda[0] === 0 && jeda[1] >= 15 && jeda[1] <= 30, `jeda=${JSON.stringify(jeda)}`);
   }
   {
     let panggilan = 0;

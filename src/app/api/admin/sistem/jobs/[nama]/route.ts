@@ -161,6 +161,23 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   const tujuan = TUJUAN_JOB[nama];
+  // Penjaga integrasi Global News 24/7 (17 Nov 2026, temuan
+  // Worker G): job dikenal (DAFTAR_JOB_DIKENAL, 8 nama) tapi
+  // belum punya endpoint pemicu — digest/podcast/riset. Bila
+  // NAMA_JOB_VALID kelak diperluas ke nama-nama itu tanpa
+  // menambah TUJUAN_JOB, akses tujuan.envSecret di bawah akan
+  // melempar TypeError -> 500. Tolak jujur 400 di sini (pola
+  // yang sama seperti pemicuJobManual di lib/admin/kendali.ts).
+  if (!tujuan) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          `Job '${nama}' belum bisa dipicu ulang — belum ada endpoint pemicu untuk job ini.`,
+      },
+      { status: 400 },
+    );
+  }
   const secret = process.env[tujuan.envSecret];
   if (!secret) {
     return NextResponse.json(
