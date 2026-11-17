@@ -57,6 +57,7 @@ const GRUP: {
       { href: "/peta", label: "Peta", keterangan: "Peristiwa di peta dunia." },
       { href: "/riset", label: "Riset", keterangan: "Laporan riset berbasis data." },
       { href: "/pengetahuan", label: "Pengetahuan", keterangan: "Artikel pengetahuan dan explainer." },
+      { href: "/glosarium", label: "Glosarium", keterangan: "Istilah sulit dijelaskan: hukum, ekonomi, sosial budaya — cari dan filter per kategori." },
       { href: "/negara", label: "Negara", keterangan: "Profil negara." },
       { href: "/observatorium", label: "Observatorium Data", keterangan: "Indikator pilihan, hitungan artikel, dan tren ingestion dalam satu hub." },
       { href: "/intelijen", label: "Intelijen Dunia", keterangan: "Peta, brief dunia, sorotan negara, dan timeline per domain." },
