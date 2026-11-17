@@ -107,7 +107,7 @@ export default async function Brief() {
         <section className="seksi">
           <EmptyState
             judul="Daily Brief pertama belum terbit"
-            pesan="Daily Brief disusun setiap pagi oleh agen Daily Brief (Fase 4) dari artikel yang sudah terverifikasi. Karena mesin berita (Fase 3) belum berjalan, belum ada edisi yang diterbitkan. Daftarkan email Anda di bawah agar edisi pertama langsung terkirim begitu terbit."
+            pesan="Daily Brief disusun setiap pagi oleh agen Daily Brief dari artikel yang sudah terverifikasi dan diterbitkan. Mesin berita sudah berjalan dan draf artikel sudah dibuat — tetapi belum ada edisi yang diterbitkan, karena belum ada artikel yang lolos review editor dan terbit. Daftarkan email Anda di bawah agar edisi pertama langsung terkirim begitu terbit."
             aksi={
               <Link className="tombol tombol-primer" href="/#seksi-newsletter">
                 Berlangganan newsletter
