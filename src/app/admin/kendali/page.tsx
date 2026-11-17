@@ -56,7 +56,12 @@ export default async function AdminKendali() {
           menonaktifkan POST /api/ai/jalankan (503),
           pendaftaran_terbuka menutup halaman /daftar, dan mode
           pemeliharaan menampilkan pengumuman di Header semua
-          halaman. Nilai bawaan dipakai bila flag belum disetel.
+          halaman. auto_publish_tier1 (Fase 11) mengizinkan pipeline
+          menerbitkan otomatis draf Tier-1 ber-FACT SCORE ≥85
+          (bawaan aktif, disetujui pemilik 17 Nov 2026); tiap
+          auto-publish tercatat di audit log (aksi artikel.terbit,
+          sesudah.auto_publish=true). Nilai bawaan dipakai bila flag
+          belum disetel.
         </p>
         {!flagsTersedia ? (
           <EmptyState
@@ -132,14 +137,61 @@ export default async function AdminKendali() {
                     labelLoading="Menjalankan…"
                     konfirmasi={`Jalankan job '${j.label}' sekarang? Job berjalan penuh (ingestion/editorial bisa memakan waktu).`}
                     varian="primer"
+                  />{" "}
+                  <TombolAksi
+                    url="/api/admin/kendali/kontrol"
+                    method="POST"
+                    body={{ job: j.nama, aksi: "reprocess" }}
+                    label="Reprocess"
+                    labelLoading="Memproses ulang…"
+                    konfirmasi={`Proses ulang job '${j.label}' sekarang? Idempoten: engine dedup + lock mencegah duplikasi item.`}
                   />
                 </p>
               ) : (
                 <p className="artikel-meta-kecil">
-                  Job ini belum bisa dipicu manual — belum ada endpoint
-                  pemicu untuknya (temuan F7).
+                  Job ini tidak bisa dijalankan / diproses ulang dari
+                  aplikasi.{" "}
+                  {j.alasan_tanpa_pemicu ??
+                    "Belum ada endpoint pemicu untuknya (temuan F7)."}
                 </p>
               )}
+              <p>
+                {(j.baris?.aktif ?? true) ? (
+                  <TombolAksi
+                    url="/api/admin/kendali/kontrol"
+                    method="POST"
+                    body={{ job: j.nama, aksi: "pause" }}
+                    label={`Pause ${j.label}`}
+                    labelLoading="Menjeda…"
+                    konfirmasi={`Jeda job '${j.label}'? Run terjadwal berikutnya dilewati sampai di-resume.`}
+                  />
+                ) : (
+                  <TombolAksi
+                    url="/api/admin/kendali/kontrol"
+                    method="POST"
+                    body={{ job: j.nama, aksi: "resume" }}
+                    label={`Resume ${j.label}`}
+                    labelLoading="Melanjutkan…"
+                    konfirmasi={`Lanjutkan lagi job '${j.label}'?`}
+                    varian="primer"
+                  />
+                )}{" "}
+                <TombolAksi
+                  url="/api/admin/kendali/kontrol"
+                  method="POST"
+                  body={{ job: j.nama, aksi: "disable" }}
+                  label={`Disable ${j.label}`}
+                  labelLoading="Menonaktifkan…"
+                  konfirmasi={`NONAKTIFKAN job '${j.label}'? Run terjadwal berikutnya dilewati. Aksi ini tercatat di audit log ('sistem.job').`}
+                  varian="bahaya"
+                />
+              </p>
+              <p className="artikel-meta-kecil">
+                Kontrol antrean (pause / resume / disable / reprocess)
+                idempoten dan tersedia untuk kedelapan job — termasuk
+                yang tidak bisa dijalankan. Ringkasannya ada di{" "}
+                <Link href="/admin/ops">Operations Center</Link>.
+              </p>
             </article>
           ))
         )}
