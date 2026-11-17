@@ -8,6 +8,7 @@
 import type { MetadataRoute } from "next";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import { urlSitus } from "@/lib/situs";
+import { gambarBesar } from "@/lib/gambar";
 
 const HALAMAN_STATIS: Array<{
   path: string;
@@ -46,17 +47,25 @@ const HALAMAN_STATIS: Array<{
   { path: "/kebijakan/syarat", frekuensi: "monthly", prioritas: 0.4 },
 ];
 
-type BarisSlug = { slug: string; diperbarui_pada: string | null };
+type BarisSlug = {
+  slug: string;
+  diperbarui_pada: string | null;
+  gambar_url?: string | null;
+};
 
 async function ambilSlugTerbit(
   tabel: string,
+  denganGambar = false,
 ): Promise<BarisSlug[]> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return [];
   try {
+    const kolom = denganGambar
+      ? "slug,diperbarui_pada,gambar_url"
+      : "slug,diperbarui_pada";
     const res = await fetch(
-      `${url}/rest/v1/${tabel}?status=eq.terbit&select=slug,diperbarui_pada&order=diperbarui_pada.desc&limit=500`,
+      `${url}/rest/v1/${tabel}?status=eq.terbit&select=${kolom}&order=diperbarui_pada.desc&limit=500`,
       {
         headers: {
           apikey: anon,
@@ -79,6 +88,8 @@ async function ambilSlugTerbit(
         slug: b.slug,
         diperbarui_pada:
           typeof b.diperbarui_pada === "string" ? b.diperbarui_pada : null,
+        gambar_url:
+          typeof b.gambar_url === "string" ? b.gambar_url : null,
       }));
   } catch {
     return [];
@@ -105,7 +116,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  const artikel = await ambilSlugTerbit("pf_articles");
+  // Artikel terbit: sertakan gambar utama (images) agar Google
+  // menemukan thumbnail artikel — syarat tampil di hasil
+  // pencarian bergambar / Discover. Tanpa gambar_url, entri
+  // tetap ada tanpa images (bukan URL karangan).
+  const artikel = await ambilSlugTerbit("pf_articles", true);
   for (const a of artikel) {
     entri.push({
       url: `${dasar}/artikel/${a.slug}`,
@@ -114,6 +129,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         : sekarang,
       changeFrequency: "weekly",
       priority: 0.7,
+      ...(a.gambar_url
+        ? { images: [gambarBesar(a.gambar_url) ?? a.gambar_url] }
+        : {}),
     });
   }
 

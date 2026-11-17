@@ -24,6 +24,7 @@ import {
 } from "@/lib/preferensi-baca";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import { urlSitus } from "@/lib/situs";
+import { gambarBesar } from "@/lib/gambar";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
 import LencanaFactScore from "@/components/artikel/LencanaFactScore";
 import JejakFakta from "@/components/artikel/JejakFakta";
@@ -46,6 +47,9 @@ export async function generateMetadata({
   if (!artikel) return { title: "Artikel tidak ditemukan" };
   const url = `${urlSitus()}/artikel/${slug}`;
   const deskripsi = artikel.ringkasan ?? artikel.subjudul ?? undefined;
+  // og:image / twitter memakai varian BESAR (≥1200px) agar kartu
+  // Google Discover & Top Stories memakai gambar besar.
+  const gambarOg = gambarBesar(artikel.gambar_url);
   return {
     title: artikel.judul,
     description: deskripsi,
@@ -58,13 +62,13 @@ export async function generateMetadata({
       publishedTime: artikel.diterbitkan_pada ?? undefined,
       modifiedTime: artikel.diperbarui_pada ?? undefined,
       authors: artikel.penulis_nama ? [artikel.penulis_nama] : undefined,
-      images: artikel.gambar_url ? [artikel.gambar_url] : undefined,
+      images: gambarOg ? [gambarOg] : undefined,
     },
     twitter: {
-      card: artikel.gambar_url ? "summary_large_image" : "summary",
+      card: gambarOg ? "summary_large_image" : "summary",
       title: artikel.judul,
       description: deskripsi,
-      images: artikel.gambar_url ? [artikel.gambar_url] : undefined,
+      images: gambarOg ? [gambarOg] : undefined,
     },
   };
 }
@@ -232,7 +236,9 @@ export default async function HalamanArtikel({
         "@type": "NewsArticle",
         headline: artikel.judul,
         description: artikel.ringkasan ?? artikel.subjudul ?? undefined,
-        ...(artikel.gambar_url ? { image: [artikel.gambar_url] } : {}),
+        ...(artikel.gambar_url
+          ? { image: [gambarBesar(artikel.gambar_url) ?? artikel.gambar_url] }
+          : {}),
         ...(artikel.diterbitkan_pada
           ? { datePublished: artikel.diterbitkan_pada }
           : {}),
@@ -248,6 +254,13 @@ export default async function HalamanArtikel({
           "@type": "Organization",
           name: "PRATA FAKTA",
           url: urlSitus(),
+          // Logo penerbit (ikon PWA 512) — Google memakainya untuk
+          // kartu Top Stories / Discover; tanpa logo, kartu berita
+          // tampil tanpa identitas penerbit.
+          logo: {
+            "@type": "ImageObject",
+            url: `${urlSitus()}/icons/icon-512.png`,
+          },
         },
         mainEntityOfPage: urlArtikel,
         inLanguage: "id-ID",
@@ -389,7 +402,7 @@ export default async function HalamanArtikel({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             className="artikel-gambar"
-            src={artikel.gambar_url}
+            src={gambarBesar(artikel.gambar_url) ?? artikel.gambar_url}
             alt={`Ilustrasi: ${artikel.judul}`}
             width={1200}
             height={675}

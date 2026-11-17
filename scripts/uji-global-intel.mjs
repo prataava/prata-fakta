@@ -30,10 +30,11 @@
 //       'article_writing' + detail.langkah 'analysis'; draf
 //       tetap dibuat (fallback tidak menggagalkan item).
 //   §D  window.confirm — INVENTARIS BEKU (bukan 0 literal):
-//       TombolAksi.tsx identik de2f062 (git diff kosong) +
-//       6 pemakaian window.confirm( yang DIKETAHUI (TombolAksi 1,
-//       akademi 2, TabelPengguna 1, FormStrukturAkademi 2) —
-//       pemakaian BARU di luar inventaris = GAGAL.
+//       TombolAksi.tsx SUDAH Radix di main (PR #7, merge
+//       d626cbb) — tanpa window.confirm — + 5 pemakaian
+//       window.confirm( yang DIKETAHUI (akademi 2,
+//       TabelPengguna 1, FormStrukturAkademi 2) — pemakaian
+//       BARU di luar inventaris = GAGAL.
 //       DialogKonfirmasi.tsx ada, dipakai 3 halaman admin, dan
 //       tidak memanggil window.confirm( sendiri.
 //   §E  Backup mencakup semua tabel migrasi: TABEL_PF di
@@ -49,9 +50,8 @@
 //
 // BATAS UJI YANG JUJUR:
 // - "0 window.confirm di jalur admin" TIDAK BISA ditegakkan
-//   literal di branch ini: CATATAN-MERGE §1 MEMBEKUKAN
-//   TombolAksi.tsx sama dengan de2f062 (masih window.confirm)
-//   dan 5 pemakaian lain di aksi admin (akademi/TabelPengguna/
+//   literal: TombolAksi.tsx sudah Radix (PR #7, di main) dan
+//   5 pemakaian lain di aksi admin (akademi/TabelPengguna/
 //   FormStrukturAkademi) belum dikonversi. §D menegakkan
 //   "tidak ada window.confirm BARU" sebagai pengganti yang
 //   jujur; konversi sisa dicatat tindak lanjut, bukan
@@ -409,18 +409,16 @@ cek(
 );
 
 // ---------- §D: window.confirm — inventaris beku ----------
+// Di main (pasca-PR #9), TombolAksi.tsx adalah versi Radix dari
+// PR #7 — tanpa window.confirm. D1 menegakkan itu (bukan lagi
+// "identik de2f062", yang hanya berlaku di branch PR #9).
 
-let diffTombolAksiKosong = false;
-try {
-  execFileSync("git", ["diff", "--quiet", "de2f062", "--", "src/components/admin/TombolAksi.tsx"], {
-    cwd: DIR_REPO,
-    stdio: "ignore",
-  });
-  diffTombolAksiKosong = true;
-} catch {
-  diffTombolAksiKosong = false;
-}
-cek("D1 TombolAksi.tsx identik de2f062 (git diff kosong)", diffTombolAksiKosong);
+const tombolAksiTanpaConfirm =
+  pemakaianConfirm("src/components/admin/TombolAksi.tsx").length === 0;
+cek(
+  "D1 TombolAksi.tsx sudah Radix (tanpa window.confirm)",
+  tombolAksiTanpaConfirm,
+);
 
 function pemakaianConfirm(relatif) {
   const isi = baca(relatif);
@@ -432,7 +430,6 @@ function pemakaianConfirm(relatif) {
   return hasil;
 }
 const INVENTARIS_BEKU = new Set([
-  "src/components/admin/TombolAksi.tsx:35",
   "src/app/admin/akademi/page.tsx:364",
   "src/app/admin/akademi/page.tsx:389",
   "src/components/admin/TabelPengguna.tsx:184",
@@ -457,13 +454,13 @@ for (const f of [
 const diLuarInventaris = semuaConfirm.filter((x) => !INVENTARIS_BEKU.has(x));
 const hilangDariInventaris = [...INVENTARIS_BEKU].filter((x) => !semuaConfirm.includes(x));
 cek(
-  "D2 window.confirm di jalur admin = inventaris beku (6 pemakaian, 0 baru)",
+  "D2 window.confirm di jalur admin = inventaris beku (5 pemakaian, 0 baru)",
   diLuarInventaris.length === 0 && hilangDariInventaris.length === 0,
   diLuarInventaris.length > 0
     ? `BARU: ${diLuarInventaris.join(", ")}`
     : hilangDariInventaris.length > 0
       ? `HILANG (mungkin sudah dikonversi — perbarui inventaris): ${hilangDariInventaris.join(", ")}`
-      : "6/6 cocok",
+      : "5/5 cocok",
 );
 cek(
   "D3 DialogKonfirmasi.tsx ada + tidak memanggil window.confirm(",
