@@ -6,6 +6,7 @@
 // kecuali fungsi dengan flag `tersedia` (agregat yang memang
 // dirancang degradasi parsial — galat tetap dicatat + flag false).
 import { createClient } from "@/lib/supabase/server";
+import { cobaServiceClient } from "@/lib/supabase/service";
 import { GalatBaca, catatGalatBaca } from "@/lib/galat";
 import { KATEGORI_UTAMA, type Kategori } from "@/lib/categories";
 import type { IsiBrief } from "@/lib/ai/brief";
@@ -608,23 +609,91 @@ export type HasilCariArtikel = {
   tersedia: boolean;
 };
 
-/** Pencarian isi artikel (judul/ringkasan/isi), hanya yang terbit. */
+/**
+ * Nilai status_verifikasi yang sah di pf_articles (check
+ * constraint migrasi v2). Dipakai validasi filter pencarian —
+ * nilai di luar daftar ini DIABAIKAN jujur, bukan 500.
+ */
+export const STATUS_VERIFIKASI = [
+  "VERIFIED",
+  "CROSS-CHECKED",
+  "DEVELOPING",
+  "UNCONFIRMED",
+  "DISPUTED",
+  "CORRECTED",
+] as const;
+
+export type StatusVerifikasi = (typeof STATUS_VERIFIKASI)[number];
+
+/** Filter opsional untuk cariArtikel (semua boleh kosong). */
+export type FilterCariArtikel = {
+  /** Batas hasil; bawaan 10, maksimal 50. */
+  limit?: number;
+  /** Format YYYY-MM-DD; filter diterbitkan_pada >= dari. */
+  dari?: string;
+  /** Format YYYY-MM-DD; filter diterbitkan_pada <= sampai (inklusif). */
+  sampai?: string;
+  /** UUID pf_sources; filter lewat join pf_article_sources. */
+  sumberId?: string;
+  /** Salah satu STATUS_VERIFIKASI; nilai lain diabaikan. */
+  statusVerifikasi?: string;
+};
+
+/**
+ * Pencarian isi artikel (judul/ringkasan/isi), hanya yang terbit.
+ * Filter tanggal/sumber/status yang tidak valid DIABAIKAN jujur
+ * (pencarian tetap jalan tanpa filter itu), bukan 500 — sama
+ * seperti getArtikel. Parameter kedua boleh angka (limit, pola
+ * lama) atau objek FilterCariArtikel.
+ */
 export async function cariArtikel(
   q: string,
-  limit = 10,
+  opsi: number | FilterCariArtikel = 10,
 ): Promise<HasilCariArtikel> {
   const kata = q.trim();
   if (!kata) return { artikel: [], tersedia: true };
+  const filter: FilterCariArtikel =
+    typeof opsi === "number" ? { limit: opsi } : opsi;
+  const limit =
+    typeof filter.limit === "number" && filter.limit > 0
+      ? Math.min(Math.floor(filter.limit), 50)
+      : 10;
+  const pakaiSumber =
+    Boolean(filter.sumberId) && POLA_UUID.test(filter.sumberId as string);
+  const pakaiStatus =
+    Boolean(filter.statusVerifikasi) &&
+    (STATUS_VERIFIKASI as readonly string[]).includes(
+      filter.statusVerifikasi as string,
+    );
   try {
     const supabase = await createClient();
     const pola = `%${kata.replace(/[%_]/g, "")}%`;
-    const { data, error } = await supabase
+    const kolom =
+      KOLOM_ARTIKEL_RINGKAS +
+      (pakaiSumber ? ", pf_article_sources!inner(sumber_id)" : "");
+    let query = supabase
       .from("pf_articles")
-      .select(KOLOM_ARTIKEL_RINGKAS)
+      .select(kolom)
       .eq("status", "terbit")
       .or(`judul.ilike.${pola},ringkasan.ilike.${pola},isi.ilike.${pola}`)
       .order("diterbitkan_pada", { ascending: false })
       .limit(limit);
+    if (filter.dari && tanggalValid(filter.dari)) {
+      query = query.gte("diterbitkan_pada", filter.dari);
+    }
+    if (filter.sampai && tanggalValid(filter.sampai)) {
+      query = query.lt("diterbitkan_pada", hariSesudah(filter.sampai));
+    }
+    if (pakaiSumber) {
+      query = query.eq(
+        "pf_article_sources.sumber_id",
+        filter.sumberId as string,
+      );
+    }
+    if (pakaiStatus) {
+      query = query.eq("status_verifikasi", filter.statusVerifikasi as string);
+    }
+    const { data, error } = await query;
     if (error) {
       // Pencarian memang punya flag tersedia=false: dicatat
       // sebagai galat baca (bila tabel belum ada → kosong),
@@ -632,10 +701,56 @@ export async function cariArtikel(
       catatGalatBaca("cariArtikel", error);
       return { artikel: [], tersedia: false };
     }
-    return { artikel: (data ?? []) as PfArtikelRingkas[], tersedia: true };
+    // Select memakai string dinamis (join sumber opsional), jadi
+    // tipe Supabase tidak terinferensi — cast lewat unknown.
+    return { artikel: (data ?? []) as unknown as PfArtikelRingkas[], tersedia: true };
   } catch (err) {
     catatGalatBaca("cariArtikel", err);
     return { artikel: [], tersedia: false };
+  }
+}
+
+export type PfNegaraRingkas = {
+  id: string;
+  kode: string;
+  nama: string;
+  ibu_kota: string | null;
+};
+
+export type HasilCariNegara = {
+  negara: PfNegaraRingkas[];
+  /** false = query error (mis. tabel pf_countries belum ada). */
+  tersedia: boolean;
+};
+
+/**
+ * Pencarian negara di pf_countries (v10) berdasarkan nama atau
+ * kode ISO-2, urut nama. [] + tersedia=false bila tabel belum ada
+ * / query gagal — pemanggil menampilkan status jujur.
+ */
+export async function cariNegara(
+  q: string,
+  limit = 10,
+): Promise<HasilCariNegara> {
+  const kata = q.trim();
+  if (!kata) return { negara: [], tersedia: true };
+  try {
+    const supabase = await createClient();
+    const pola = `%${kata.replace(/[%_]/g, "")}%`;
+    const { data, error } = await supabase
+      .from("pf_countries")
+      .select("id, kode, nama, ibu_kota")
+      .or(`nama.ilike.${pola},kode.ilike.${pola}`)
+      .order("nama", { ascending: true })
+      .limit(limit);
+    if (error) {
+      catatGalatBaca("cariNegara", error);
+      return { negara: [], tersedia: false };
+    }
+    return { negara: (data ?? []) as PfNegaraRingkas[], tersedia: true };
+  } catch (err) {
+    catatGalatBaca("cariNegara", err);
+    return { negara: [], tersedia: false };
   }
 }
 
@@ -977,6 +1092,12 @@ export type BobotKlaim = {
    *  dihitung dari tier AKAR (tier 90/75/60); null bila tidak
    *  ada pendukung. */
   skorTertinggi: number | null;
+  /** Kunci akar rantai salinan BERBEDA yang mendukung klaim ini
+   *  (satu berita yang disalin 3 media = 1 kunci; akar yang
+   *  dicurigai parafrase TIDAK masuk). Dipakai FACT SCORE
+   *  (komponen A): gabungan kunci semua klaim = jumlah akar
+   *  pendukung artikel, satu akar dihitung sekali. */
+  akarPendukung: string[];
 };
 
 /** Bukti yang tidak dapat dicocokkan ke kolom sumber mana pun —
@@ -1195,6 +1316,7 @@ export function hitungBobotPerbandingan(
       kemungkinanParafrase: kunciParafrase.size,
       independenTerverifikasi: kunciTerverifikasi.size,
       skorTertinggi,
+      akarPendukung: [...kunciIndependen],
     });
     const baris: Record<string, SelPerbandingan> = {};
     for (const sid of kolomId) {
@@ -1264,6 +1386,46 @@ export function hitungBobotPerbandingan(
     });
   }
   return { bobot, sel, buktiTakTercocokkan: takCocok, parafrase };
+}
+
+/** Jumlah laporan koreksi artikel ini yang masih TERBUKA
+ *  (pf_correction_reports status 'baru'/'ditinjau') — komponen D
+ *  FACT SCORE. HANYA hitungan (count exact, head) — tidak ada
+ *  isi laporan, nama, atau email pelapor yang dibaca.
+ *  PENTING: policy RLS "pf_correction_reports baca" (v2) hanya
+ *  mengizinkan staf + pelapor sendiri membaca tabel ini, jadi
+ *  klien anon TIDAK BISA menghitungnya (akan diam-diam 0).
+ *  Karena itu hitungan memakai cobaServiceClient() (pola
+ *  getKuisHarian/getRisetAdmin) — bila kunci service belum
+ *  tersedia, kembalikan null (tidak diketahui), BUKAN 0, agar
+ *  pemanggil tidak mengarang D = 10. Galat query dicatat +
+ *  null. */
+export async function getJumlahKoreksiTerbuka(
+  artikelId: string,
+): Promise<number | null> {
+  try {
+    const service = cobaServiceClient();
+    if (!service) {
+      catatGalatBaca(
+        "getJumlahKoreksiTerbuka",
+        new Error("SUPABASE_SERVICE_ROLE_KEY belum diatur"),
+      );
+      return null;
+    }
+    const { count, error } = await service
+      .from("pf_correction_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("artikel_id", artikelId)
+      .in("status", ["baru", "ditinjau"]);
+    if (error) {
+      catatGalatBaca("getJumlahKoreksiTerbuka", error);
+      return null;
+    }
+    return count ?? 0;
+  } catch (err) {
+    catatGalatBaca("getJumlahKoreksiTerbuka", err);
+    return null;
+  }
 }
 
 /**

@@ -143,6 +143,8 @@ export type PfRiwayatBaca = {
   artikel: PfArtikelRingkas;
   dibaca_pada: string | null;
   selesai: boolean;
+  /** Durasi baca dalam detik (0 bila belum pernah tercatat). */
+  durasi_detik: number;
 };
 
 /* ============================================================
@@ -960,7 +962,7 @@ export async function getRiwayatBaca(
     const { data, error } = await supabase
       .from("pf_reading_history")
       .select(
-        `id, dibaca_pada, selesai, pf_articles!inner(id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada)`,
+        `id, dibaca_pada, selesai, durasi_detik, pf_articles!inner(id, slug, judul, ringkasan, kategori_slug, status_verifikasi, diterbitkan_pada)`,
       )
       .eq("user_id", userId)
       .eq("pf_articles.status", "terbit")
@@ -976,6 +978,7 @@ export async function getRiwayatBaca(
       id: string;
       dibaca_pada: string | null;
       selesai: boolean;
+      durasi_detik: number | null;
       pf_articles: PfArtikelRingkas | null;
     }[]) {
       if (!r.pf_articles) continue;
@@ -984,6 +987,10 @@ export async function getRiwayatBaca(
         artikel: r.pf_articles,
         dibaca_pada: r.dibaca_pada,
         selesai: Boolean(r.selesai),
+        durasi_detik:
+          typeof r.durasi_detik === "number" && Number.isFinite(r.durasi_detik)
+            ? r.durasi_detik
+            : 0,
       });
     }
     return hasil;
