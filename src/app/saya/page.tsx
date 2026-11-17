@@ -5,6 +5,7 @@ import EmptyState from "@/components/EmptyState";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
 import ProfilKeamanan from "@/components/saya/ProfilKeamanan";
 import FormPengaturan from "@/components/saya/FormPengaturan";
+import SeksiIzin from "@/components/izin/SeksiIzin";
 import HapusDataPerItem from "./HapusDataPerItem";
 import { formatTanggalJam } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -97,6 +98,9 @@ export default async function Saya() {
           <Link className="tombol" href="#pengaturan-privasi">
             Pengaturan &amp; privasi
           </Link>
+          <Link className="tombol" href="#izin-browser">
+            Izin browser
+          </Link>
           <Link className="tombol" href="#akun-data">
             Akun &amp; data saya
           </Link>
@@ -130,6 +134,17 @@ export default async function Saya() {
           </p>
         </div>
         <FormPengaturan />
+      </section>
+
+      <section className="seksi" aria-labelledby="seksi-izin" id="izin-browser">
+        <div className="seksi-kepala">
+          <h2 id="seksi-izin">Izin browser</h2>
+          <p>
+            Status izin notifikasi, lokasi, dan instalasi aplikasi di
+            perangkat ini — dibaca dari browser Anda, bukan dari server.
+          </p>
+        </div>
+        <SeksiIzin />
       </section>
 
       <section className="seksi" aria-labelledby="seksi-akun-data" id="akun-data">
