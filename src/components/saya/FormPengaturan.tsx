@@ -1,15 +1,38 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  terapkanKepadatan,
+  type Kepadatan,
+  type ModeBaca,
+  type PreferensiBaca,
+  type UkuranFont,
+} from "@/lib/preferensi-baca";
+import { tulisCookieBahasa } from "@/lib/useBahasa";
+import ManajemenPenyimpanan from "@/components/pwa/ManajemenPenyimpanan";
 
 type Preferensi = {
   digest_harian: boolean;
   notifikasi_topik: boolean;
   notifikasi_koreksi: boolean;
   tampilkan_profil_publik: boolean;
-};
+} & PreferensiBaca;
 
-const LABEL: { kunci: keyof Preferensi; label: string; keterangan: string }[] = [
+const MODE_BACA_LABEL: { nilai: ModeBaca; label: string }[] = [
+  { nilai: "1menit", label: "1 Menit" },
+  { nilai: "3menit", label: "3 Menit" },
+  { nilai: "mendalam", label: "Deep Reading" },
+];
+
+const UKURAN_FONT_LABEL: UkuranFont[] = ["S", "M", "L"];
+
+type KunciBoolean =
+  | "digest_harian"
+  | "notifikasi_topik"
+  | "notifikasi_koreksi"
+  | "tampilkan_profil_publik";
+
+const LABEL: { kunci: KunciBoolean; label: string; keterangan: string }[] = [
   {
     kunci: "digest_harian",
     label: "Digest harian",
@@ -63,7 +86,7 @@ export default function FormPengaturan() {
   async function simpan(kunci: keyof Preferensi, nilai: boolean) {
     if (!preferensi) return;
     const sebelumnya = preferensi[kunci];
-    setPreferensi({ ...preferensi, [kunci]: nilai });
+    setPreferensi({ ...preferensi, [kunci]: nilai } as Preferensi);
     setStatus("loading");
     setPesan("");
     try {
@@ -88,6 +111,55 @@ export default function FormPengaturan() {
       setPesan("Preferensi tersimpan.");
     } catch {
       setPreferensi({ ...preferensi, [kunci]: sebelumnya });
+      setStatus("error");
+      setPesan("Tidak dapat terhubung ke server. Coba lagi.");
+    }
+  }
+
+  // P3-2: simpan satu kunci baca (PATCH string) + terapkan
+  // langsung di perangkat ini (kepadatan → <body>; bahasa →
+  // cookie pf-bahasa 1 tahun, dipakai P3-3). Gagal simpan →
+  // nilai dikembalikan + pesan jujur (pola simpan boolean).
+  async function simpanBaca<K extends keyof PreferensiBaca>(
+    kunci: K,
+    nilai: PreferensiBaca[K],
+  ) {
+    if (!preferensi) return;
+    const sebelumnya = preferensi[kunci];
+    setPreferensi({ ...preferensi, [kunci]: nilai } as Preferensi);
+    setStatus("loading");
+    setPesan("");
+    try {
+      const res = await fetch("/api/saya/preferensi", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [kunci]: nilai }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        preferensi?: Preferensi;
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.preferensi) {
+        setPreferensi({ ...preferensi, [kunci]: sebelumnya } as Preferensi);
+        setStatus("error");
+        setPesan(data.error ?? "Preferensi baca gagal disimpan.");
+        return;
+      }
+      setPreferensi(data.preferensi);
+      if (kunci === "kepadatan") {
+        terapkanKepadatan(nilai as Kepadatan);
+      }
+      if (kunci === "bahasa") {
+        // Cookie ditulis lewat helper P3-3 (sumber kebenaran
+        // cookie pf-bahasa; integrator menyelaraskan bila
+        // PemilihBahasa berubah).
+        tulisCookieBahasa(nilai as PreferensiBaca["bahasa"]);
+      }
+      setStatus("sukses");
+      setPesan("Preferensi baca tersimpan.");
+    } catch {
+      setPreferensi({ ...preferensi, [kunci]: sebelumnya } as Preferensi);
       setStatus("error");
       setPesan("Tidak dapat terhubung ke server. Coba lagi.");
     }
@@ -137,6 +209,16 @@ export default function FormPengaturan() {
         <p className="pesan-error" role="alert">
           {pesan || "Preferensi belum dapat dimuat."}
         </p>
+        {/* Penyimpanan offline tidak bergantung pada akun — tamu
+            pun bisa melihat/menghapus cache offline dari sini. */}
+        <h2>Penyimpanan offline</h2>
+        <p style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
+          Artikel yang Anda buka saat online tersimpan di perangkat ini
+          dan tetap bisa dibaca saat offline.
+        </p>
+        <div style={{ margin: "12px 0 24px" }}>
+          <ManajemenPenyimpanan />
+        </div>
       </div>
     );
   }
@@ -176,6 +258,97 @@ export default function FormPengaturan() {
             </span>
           </label>
         ))}
+      </div>
+
+      <h2>Preferensi baca</h2>
+      <p style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
+        Tersimpan di akun — berlaku di semua perangkat. Bila Anda
+        belum masuk, preferensi baca hanya tersimpan di perangkat
+        ini (localStorage) dan tidak ikut ke perangkat lain.
+      </p>
+      <div style={{ display: "grid", gap: 16, margin: "12px 0 24px" }}>
+        <div>
+          <p style={{ margin: "0 0 8px" }}>
+            <strong>Mode baca default</strong>
+          </p>
+          <div className="mode-baca" role="group" aria-label="Mode baca default">
+            {MODE_BACA_LABEL.map((m) => (
+              <button
+                key={m.nilai}
+                type="button"
+                className={preferensi.mode_baca === m.nilai ? "aktif" : ""}
+                aria-pressed={preferensi.mode_baca === m.nilai}
+                disabled={status === "loading"}
+                onClick={() => simpanBaca("mode_baca", m.nilai)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p style={{ margin: "0 0 8px" }}>
+            <strong>Ukuran font</strong>
+          </p>
+          <div className="mode-baca" role="group" aria-label="Ukuran font">
+            {UKURAN_FONT_LABEL.map((u) => (
+              <button
+                key={u}
+                type="button"
+                className={preferensi.ukuran_font === u ? "aktif" : ""}
+                aria-pressed={preferensi.ukuran_font === u}
+                aria-label={`Ukuran font ${u}`}
+                disabled={status === "loading"}
+                onClick={() => simpanBaca("ukuran_font", u)}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label style={{ display: "grid", gap: 6 }}>
+          <strong>Kepadatan daftar</strong>
+          <select
+            value={preferensi.kepadatan}
+            disabled={status === "loading"}
+            onChange={(e) =>
+              simpanBaca("kepadatan", e.target.value as Kepadatan)
+            }
+            style={{ maxWidth: 320 }}
+          >
+            <option value="nyaman">Nyaman (default)</option>
+            <option value="rapat">Rapat</option>
+          </select>
+          <span style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
+            Rapat merapatkan celah antar kartu di daftar artikel.
+          </span>
+        </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <strong>Bahasa antarmuka</strong>
+          <select
+            value={preferensi.bahasa}
+            disabled={status === "loading"}
+            onChange={(e) =>
+              simpanBaca("bahasa", e.target.value as PreferensiBaca["bahasa"])
+            }
+            style={{ maxWidth: 320 }}
+          >
+            <option value="id">Bahasa Indonesia</option>
+            <option value="en">English</option>
+          </select>
+          <span style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
+            Artikel berita tetap Bahasa Indonesia apa pun pilihan ini.
+          </span>
+        </label>
+      </div>
+
+      <h2>Penyimpanan offline</h2>
+      <p style={{ color: "var(--muted)", fontSize: "0.92rem" }}>
+        Artikel yang Anda buka saat online tersimpan di perangkat ini
+        dan tetap bisa dibaca saat offline.
+      </p>
+      <div style={{ margin: "12px 0 24px" }}>
+        <ManajemenPenyimpanan />
       </div>
 
       <h2>Data saya</h2>

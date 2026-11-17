@@ -658,6 +658,46 @@ main.konten {
   min-width: 0;
 }
 
+/* ---------- Pemilih bahasa (P3-3) ---------- */
+/* Pil ID | EN di header (AuthArea). Warna tombol eksplisit
+ * var(--ink) — <button> tidak mewarisi warna induk secara andal
+ * (aturan AGENTS). Hanya aturan baru; TIDAK ada definisi token
+ * baru di sini, jadi tidak ada risiko self-ref. */
+.pemilih-bahasa {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.pemilih-bahasa-tombol {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.pemilih-bahasa-tombol.aktif {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pemilih-bahasa-tombol:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .menu-item-label {
   font-size: 0.875rem;
   font-weight: 600;
@@ -2549,4 +2589,30 @@ td details summary {
   border-radius: 6px;
   padding: 1px 6px;
   margin-right: 4px;
+}
+
+/* Kepadatan daftar (P3-2, preferensi baca): atribut
+ * data-kepadatan="rapat" pada <body> merapatkan celah grid
+ * daftar + padding kartu. "nyaman" = default (atribut tidak
+ * ada, CSS bawaan berlaku). HANYA aturan kepadatan di sini —
+ * tidak ada definisi token yang diubah (aturan self-ref). */
+body[data-kepadatan="rapat"] .grid-berita {
+  gap: 8px;
+}
+
+body[data-kepadatan="rapat"] .grid-kategori {
+  gap: 8px;
+}
+
+body[data-kepadatan="rapat"] .grid-strip {
+  gap: 8px;
+}
+
+body[data-kepadatan="rapat"] .kartu {
+  padding: 12px;
+  gap: 6px;
+}
+
+body[data-kepadatan="rapat"] .seksi {
+  padding: 20px 0 4px;
 }

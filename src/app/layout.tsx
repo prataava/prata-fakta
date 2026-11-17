@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import CommandPalette from "@/components/CommandPalette";
+import PendaftaranSW from "@/components/pwa/PendaftaranSW";
+import BannerPembaruan from "@/components/pwa/BannerPembaruan";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -32,6 +34,13 @@ export const metadata: Metadata = {
     type: "website",
   },
   robots: { index: true, follow: true },
+  manifest: "/manifest.webmanifest",
+};
+
+// PWA (P3-1): warna tema bilah browser/sistem — sama dengan
+// theme_color manifest dan latar midnight situs.
+export const viewport: Viewport = {
+  themeColor: "#080D18",
 };
 
 /** Skrip tema anti-kedip: dipasang sebelum render agar tema tersimpan
@@ -63,6 +72,8 @@ export default async function RootLayout({
         <Footer />
         <BottomNav />
         <CommandPalette />
+        <PendaftaranSW />
+        <BannerPembaruan />
       </body>
     </html>
   );

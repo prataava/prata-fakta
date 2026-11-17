@@ -7,6 +7,12 @@ import {
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { catatGalatRoute } from "@/lib/analytics/galat";
+import {
+  DEFAULT_PREFERENSI_BACA,
+  dariBarisPreferensiBaca,
+  validasiPatchPreferensiBaca,
+  type PreferensiBaca,
+} from "@/lib/preferensi-baca";
 
 // GET /api/saya/preferensi → preferensi pengguna yang login
 // (pf_user_preferences, migrasi v8). Bila belum ada baris,
@@ -14,11 +20,16 @@ import { catatGalatRoute } from "@/lib/analytics/galat";
 // memang belum pernah disimpan).
 // PATCH /api/saya/preferensi { digest_harian?, notifikasi_topik?,
 // notifikasi_koreksi?, tampilkan_profil_publik?,
-// notifikasi_jawaban?, notifikasi_podcast?, push_notifikasi? }
+// notifikasi_jawaban?, notifikasi_podcast?, push_notifikasi?,
+// mode_baca?, ukuran_font?, kepadatan?, bahasa? }
 // → upsert baris milik sendiri (RLS menegakkan user_id =
 // auth.uid()). Tiga kolom terakhir dari migrasi v14 (B2-D):
 // bila kolom v14 belum ada, GET mundur ke 4 kolom lama +
 // default baru, sedangkan PATCH menjawab 503 jujur.
+// Empat kunci string dari migrasi v21 (P3-2): mode_baca,
+// ukuran_font, kepadatan, bahasa — nilai di luar CHECK v21
+// ditolak 400; bila kolom v21 belum ada, PATCH menjawab 503
+// jujur dan GET mundur ke kolom v14/lama + default baca.
 // Wajib login (401 bila tidak). Rate limit 30/menit/IP.
 // 503 jujur bila tabel belum ada (migrasi v8 belum dijalankan).
 const batasi = buatRateLimiter(30);
@@ -31,7 +42,7 @@ type Preferensi = {
   notifikasi_jawaban: boolean;
   notifikasi_podcast: boolean;
   push_notifikasi: boolean;
-};
+} & PreferensiBaca;
 
 const DEFAULT: Preferensi = {
   digest_harian: true,
@@ -41,9 +52,24 @@ const DEFAULT: Preferensi = {
   notifikasi_jawaban: true,
   notifikasi_podcast: true,
   push_notifikasi: false,
+  ...DEFAULT_PREFERENSI_BACA,
 };
 
+const KUNCI_BOOLEAN: (keyof Preferensi)[] = [
+  "digest_harian",
+  "notifikasi_topik",
+  "notifikasi_koreksi",
+  "tampilkan_profil_publik",
+  "notifikasi_jawaban",
+  "notifikasi_podcast",
+  "push_notifikasi",
+];
+
 const KOLOM_SELECT =
+  "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik, notifikasi_jawaban, notifikasi_podcast, push_notifikasi, mode_baca, ukuran_font, kepadatan, bahasa";
+
+// Kolom boolean v14 tanpa kolom string v21 (fallback bila v21 belum ada).
+const KOLOM_V14_SELECT =
   "digest_harian, notifikasi_topik, notifikasi_koreksi, tampilkan_profil_publik, notifikasi_jawaban, notifikasi_podcast, push_notifikasi";
 
 const KOLOM_LAMA_SELECT =
@@ -67,6 +93,7 @@ function dariBaris(data: Record<string, unknown>): Preferensi {
       typeof data.push_notifikasi === "boolean"
         ? data.push_notifikasi
         : DEFAULT.push_notifikasi,
+    ...dariBarisPreferensiBaca(data),
   };
 }
 
@@ -125,6 +152,14 @@ export async function GET(req: Request) {
     .eq("user_id", pengguna.id)
     .maybeSingle();
   if (error && kolomBelumAda(error)) {
+    // Migrasi v21 belum dijalankan: mundur ke kolom v14.
+    ({ data, error } = await supabase
+      .from("pf_user_preferences")
+      .select(KOLOM_V14_SELECT)
+      .eq("user_id", pengguna.id)
+      .maybeSingle());
+  }
+  if (error && kolomBelumAda(error)) {
     // Migrasi v14 belum dijalankan: mundur ke kolom lama.
     ({ data, error } = await supabase
       .from("pf_user_preferences")
@@ -171,8 +206,8 @@ export async function PATCH(req: Request) {
       { status: 400 },
     );
   }
-  const perubahan: Partial<Preferensi> = {};
-  for (const kunci of Object.keys(DEFAULT) as (keyof Preferensi)[]) {
+  const perubahan: Partial<Record<(typeof KUNCI_BOOLEAN)[number], boolean>> = {};
+  for (const kunci of KUNCI_BOOLEAN) {
     if (kunci in body) {
       if (typeof body[kunci] !== "boolean") {
         return NextResponse.json(
@@ -183,7 +218,18 @@ export async function PATCH(req: Request) {
       perubahan[kunci] = body[kunci] as boolean;
     }
   }
-  if (Object.keys(perubahan).length === 0) {
+  // P3-2: jalur string (v21) — kunci string TIDAK masuk loop
+  // boolean di atas (KUNCI_BOOLEAN); kunci string divalidasi
+  // terhadap CHECK v21 (nilai liar → 400).
+  const hasilBaca = validasiPatchPreferensiBaca(body);
+  if (!hasilBaca.ok) {
+    return NextResponse.json(
+      { ok: false, error: hasilBaca.error },
+      { status: 400 },
+    );
+  }
+  const perubahanBaca = hasilBaca.perubahan;
+  if (Object.keys(perubahan).length === 0 && Object.keys(perubahanBaca).length === 0) {
     return NextResponse.json(
       { ok: false, error: "Tidak ada preferensi yang diubah." },
       { status: 400 },
@@ -194,7 +240,7 @@ export async function PATCH(req: Request) {
   const { data, error } = await supabase
     .from("pf_user_preferences")
     .upsert(
-      { user_id: pengguna.id, ...perubahan },
+      { user_id: pengguna.id, ...perubahan, ...perubahanBaca },
       { onConflict: "user_id" },
     )
     .select(KOLOM_SELECT)
@@ -202,6 +248,19 @@ export async function PATCH(req: Request) {
   if (error) {
     if (tabelBelumAda(error)) return respon503();
     if (kolomBelumAda(error)) {
+      // Kolom v21 belum ada (bila patch memuat kunci baca) atau
+      // kolom v14 belum ada (patch boolean baru): bedakan pesannya
+      // agar jujur tentang migrasi mana yang kurang.
+      if (Object.keys(perubahanBaca).length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Preferensi baca belum aktif (migrasi v21 belum dijalankan).",
+          },
+          { status: 503 },
+        );
+      }
       return NextResponse.json(
         {
           ok: false,

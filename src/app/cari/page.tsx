@@ -14,6 +14,10 @@ import {
 } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+// P3-3: EmptyState halaman ini memakai kamus (bahasa dari cookie
+// via getBahasa). Judul/hasil lain halaman tetap Indonesia — di
+// luar cakupan minimal P3-3.
+import { getBahasa, t } from "@/lib/i18n";
 
 export const metadata: Metadata = {
   title: "Pencarian",
@@ -112,7 +116,13 @@ function tanggalSimpan(iso: string): string | null {
   });
 }
 
-async function HasilCari({ filter }: { filter: FilterCari }) {
+async function HasilCari({
+  filter,
+  bahasa,
+}: {
+  filter: FilterCari;
+  bahasa: "id" | "en";
+}) {
   const [hasil, hasilArtikel, hasilNegara] = await Promise.all([
     cariKonten(filter.q),
     cariArtikel(filter.q, {
@@ -224,11 +234,11 @@ async function HasilCari({ filter }: { filter: FilterCari }) {
 
       {kosong && (
         <EmptyState
-          judul="Tidak ada hasil"
-          pesan={`Tidak ada artikel, kategori, sumber, atau negara yang cocok dengan “${filter.q}”.`}
+          judul={t(bahasa, "cari.tidakAdaHasilJudul")}
+          pesan={t(bahasa, "cari.tidakAdaHasilPesan", { q: filter.q })}
           aksi={
             <Link className="tombol" href="/arsip">
-              Jelajahi arsip
+              {t(bahasa, "cari.jelajahiArsip")}
             </Link>
           }
         />
@@ -245,6 +255,7 @@ export default async function Cari({
   // Halaman membaca searchParams → tunggu request nyata (aturan
   // cacheComponents, pola /jelajahi + docs connection()).
   await connection();
+  const bahasa = await getBahasa();
   const sp = await searchParams;
   const ambil = (k: string) => {
     const v = sp[k];
@@ -384,12 +395,12 @@ export default async function Cari({
       <section className="seksi">
         {q ? (
           <Suspense fallback={<div className="kerangka" aria-label="Mencari…" />}>
-            <HasilCari filter={filter} />
+            <HasilCari filter={filter} bahasa={bahasa} />
           </Suspense>
         ) : (
           <EmptyState
-            judul="Masukkan kata kunci"
-            pesan="Ketik kata kunci di atas — misalnya nama kategori seperti “Ekonomi”, nama negara seperti “Indonesia”, atau nama sumber seperti “Antara”."
+            judul={t(bahasa, "cari.masukkanKataKunciJudul")}
+            pesan={t(bahasa, "cari.masukkanKataKunciPesan")}
           />
         )}
       </section>

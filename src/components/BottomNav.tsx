@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { t, type KunciBahasa } from "@/lib/i18n";
+import { useBahasa } from "@/lib/useBahasa";
 
 // V2 — Liquid Glass: SATU indikator kaca bergerak (bukan kapsul
 // per item). Komponen ini dirender SEKALI di root layout
@@ -32,7 +34,7 @@ const ITEMS = [
   {
     id: "beranda",
     href: "/",
-    label: "Beranda",
+    kunci: "nav.beranda" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M3 10.5 12 3l9 7.5V21h-6v-6h-6v6H3z" />
@@ -42,7 +44,7 @@ const ITEMS = [
   {
     id: "kategori",
     href: "/kategori",
-    label: "Kategori",
+    kunci: "nav.kategori" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 11h7v9h-7zM4 14h7v6H4z" />
@@ -52,7 +54,7 @@ const ITEMS = [
   {
     id: "arsip",
     href: "/arsip",
-    label: "Arsip",
+    kunci: "nav.arsip" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <rect x="3" y="4" width="18" height="5" rx="1" />
@@ -63,7 +65,7 @@ const ITEMS = [
   {
     id: "brief",
     href: "/brief",
-    label: "Brief",
+    kunci: "nav.brief" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14l-4-3-4 3-4-3-4 3z" />
@@ -73,7 +75,7 @@ const ITEMS = [
   {
     id: "saya",
     href: "/saya",
-    label: "Saya",
+    kunci: "auth.saya" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <circle cx="12" cy="8" r="4" />
@@ -84,7 +86,7 @@ const ITEMS = [
   {
     id: "lainnya",
     href: "/jelajahi",
-    label: "Lainnya",
+    kunci: "nav.lainnya" as KunciBahasa,
     ikon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <circle cx="5" cy="5" r="1.6" />
@@ -118,6 +120,8 @@ function indeksDariPath(pathname: string): number | null {
 
 export default function BottomNav() {
   const pathname = usePathname();
+  // P3-3: label dock dari kamus (cookie pf-bahasa via useBahasa).
+  const bahasa = useBahasa();
   const aktif = indeksDariPath(pathname);
   // Posisi terakhir kapsul — dipakai saat rute tak dikenal
   // (indikator disembunyikan tapi transform-nya dipertahankan,
@@ -155,7 +159,7 @@ export default function BottomNav() {
               <span className="prata-glass-icon" aria-hidden="true">
                 {item.ikon}
               </span>
-              <span className="prata-glass-label">{item.label}</span>
+              <span className="prata-glass-label">{t(bahasa, item.kunci)}</span>
             </Link>
           );
         })}
