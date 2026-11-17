@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import * as Dialog from "@radix-ui/react-dialog";
 
 // Tombol aksi admin generik: POST/PATCH/DELETE ke route /api/admin/*
 // (atau /api/sumber/*) dengan konfirmasi opsional dan pesan hasil.
 // Setelah berhasil, halaman di-refresh agar data server terbaru tampil.
+//
+// Konfirmasi memakai dialog dalam-halaman (Radix Dialog), BUKAN
+// window.confirm: dialog bawaan browser ditolak otomatis oleh
+// lapisan otomasi (terbukti 17 Nov 2026: tombol "Terbitkan" diklik
+// tapi POST tidak pernah jalan, 0/14 draf terbit). Dialog Radix
+// adalah elemen DOM biasa — bisa diklik manusia maupun otomatisasi.
 export default function TombolAksi({
   url,
   method = "POST",
@@ -21,7 +28,7 @@ export default function TombolAksi({
   body?: Record<string, unknown>;
   label: string;
   labelLoading?: string;
-  /** Teks konfirmasi (window.confirm). Kosong = tanpa konfirmasi. */
+  /** Teks konfirmasi (dialog dalam-halaman). Kosong = tanpa konfirmasi. */
   konfirmasi?: string;
   varian?: "biasa" | "primer" | "bahaya" | "hantu";
   onSelesai?: () => void;
@@ -29,10 +36,10 @@ export default function TombolAksi({
   const [loading, setLoading] = useState(false);
   const [pesan, setPesan] = useState("");
   const [sukses, setSukses] = useState(false);
+  const [terbuka, setTerbuka] = useState(false);
   const router = useRouter();
 
   async function jalankan() {
-    if (konfirmasi && !window.confirm(konfirmasi)) return;
     setLoading(true);
     setPesan("");
     setSukses(false);
@@ -54,6 +61,7 @@ export default function TombolAksi({
       }
       setSukses(true);
       setPesan(data.pesan ?? "Berhasil.");
+      setTerbuka(false);
       router.refresh();
       onSelesai?.();
     } catch {
@@ -61,6 +69,14 @@ export default function TombolAksi({
     } finally {
       setLoading(false);
     }
+  }
+
+  function klik() {
+    if (konfirmasi) {
+      setTerbuka(true);
+      return;
+    }
+    void jalankan();
   }
 
   const kelas =
@@ -77,7 +93,7 @@ export default function TombolAksi({
       <button
         type="button"
         className={kelas}
-        onClick={jalankan}
+        onClick={klik}
         disabled={loading}
       >
         {loading ? (labelLoading ?? "Memproses…") : label}
@@ -90,6 +106,49 @@ export default function TombolAksi({
         >
           {pesan}
         </span>
+      )}
+      {konfirmasi && (
+        <Dialog.Root open={terbuka} onOpenChange={setTerbuka}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="palette-lapisan" />
+            <Dialog.Content
+              className="palette-konten"
+              style={{ padding: 20, maxWidth: 440 }}
+            >
+              <Dialog.Title
+                style={{ fontSize: 18, fontWeight: 700, margin: "0 0 8px" }}
+              >
+                {label}
+              </Dialog.Title>
+              <Dialog.Description
+                style={{ color: "var(--muted)", margin: "0 0 20px" }}
+              >
+                {konfirmasi}
+              </Dialog.Description>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 10,
+                }}
+              >
+                <Dialog.Close asChild>
+                  <button type="button" className="tombol tombol-hantu">
+                    Batal
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="button"
+                  className={kelas}
+                  onClick={() => void jalankan()}
+                  disabled={loading}
+                >
+                  {loading ? (labelLoading ?? "Memproses…") : label}
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       )}
     </span>
   );
