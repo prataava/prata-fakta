@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DialogKonfirmasi from "@/components/admin/DialogKonfirmasi";
 
 // Tabel pengguna admin — Client Component karena daftar email hanya
 // tersedia lewat /api/admin/pengguna (service role), bukan lewat
@@ -26,6 +27,12 @@ export default function TabelPengguna({
   const [error, setError] = useState("");
   const [aksiId, setAksiId] = useState<string | null>(null);
   const [pesan, setPesan] = useState("");
+  // Pengguna yang menunggu konfirmasi ubah status (dialog
+  // dalam-halaman, bukan window.confirm — dialog bawaan ditolak
+  // otomatisasi).
+  const [statusTertunda, setStatusTertunda] = useState<Pengguna | null>(
+    null,
+  );
 
   useEffect(() => {
     let batal = false;
@@ -179,17 +186,7 @@ export default function TabelPengguna({
                       type="button"
                       className="tombol tombol-hantu"
                       disabled={aksiId === p.id}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            p.nonaktif
-                              ? `Aktifkan kembali akun ${p.email}?`
-                              : `Nonaktifkan akun ${p.email}? Pengguna tidak bisa masuk sampai diaktifkan lagi.`,
-                          )
-                        ) {
-                          void patch(p.id, { nonaktif: !p.nonaktif });
-                        }
-                      }}
+                      onClick={() => setStatusTertunda(p)}
                     >
                       {aksiId === p.id
                         ? "Memproses…"
@@ -204,6 +201,32 @@ export default function TabelPengguna({
           </tbody>
         </table>
       </div>
+      <DialogKonfirmasi
+        terbuka={statusTertunda !== null}
+        judul={
+          statusTertunda?.nonaktif ? "Aktifkan akun?" : "Nonaktifkan akun?"
+        }
+        pesan={
+          statusTertunda
+            ? statusTertunda.nonaktif
+              ? `Aktifkan kembali akun ${statusTertunda.email}?`
+              : `Nonaktifkan akun ${statusTertunda.email}? Pengguna tidak bisa masuk sampai diaktifkan lagi.`
+            : ""
+        }
+        labelKonfirmasi={
+          statusTertunda?.nonaktif ? "Ya, aktifkan" : "Ya, nonaktifkan"
+        }
+        varian="bahaya"
+        sibuk={statusTertunda !== null && aksiId === statusTertunda.id}
+        onKonfirmasi={() => {
+          if (statusTertunda) {
+            const p = statusTertunda;
+            setStatusTertunda(null);
+            void patch(p.id, { nonaktif: !p.nonaktif });
+          }
+        }}
+        onTutup={() => setStatusTertunda(null)}
+      />
     </>
   );
 }

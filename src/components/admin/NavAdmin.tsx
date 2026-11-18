@@ -44,9 +44,13 @@ export const NAV_ADMIN: {
     grup: "Kendali",
     tautan: [
       { href: "/admin/kendali", label: "Kendali" },
+      { href: "/admin/command-center", label: "Command Center" },
       // Fase 12 (Worker G): Operations Center — status live,
       // kesehatan sumber, inbox, performa, kontrol antrean.
       { href: "/admin/ops", label: "Ops Center" },
+      // v27: Reliability Center — kesehatan job dari bukti
+      // eksekusi aktual + watchdog (bukan status_terakhir).
+      { href: "/admin/reliability", label: "Reliability" },
       // Tugas 1 (17 Nov 2026): form broadcast push — sebelumnya
       // broadcast hanya bisa lewat API, tanpa UI sama sekali.
       { href: "/admin/notifikasi", label: "Notifikasi" },
@@ -58,6 +62,7 @@ export const NAV_ADMIN: {
     tautan: [
       { href: "/admin/monitoring", label: "Monitoring" },
       { href: "/admin/klaster", label: "Klaster" },
+      { href: "/admin/radar", label: "Radar" },
       { href: "/admin/verifikasi", label: "Verifikasi" },
       { href: "/admin/agen-ai", label: "Pipeline AI" },
       { href: "/admin/duplikat", label: "Duplikat" },
@@ -66,6 +71,7 @@ export const NAV_ADMIN: {
       { href: "/admin/kinerja", label: "Kinerja" },
       { href: "/admin/api-sehat", label: "API Sehat" },
       { href: "/admin/analitik", label: "Analitik" },
+      { href: "/admin/cakupan", label: "Cakupan" },
     ],
   },
 ];
