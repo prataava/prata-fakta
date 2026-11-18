@@ -47,7 +47,7 @@ import { catatGalatRoute } from "@/lib/analytics/galat";
 // Tahap 13A, T3 — menggantikan Map in-memory per instance).
 const batasi = buatRateLimiterKeras(10);
 
-type DipicuOleh = "manual" | "github_actions";
+type DipicuOleh = "manual" | "github_actions" | "pg_cron";
 
 const TOTAL_KOSONG = {
   ditemukan: 0,
@@ -118,7 +118,13 @@ export async function POST(req: Request) {
       );
     }
   } else {
-    dipicuOlehDefault = "github_actions";
+    // v28 (pg_cron): job pg_cron mengirim secret yang sama +
+    // header x-pf-pemicu: pg_cron — dicatat 'pg_cron', bukan
+    // 'github_actions'. Tanpa header itu, perilaku lama dipertahankan.
+    dipicuOlehDefault =
+      req.headers.get("x-pf-pemicu") === "pg_cron"
+        ? "pg_cron"
+        : "github_actions";
   }
 
   // --- Body opsional ---
@@ -146,7 +152,8 @@ export async function POST(req: Request) {
       : null;
   const dipicuOleh: DipicuOleh =
     body.dipicu_oleh === "github_actions" ||
-    body.dipicu_oleh === "manual"
+    body.dipicu_oleh === "manual" ||
+    body.dipicu_oleh === "pg_cron"
       ? body.dipicu_oleh
       : dipicuOlehDefault;
 

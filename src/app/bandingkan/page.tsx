@@ -110,8 +110,9 @@ export default async function Bandingkan({
         <h1 id="judul-banding">Bandingkan Liputan</h1>
         <p>
           Pilih dua artikel terbit dan lihat berdampingan: klaim yang
-          sama di keduanya, klaim yang hanya ada di satu artikel, dan
-          sumber tiap artikel. Tanpa klaim bersama, halaman tetap
+          sama di keduanya, klaim yang hanya ada di satu artikel,
+          sumber tiap artikel, serta sikap bukti (mendukung /
+          menentang / netral) di balik tiap klaim bersama. Tanpa klaim bersama, halaman tetap
           menampilkan ringkasan keduanya — dan mengatakannya dengan
           jujur.
         </p>

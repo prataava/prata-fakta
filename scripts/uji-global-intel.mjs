@@ -113,7 +113,9 @@ function bacaMigrasi(nama) {
   return sql;
 }
 
-// ---------- §A: migrasi v1–v27 berurutan di PGlite ----------
+// ---------- §A: migrasi v1–v28 berurutan di PGlite ----------
+// v28 TIDAK diterapkan di loop §A (butuh skema cron/pg_net/Vault
+// asli) — §1–§3 live di uji-migrasi-v28.mjs, §4 statis di §T.
 
 const DAFTAR_MIGRASI = fs
   .readdirSync(DIR_MIGRASI)
@@ -129,10 +131,10 @@ const VERSI_MIGRASI = DAFTAR_MIGRASI.map(
   (f) => Number(/_pf_v(\d+)_/.exec(f)?.[1] ?? 0),
 );
 cek(
-  "A0 urutan migrasi: 26 berkas v1–v27, v20 memang tidak ada",
-  DAFTAR_MIGRASI.length === 26 &&
+  "A0 urutan migrasi: 27 berkas v1–v28, v20 memang tidak ada",
+  DAFTAR_MIGRASI.length === 27 &&
     JSON.stringify(VERSI_MIGRASI) ===
-      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27]),
+      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28]),
   `versi: ${VERSI_MIGRASI.join(",")}`,
 );
 
@@ -151,7 +153,9 @@ await db.exec(`create role service_role nologin;`);
 
 let migrasiOk = true;
 let migrasiGagal = "";
-for (const nama of DAFTAR_MIGRASI) {
+// v28 dilewati di sini (alasan di komentar §A di atas).
+const MIGRASI_TANPA_V28 = DAFTAR_MIGRASI.filter((f) => !/_pf_v28_/.test(f));
+for (const nama of MIGRASI_TANPA_V28) {
   try {
     await db.exec(bacaMigrasi(nama));
   } catch (e) {
@@ -160,7 +164,7 @@ for (const nama of DAFTAR_MIGRASI) {
     break;
   }
 }
-cek("A1 migrasi v1–v27 diterapkan BERURUTAN tanpa error", migrasiOk, migrasiGagal);
+cek("A1 migrasi v1–v27 diterapkan BERURUTAN tanpa error (v28 diuji di uji-migrasi-v28.mjs)", migrasiOk, migrasiGagal);
 
 let idempotenOk = true;
 let idempotenGagal = "";
@@ -1312,6 +1316,60 @@ console.log("\n--- §S PRATA Command Center (v27) ---");
     baca("src/components/admin/NavAdmin.tsx").includes(
       '{ href: "/admin/command-center", label: "Command Center" }',
     ),
+  );
+}
+
+// ---------- §T: v28 — scheduler pg_cron + atribusi + gerbang push tamu ----------
+// Live SQL §1–§3 di uji-migrasi-v28.mjs; di sini penjaga statis
+// agar perubahan di file migrasi/kode atribusi/gerbang tamu
+// langsung ketahuan bila ada yang mengembalikannya diam-diam.
+console.log("\n--- §T v28: pg_cron + atribusi + gerbang push tamu ---");
+{
+  const sql28 = baca("supabase/migrations/20261118_pf_v28_pg_cron_scheduler.sql");
+  cek(
+    "T1 v28: CHECK dipicu_oleh v28 di dua tabel + tiga job pg_cron (*/30, */24, 0 1 * * *)",
+    sql28.includes("pf_ingestion_runs_dipicu_oleh_check_v28") &&
+      sql28.includes("pf_ai_runs_dipicu_oleh_check_v28") &&
+      sql28.includes("'pf-ingestion-30mnt'") &&
+      sql28.includes("'pf-pipeline-24mnt'") &&
+      sql28.includes("'pf-tanya-jawab-harian'"),
+  );
+  cek(
+    "T2 v28: secret hanya dari Vault (nama pf_ingestion_secret/pf_ai_secret), bukan nilai harfiah",
+    sql28.includes("vault.decrypted_secrets") &&
+      !sql28
+        .replace(/--[^\n]*/g, "")
+        .includes("create_secret"),
+  );
+  cek(
+    "T3 koreksi premis: v22 SUDAH memuat 'comparison' (31 nilai) — v28 tidak mengubah CHECK agen",
+    baca("supabase/migrations/20261117_pf_v22_global_intel.sql").includes("'comparison'") &&
+      !sql28.includes("pf_ai_runs_agen_check"),
+  );
+  cek(
+    "T4 atribusi pg_cron di kode (types + route-auth + ingestion route)",
+    baca("src/lib/ai/types.ts").includes('"pg_cron"') &&
+      baca("src/lib/ai/route-auth.ts").includes('pemicuHeader === "pg_cron" ? "pg_cron" : "github_actions"') &&
+      baca("src/app/api/ingestion/jalankan/route.ts").includes('body.dipicu_oleh === "pg_cron"'),
+  );
+  const halamanNotifikasi = baca("src/app/saya/notifikasi/page.tsx");
+  cek(
+    "T5 gerbang push tamu: TIDAK ADA redirect('/masuk') — tamu mencapai seksi push",
+    !halamanNotifikasi.includes('redirect("/masuk")') &&
+      !halamanNotifikasi.includes("redirect("),
+  );
+  cek(
+    "T6 gerbang push tamu: cabang tamu merender PengalihPush + tautan /masuk, SEBELUM FormPreferensiNotifikasi",
+    halamanNotifikasi.includes("if (!penggunaId)") &&
+      halamanNotifikasi.includes("<PengalihPush />") &&
+      halamanNotifikasi.includes('href="/masuk"') &&
+      halamanNotifikasi.indexOf("<FormPreferensiNotifikasi />") >
+        halamanNotifikasi.indexOf("if (!penggunaId)"),
+  );
+  cek(
+    "T7 Compare Perspectives opsi (a): hitungSikapBukti + formatSikapBukti diekspor perbandingan-dua.ts",
+    baca("src/lib/perbandingan-dua.ts").includes("export function hitungSikapBukti") &&
+      baca("src/lib/perbandingan-dua.ts").includes("export function formatSikapBukti"),
   );
 }
 

@@ -402,7 +402,16 @@ export async function autentikasiPemicuAi(
   const secretHeader = req.headers.get("x-pf-ai-secret");
   const lewatSecret = bandingkanSecret(secretHeader, secretEnv);
   if (lewatSecret) {
-    return { ok: true, dipicuOleh: "github_actions" };
+    // v28 (pg_cron): pemicu terjadwal dari database mengirim header
+    // x-pf-pemicu: pg_cron BERSAMA secret yang sama — dicatat
+    // 'pg_cron', bukan 'github_actions'. Header ini hanya bermakna
+    // bila secret cocok (tanpa secret, permintaan ditolak di bawah);
+    // pemanggil tanpa header tetap 'github_actions' seperti dulu.
+    const pemicuHeader = req.headers.get("x-pf-pemicu");
+    return {
+      ok: true,
+      dipicuOleh: pemicuHeader === "pg_cron" ? "pg_cron" : "github_actions",
+    };
   }
 
   const supabase = await createClient();
@@ -452,9 +461,14 @@ export async function autentikasiPemicuAi(
 }
 
 // Normalisasi nilai dipicu_oleh dari body (bila pemanggil mengisinya).
+// v28: 'pg_cron' diterima (job pg_cron mengirimnya di body ingestion).
 export function normalisasiDipicuOleh(
   nilai: unknown,
   bawaan: DipicuOleh,
 ): DipicuOleh {
-  return nilai === "github_actions" || nilai === "manual" ? nilai : bawaan;
+  return nilai === "github_actions" ||
+    nilai === "manual" ||
+    nilai === "pg_cron"
+    ? nilai
+    : bawaan;
 }

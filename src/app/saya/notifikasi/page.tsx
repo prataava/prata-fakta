@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
 import { formatTanggalJam } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -39,7 +38,38 @@ export default async function HalamanNotifikasi() {
   } catch {
     penggunaId = null;
   }
-  if (!penggunaId) redirect("/masuk");
+  if (!penggunaId) {
+    // v28 — TAMU TIDAK LAGI DIALIHKAN: seksi push (PengalihPush)
+    // memang dirancang untuk tamu — aktifkanPush() memakai
+    // endpoint tamu POST /api/notifications/subscribe (user_id
+    // NULL) dan PATCH /api/saya/preferensi hanya best-effort
+    // (.catch). Sebelum v28, baris pengalihan ke /masuk di sini
+    // membuat TIDAK ADA SATU PUN UI tamu yang bisa mencapai
+    // endpoint itu — fitur langganan tamu praktis mati
+    // (pf_push_subscriptions 0 sebelum dan sesudah uji).
+    // Tamu HANYA melihat seksi push + ajakan masuk; daftar
+    // notifikasi in-app + FormPreferensiNotifikasi tetap hanya
+    // untuk pengguna masuk (di bawah).
+    return (
+      <div>
+        <section className="seksi" aria-labelledby="judul-push">
+          <div className="seksi-kepala">
+            <h2 id="judul-push">Notifikasi push</h2>
+          </div>
+          <p className="artikel-meta-kecil">
+            Aktifkan notifikasi push untuk menerima kabar terbaru —
+            tanpa perlu masuk. Langganan tersimpan di perangkat ini.
+          </p>
+          <PengalihPush />
+          <p className="artikel-meta-kecil">
+            Sudah punya akun?{" "}
+            <Link href="/masuk">Masuk</Link> untuk melihat daftar
+            notifikasi in-app dan mengatur preferensi notifikasi.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   let tersedia = true;
   let notifikasi: Notifikasi[] = [];
