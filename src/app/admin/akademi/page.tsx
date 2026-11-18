@@ -287,6 +287,15 @@ export default function AdminAkademi() {
   // Kursus yang sedang dibuka strukturnya.
   const [bukaId, setBukaId] = useState<string | null>(null);
 
+  // Aksi kursus yang menunggu konfirmasi (dialog dalam-halaman,
+  // bukan window.confirm — dialog bawaan ditolak otomatisasi).
+  const [terbitTertunda, setTerbitTertunda] = useState<KursusAdmin | null>(
+    null,
+  );
+  const [hapusTertunda, setHapusTertunda] = useState<KursusAdmin | null>(
+    null,
+  );
+
   const muat = useCallback(async () => {
     setMemuat(true);
     setGalat("");
@@ -359,14 +368,18 @@ export default function AdminAkademi() {
 
   async function ubahStatusKursus(k: KursusAdmin) {
     const baru = k.status === "terbit" ? "draft" : "terbit";
-    if (
-      baru === "terbit" &&
-      !window.confirm(
-        `Terbitkan kursus "${k.judul}"? Kursus langsung tampil publik di /akademi.`,
-      )
-    ) {
+    // Terbitkan = aksi publik: minta konfirmasi dialog dalam-halaman.
+    if (baru === "terbit") {
+      setTerbitTertunda(k);
       return;
     }
+    await jalankanUbahStatus(k, baru);
+  }
+
+  async function jalankanUbahStatus(
+    k: KursusAdmin,
+    baru: "draft" | "terbit",
+  ) {
     try {
       const res = await fetch(`/api/admin/akademi/${k.id}`, {
         method: "PATCH",
@@ -385,13 +398,10 @@ export default function AdminAkademi() {
   }
 
   async function hapusKursus(k: KursusAdmin) {
-    if (
-      !window.confirm(
-        `Hapus kursus "${k.judul}" beserta semua modul, pelajaran, dan progres belajarnya?`,
-      )
-    ) {
-      return;
-    }
+    setHapusTertunda(k);
+  }
+
+  async function jalankanHapusKursus(k: KursusAdmin) {
     try {
       const res = await fetch(`/api/admin/akademi/${k.id}`, {
         method: "DELETE",
@@ -518,6 +528,44 @@ export default function AdminAkademi() {
           </div>
         )}
       </section>
+      <DialogKonfirmasi
+        terbuka={terbitTertunda !== null}
+        judul="Terbitkan kursus?"
+        pesan={
+          terbitTertunda
+            ? `Terbitkan kursus "${terbitTertunda.judul}"? Kursus langsung tampil publik di /akademi.`
+            : ""
+        }
+        labelKonfirmasi="Ya, terbitkan"
+        varian="biasa"
+        onKonfirmasi={() => {
+          if (terbitTertunda) {
+            const k = terbitTertunda;
+            setTerbitTertunda(null);
+            void jalankanUbahStatus(k, "terbit");
+          }
+        }}
+        onTutup={() => setTerbitTertunda(null)}
+      />
+      <DialogKonfirmasi
+        terbuka={hapusTertunda !== null}
+        judul="Hapus kursus?"
+        pesan={
+          hapusTertunda
+            ? `Hapus kursus "${hapusTertunda.judul}" beserta semua modul, pelajaran, dan progres belajarnya?`
+            : ""
+        }
+        labelKonfirmasi="Ya, hapus"
+        varian="bahaya"
+        onKonfirmasi={() => {
+          if (hapusTertunda) {
+            const k = hapusTertunda;
+            setHapusTertunda(null);
+            void jalankanHapusKursus(k);
+          }
+        }}
+        onTutup={() => setHapusTertunda(null)}
+      />
     </>
   );
 }
