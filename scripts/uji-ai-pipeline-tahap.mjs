@@ -22,6 +22,7 @@ import {
 import {
   susunDrafArtikel,
   klaimKutipanMelebihiBatas,
+  turunkanKutipanTanpaBukti,
   BATAS_KUTIPAN_DRAF,
 } from "../src/lib/ai/writing.ts";
 
@@ -454,6 +455,99 @@ periksa(
     "WR-7 klaim fakta panjang tidak dipotong (bukan kutipan)",
     draf.fakta_penting[0] === faktaPanjang,
     `${draf.fakta_penting[0].length} vs ${faktaPanjang.length}`,
+  );
+}
+
+// ---------- (d) v29: penurunan kutipan tanpa bukti ----------
+// Akar run pipeline #32: klaim 'kutipan' tanpa kalimat kutipan
+// evidence ditolak K3 — dan draf tidak pernah menampilkan
+// kutipan verbatim (butir polos), jadi penolakan itu tidak
+// pernah bisa lolos. Perbaikan: turunkan ke parafrasa SEBELUM
+// draf dibangun (writing.ts) — fail-closed TETAP: kutipan yang
+// BENAR-BENAR ditampilkan berpetik tanpa bukti tetap ditolak.
+
+// V29-1. Kutipan BERBUKTI (evidence punya kalimat kutipan) utuh.
+{
+  const hasil = turunkanKutipanTanpaBukti(KLAIM_BERSIH, evidenceBersih());
+  periksa(
+    "V29-1 kutipan berbukti tetap 'kutipan', tidak ada yang diturunkan",
+    hasil.klaim[2].jenis === "kutipan" && hasil.diturunkan.length === 0,
+    JSON.stringify(hasil.klaim.map((k) => k.jenis)),
+  );
+}
+
+// V29-2. Kutipan TANPA bukti diturunkan ke 'fakta' + tanda kutip
+// dilepas dari teks; klaim lain tidak disentuh; yang asli
+// tercatat di diturunkan.
+{
+  const evidence = evidenceBersih();
+  evidence[2] = { ...evidence[2], kutipan: null };
+  const hasil = turunkanKutipanTanpaBukti(KLAIM_BERSIH, evidence);
+  periksa(
+    "V29-2 kutipan tanpa bukti diturunkan ke 'fakta'",
+    hasil.klaim[2].jenis === "fakta" && hasil.diturunkan.length === 1,
+    JSON.stringify(hasil.klaim.map((k) => k.jenis)),
+  );
+  periksa(
+    "V29-2b teks parafrasa tanpa tanda kutip, substansi dipertahankan",
+    !hasil.klaim[2].teks.includes('"') &&
+      !hasil.klaim[2].teks.includes("“") &&
+      !hasil.klaim[2].teks.includes("”") &&
+      hasil.klaim[2].teks.includes("Kami memastikan bantuan sampai ke warga"),
+    hasil.klaim[2].teks,
+  );
+  periksa(
+    "V29-2c klaim asli tercatat di diturunkan (jenis 'kutipan')",
+    hasil.diturunkan[0].jenis === "kutipan" &&
+      hasil.diturunkan[0].teks === KLAIM_BERSIH[2].teks,
+  );
+  periksa(
+    "V29-2d klaim fakta/angka/tanggal tidak disentuh",
+    hasil.klaim[0].jenis === "fakta" &&
+      hasil.klaim[1].jenis === "angka" &&
+      hasil.klaim[3].jenis === "tanggal",
+  );
+}
+
+// V29-3. Draf dari daftar yang DITURUNKAN lolos QC (bukti
+// substansi tetap ada — K5 — hanya kalimat kutipannya yang
+// tidak ditemukan).
+{
+  const evidence = evidenceBersih();
+  evidence[2] = { ...evidence[2], kutipan: null };
+  const turun = turunkanKutipanTanpaBukti(KLAIM_BERSIH, evidence);
+  const draf = susunDrafArtikel({
+    item: ITEM,
+    klaim: turun.klaim,
+    ringkasan: "Pemerintah mengumumkan program bantuan pangan.",
+    keputusan: "VERIFIED",
+    sumber: SUMBER,
+  });
+  const hasil = periksaKualitasKlaimDraf(
+    masukanQC(draf, turun.klaim, evidence, ["2026-11-17"]),
+  );
+  periksa(
+    "V29-3 draf parafrasa (kutipan diturunkan) lolos QC",
+    hasil.lolos && !adaKode(hasil, "kutipan_tanpa_bukti"),
+    JSON.stringify(hasil.pelanggaran),
+  );
+}
+
+// V29-4. Fail-closed TETAP: draf yang MENAMPILKAN segmen
+// berpetik tanpa bukti tetap ditolak — penurunan TIDAK BOLEH
+// dipakai untuk menyembunyikan kutipan verbatim. (Di sini
+// daftar klaim TIDAK diturunkan — simulasi draf lama.)
+{
+  const draf = drafBersih();
+  const evidence = evidenceBersih();
+  evidence[2] = { ...evidence[2], kutipan: null };
+  const hasil = periksaKualitasKlaimDraf(
+    masukanQC(draf, KLAIM_BERSIH, evidence, ["2026-11-17"]),
+  );
+  periksa(
+    "V29-4 kutipan tanpa bukti yang tidak diturunkan tetap ditolak",
+    !hasil.lolos && adaKode(hasil, "kutipan_tanpa_bukti"),
+    JSON.stringify(hasil.pelanggaran),
   );
 }
 

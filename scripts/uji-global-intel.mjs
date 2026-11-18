@@ -131,10 +131,10 @@ const VERSI_MIGRASI = DAFTAR_MIGRASI.map(
   (f) => Number(/_pf_v(\d+)_/.exec(f)?.[1] ?? 0),
 );
 cek(
-  "A0 urutan migrasi: 27 berkas v1–v28, v20 memang tidak ada",
-  DAFTAR_MIGRASI.length === 27 &&
+  "A0 urutan migrasi: 28 berkas v1–v29, v20 memang tidak ada",
+  DAFTAR_MIGRASI.length === 28 &&
     JSON.stringify(VERSI_MIGRASI) ===
-      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28]),
+      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29]),
   `versi: ${VERSI_MIGRASI.join(",")}`,
 );
 
@@ -153,9 +153,14 @@ await db.exec(`create role service_role nologin;`);
 
 let migrasiOk = true;
 let migrasiGagal = "";
-// v28 dilewati di sini (alasan di komentar §A di atas).
-const MIGRASI_TANPA_V28 = DAFTAR_MIGRASI.filter((f) => !/_pf_v28_/.test(f));
-for (const nama of MIGRASI_TANPA_V28) {
+// v28 + v29 dilewati di sini (alasan di komentar §A di atas:
+// keduanya punya §4 job pg_cron yang butuh skema cron/pg_net/
+// Vault asli — §1–§3 v28 live di uji-migrasi-v28.mjs,
+// §1–§3+§5 v29 live di uji-migrasi-v29.mjs).
+const MIGRASI_TANPA_V28_V29 = DAFTAR_MIGRASI.filter(
+  (f) => !/_pf_v28_/.test(f) && !/_pf_v29_/.test(f),
+);
+for (const nama of MIGRASI_TANPA_V28_V29) {
   try {
     await db.exec(bacaMigrasi(nama));
   } catch (e) {
@@ -164,7 +169,7 @@ for (const nama of MIGRASI_TANPA_V28) {
     break;
   }
 }
-cek("A1 migrasi v1–v27 diterapkan BERURUTAN tanpa error (v28 diuji di uji-migrasi-v28.mjs)", migrasiOk, migrasiGagal);
+cek("A1 migrasi v1–v27 diterapkan BERURUTAN tanpa error (v28 diuji di uji-migrasi-v28.mjs, v29 di uji-migrasi-v29.mjs)", migrasiOk, migrasiGagal);
 
 let idempotenOk = true;
 let idempotenGagal = "";
@@ -805,18 +810,22 @@ console.log("\n--- §I push notifications (v26) ---");
     idxPost > 0 && idxSet > idxPost,
     "setVapidDetails di luar handler = init dengan string kosong",
   );
+  // v29: hitung sukses nyata + Promise.allSettled kini di lib
+  // bersama broadcast.ts (route hanya memetakan hasilnya:
+  // broadcasted: hasil.terkirim).
+  const broadcastLib = baca("src/lib/notifikasi/broadcast.ts");
   cek(
     "I10 broadcast 503 jujur bila VAPID belum terkonfigurasi + hitung sukses nyata (bukan jumlah baris)",
     routeKirim.includes("status: 503") &&
       routeKirim.includes("Push belum terkonfigurasi") &&
-      routeKirim.includes("broadcasted: terkirim") &&
-      routeKirim.includes("Promise.allSettled"),
+      routeKirim.includes("broadcasted: hasil.terkirim") &&
+      broadcastLib.includes("Promise.allSettled"),
   );
   cek(
     "I11 broadcast menghapus subscriber mati (410/404) + validasi url same-origin",
-    routeKirim.includes("410") &&
-      routeKirim.includes("404") &&
-      routeKirim.includes('startsWith("//")'),
+    broadcastLib.includes("410") &&
+      broadcastLib.includes("404") &&
+      broadcastLib.includes('startsWith("//")'),
   );
   const sw = baca("public/sw.js");
   cek(
@@ -1194,12 +1203,18 @@ console.log("\n--- §Q Notification Intelligence (v27) ---");
       routeKirim.includes("push_notifikasi") &&
       routeKirim.includes("dilewati_preferensi"),
   );
+  // v29: logika pengiriman dipindah VERBATIM dari route admin ke
+  // lib bersama src/lib/notifikasi/broadcast.ts (dipakai route
+  // admin DAN Daily Brief pagi — perilaku SAMA PERSIS). Q3
+  // memeriksa lib-nya + delegasi route ke sana.
+  const broadcastLib = baca("src/lib/notifikasi/broadcast.ts");
   cek(
     "Q3 broadcast: frequency cap (dilewati_cap) + retry 1× 429/5xx (jeda 1 detik) + catat setiap percobaan",
-    routeKirim.includes("dilewati_cap") &&
-      routeKirim.includes("BATAS_KIRIM_PER_HARI") &&
-      routeKirim.includes("setTimeout(r, 1000)") &&
-      routeKirim.includes("catatPengirimanPush(service, catatan)"),
+    broadcastLib.includes("dilewati_cap") &&
+      broadcastLib.includes("BATAS_KIRIM_PER_HARI") &&
+      broadcastLib.includes("setTimeout(r, 1000)") &&
+      broadcastLib.includes("catatPengirimanPush(service, catatan)") &&
+      routeKirim.includes("kirimBroadcastPush(service, payload)"),
   );
   cek(
     "Q4 kirimPushKePengguna (jalur uji) ikut mencatat ke pf_push_deliveries",
