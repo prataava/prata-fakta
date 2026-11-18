@@ -124,6 +124,11 @@
 --   (tidak diubah). Bila suatu saat pencatatan harfiah
 --   'comparison' diinginkan, CHECK-nya sudah mengizinkan
 --   sejak v22 — tidak butuh migrasi baru.
+-- KOREKSI §4 (18 Nov 2026, agen utama SEBELUM penerapan):
+--   perintah job di §4 semula memakai $$...$$ DI DALAM do-block
+--   $$...$$ — tag dollar yang sama menutup do-block lebih awal
+--   ("syntax error at or near select", terbukti di PGlite).
+--   Diperbaiki ke $job$...$job$ (dijaga baterai A11).
 -- Verifikasi sesudah jalan (SQL Editor, terpisah):
 --   -- (a) CHECK diluaskan (2 baris, masing-masing 5 nilai):
 --   select conname, pg_get_constraintdef(oid) from pg_constraint
@@ -320,7 +325,7 @@ begin
   perform cron.schedule(
     'pf-ingestion-30mnt',
     '*/30 * * * *',
-    $$select public.pf_panggil_endpoint_terjadwal('/api/ingestion/jalankan', 'x-pf-ingestion-secret', 'pf_ingestion_secret', '{"dipicu_oleh":"pg_cron"}'::jsonb)$$
+    $job$select public.pf_panggil_endpoint_terjadwal('/api/ingestion/jalankan', 'x-pf-ingestion-secret', 'pf_ingestion_secret', '{"dipicu_oleh":"pg_cron"}'::jsonb)$job$
   );
 end $$;
 
@@ -332,7 +337,7 @@ begin
   perform cron.schedule(
     'pf-pipeline-24mnt',
     '*/24 * * * *',
-    $$select public.pf_panggil_endpoint_terjadwal('/api/ai/jalankan', 'x-pf-ai-secret', 'pf_ai_secret', '{"dipicu_oleh":"pg_cron","limit":10}'::jsonb)$$
+    $job$select public.pf_panggil_endpoint_terjadwal('/api/ai/jalankan', 'x-pf-ai-secret', 'pf_ai_secret', '{"dipicu_oleh":"pg_cron","limit":10}'::jsonb)$job$
   );
 end $$;
 
@@ -344,6 +349,6 @@ begin
   perform cron.schedule(
     'pf-tanya-jawab-harian',
     '0 1 * * *',
-    $$select public.pf_panggil_endpoint_terjadwal('/api/tanya/draf', 'x-pf-ai-secret', 'pf_ai_secret', '{"limit":10}'::jsonb)$$
+    $job$select public.pf_panggil_endpoint_terjadwal('/api/tanya/draf', 'x-pf-ai-secret', 'pf_ai_secret', '{"limit":10}'::jsonb)$job$
   );
 end $$;

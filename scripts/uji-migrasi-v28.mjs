@@ -133,6 +133,12 @@ console.log("--- §A statis migrasi v28 ---");
       sql.includes("DIJEDA") &&
       sql.includes("RENCANA CUTOVER"),
   );
+  cek(
+    "A11 §4: perintah job memakai tag dollar BERBEDA dari do-block (bukan nested $$)",
+    !sql.includes("$$select") &&
+      (sql.match(/\$job\$select/g) ?? []).length === 3,
+    "bila gagal: nested $$ = syntax error at or near select",
+  );
 }
 
 // ---------- §B: live PGlite (v1–v8 + v22, lalu v28 tanpa §4) ----------
