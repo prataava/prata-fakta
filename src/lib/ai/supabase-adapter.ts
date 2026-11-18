@@ -511,6 +511,78 @@ export class SupabaseAiAdapter implements AiAdapter {
     }
   }
 
+  // ---------- Batas ulang quality_check (v29) ----------
+  // Item yang gagal quality_check 3x berturut-turut ditandai
+  // terminal 'DITOLAK' (migrasi v29 §1–§2) agar tidak diklaim
+  // antrean tiap run selamanya (akar run pipeline #32: status
+  // tetap UNCONFIRMED sesudah gagal, jadi dicoba lagi tanpa
+  // pernah lolos). KEDUA metode fail-open (BAYANGAN pola
+  // diproses_pada di atas): sebelum migrasi v29 diterapkan,
+  // kolom qc_gagal_berturut_turut BELUM ADA — select/update
+  // mengembalikan galat (PGRST204) dan metode diam-diam
+  // mengembalikan "tidak diketahui" TANPA melempar, agar
+  // pipeline lama tetap berjalan. JANGAN mengubah ke throw.
+  //   catatGagalQualityCheck: tambah 1; di 3 ubah status
+  //     menjadi 'DITOLAK' (update bersyarat status masih
+  //     UNCONFIRMED — bila status sudah berubah di tengah
+  //     jalan, flip tidak terjadi dan terminal=false).
+  //   resetGagalQualityCheck: nol-kan sesudah item berhasil
+  //     diproses (langkah 8) — "berturut-turut" dihitung dalam
+  //     satu rentang UNCONFIRMED, bukan sepanjang hidup item.
+  async catatGagalQualityCheck(
+    itemId: string,
+  ): Promise<{ terminal: boolean; hitungan: number | null }> {
+    try {
+      const { data, error } = await this.klien
+        .from("pf_raw_items")
+        .select("qc_gagal_berturut_turut")
+        .eq("id", itemId)
+        .maybeSingle();
+      if (error || !data) return { terminal: false, hitungan: null };
+      const hitungan =
+        ((data.qc_gagal_berturut_turut as number | null) ?? 0) + 1;
+      if (hitungan >= 3) {
+        // Update BERSYARAT status masih UNCONFIRMED + minta
+        // baris yang ter-update kembali (.select): bila status
+        // sudah berubah di tengah jalan, 0 baris ter-update dan
+        // terminal=false (jangan klaim flip yang tidak terjadi).
+        const { data: flip, error: errFlip } = await this.klien
+          .from("pf_raw_items")
+          .update({
+            qc_gagal_berturut_turut: hitungan,
+            status_verifikasi: "DITOLAK",
+          })
+          .eq("id", itemId)
+          .eq("status_verifikasi", "UNCONFIRMED")
+          .select("id");
+        if (errFlip) return { terminal: false, hitungan };
+        return {
+          terminal: Array.isArray(flip) && flip.length > 0,
+          hitungan,
+        };
+      }
+      const { error: errNaik } = await this.klien
+        .from("pf_raw_items")
+        .update({ qc_gagal_berturut_turut: hitungan })
+        .eq("id", itemId);
+      if (errNaik) return { terminal: false, hitungan: null };
+      return { terminal: false, hitungan };
+    } catch {
+      return { terminal: false, hitungan: null };
+    }
+  }
+
+  async resetGagalQualityCheck(itemId: string): Promise<void> {
+    try {
+      await this.klien
+        .from("pf_raw_items")
+        .update({ qc_gagal_berturut_turut: 0 })
+        .eq("id", itemId);
+    } catch {
+      // Abaikan — kolom pra-v29 belum ada.
+    }
+  }
+
   async simpanMetadataItem(
     id: string,
     metadata: Record<string, unknown>,
@@ -574,13 +646,24 @@ export class SupabaseAiAdapter implements AiAdapter {
       }));
   }
 
-  async simpanBrief(tanggal: string, isi: unknown): Promise<string> {
+  async simpanBrief(
+    tanggal: string,
+    isi: unknown,
+    status: "draft" | "terbit" = "draft",
+  ): Promise<string> {
+    // v29: status 'terbit' HANYA dipakai Daily Brief mode artikel
+    // terbit (jalankanBriefHarian) — semua entri sudah terbit.
+    // Bila status 'terbit', isi juga diterbitkan_pada (dipakai
+    // /brief + daftar brief admin). Upsert per tanggal seperti
+    // semula; pemanggil yang sama (lock job "brief") menjamin
+    // tidak ada dua penulis bersamaan.
+    const baris: Record<string, unknown> = { tanggal, isi, status };
+    if (status === "terbit") {
+      baris.diterbitkan_pada = new Date().toISOString();
+    }
     const { data, error } = await this.klien
       .from("pf_daily_briefs")
-      .upsert(
-        { tanggal, isi, status: "draft" },
-        { onConflict: "tanggal" },
-      )
+      .upsert(baris, { onConflict: "tanggal" })
       .select("id")
       .single();
     if (error) throw new Error(`simpanBrief gagal: ${error.message}`);
@@ -648,6 +731,70 @@ export class SupabaseAiAdapter implements AiAdapter {
       }
     }
     return draf.map((d) => ({
+      judul: d.judul as string,
+      ringkasan: d.ringkasan as string,
+      kategori_slug: d.kategori_slug as string,
+      status_verifikasi: d.status_verifikasi as string,
+      sumber_url: d.sumber_url as string,
+      dibuat_pada: d.dibuat_pada as string,
+      raw_item_id: d.raw_item_id,
+      waktu_terbit_asli: d.raw_item_id
+        ? (waktuPerItem.get(d.raw_item_id) ?? null)
+        : null,
+    }));
+  }
+
+  // v29 (Fitur 3): artikel TERBIT 24 jam terakhir untuk Daily
+  // Brief pagi — cermin ambilDrafArtikel di atas, bedanya:
+  // status='terbit', jendela diterbitkan_pada >= now-24j,
+  // urutan terbaru dulu. Waktu terbit asli berita tetap dibaca
+  // dari raw item asal (P2-4) seperti draf.
+  async ambilArtikelTerbit24Jam(
+    limit: number,
+  ): Promise<ArtikelDrafRingkas[]> {
+    const batas = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await this.klien
+      .from("pf_articles")
+      .select(
+        "id, judul, ringkasan, kategori_slug, status_verifikasi, sumber_url, dibuat_pada, raw_item_id",
+      )
+      .eq("status", "terbit")
+      .gte("diterbitkan_pada", batas)
+      .order("diterbitkan_pada", { ascending: false })
+      .limit(limit);
+    if (error) {
+      throw new Error(`ambilArtikelTerbit24Jam gagal: ${error.message}`);
+    }
+    const terbit = (data ?? []) as Array<{
+      id: string;
+      judul: string;
+      ringkasan: string;
+      kategori_slug: string;
+      status_verifikasi: string;
+      sumber_url: string;
+      dibuat_pada: string;
+      raw_item_id: string | null;
+    }>;
+    const ids = [...new Set(
+      terbit.map((d) => d.raw_item_id).filter((v): v is string => !!v),
+    )];
+    const waktuPerItem = new Map<string, string | null>();
+    if (ids.length > 0) {
+      const { data: itemRows, error: errItem } = await this.klien
+        .from("pf_raw_items")
+        .select("id, waktu_terbit_asli")
+        .in("id", ids);
+      if (errItem) {
+        throw new Error(`ambilArtikelTerbit24Jam gagal: ${errItem.message}`);
+      }
+      for (const row of (itemRows ?? []) as Array<{
+        id: string;
+        waktu_terbit_asli: string | null;
+      }>) {
+        waktuPerItem.set(row.id, row.waktu_terbit_asli);
+      }
+    }
+    return terbit.map((d) => ({
       judul: d.judul as string,
       ringkasan: d.ringkasan as string,
       kategori_slug: d.kategori_slug as string,

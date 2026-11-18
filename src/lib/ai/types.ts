@@ -289,8 +289,16 @@ export interface AiAdapter {
   ): Promise<void>;
   ambilKlaimTanpaVerifikasi(limit: number): Promise<KlaimTanpaVerifikasi[]>;
   // Upsert per tanggal (satu brief per hari), selalu status 'draft'.
-  simpanBrief(tanggal: string, isi: unknown): Promise<string>;
+  simpanBrief(
+    tanggal: string,
+    isi: unknown,
+    status?: "draft" | "terbit",
+  ): Promise<string>;
   ambilBriefTerbaru(): Promise<BriefTersimpan | null>;
   // Draf artikel terbaru (status='draft'), untuk entri Daily Brief.
   ambilDrafArtikel(limit: number): Promise<ArtikelDrafRingkas[]>;
+  // v29: artikel TERBIT 24 jam terakhir (status='terbit',
+  // diterbitkan_pada >= now-24j), untuk Daily Brief pagi +
+  // push — bentuk yang sama dengan ambilDrafArtikel.
+  ambilArtikelTerbit24Jam(limit: number): Promise<ArtikelDrafRingkas[]>;
 }
