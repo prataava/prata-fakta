@@ -13,7 +13,8 @@
 // - Setiap klaim menaut ke /klaim/[id] (Pelacak Klaim, P1-2).
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
-import type { PerbandinganDuaArtikel } from "@/lib/data";
+import type { PerbandinganDuaArtikel, SikapBukti } from "@/lib/data";
+import { formatSikapBukti } from "@/lib/perbandingan-dua";
 import { formatTanggal } from "@/lib/format";
 import {
   kelasLencanaStatus,
@@ -26,6 +27,16 @@ const LABEL_STATUS_KLAIM: Record<string, string> = {
   belum_terverifikasi: "Belum terverifikasi",
   tidak_dapat_diverifikasi: "Tidak dapat diverifikasi",
 };
+
+/** Satu sel sikap bukti. undefined = bukti tidak terbaca
+ *  (getter gagal) — ditampilkan jujur sebagai "belum dibaca",
+ *  bukan "tanpa bukti". */
+function SelSikap({ sikap }: { sikap: SikapBukti | undefined }) {
+  if (sikap === undefined) {
+    return <span style={{ color: "var(--muted)" }}>belum dibaca</span>;
+  }
+  return <span>{formatSikapBukti(sikap)}</span>;
+}
 
 export default function PerbandinganBersebelahan({
   perbandingan,
@@ -135,7 +146,16 @@ export default function PerbandinganBersebelahan({
               <p style={{ color: "var(--muted)", fontSize: "0.88rem" }}>
                 Klaim-klaim di bawah ini muncul di kedua artikel dengan
                 teks yang sama. Statusnya bisa berbeda — status
-                dicatat per artikel, bukan per teks.
+                dicatat per artikel, bukan per teks. &ldquo;Sikap
+                bukti&rdquo; dihitung mesin dari bukti
+                (pf_evidence.arah: mendukung/menentang/netral) di
+                balik tiap klaim — bukan label opini. Kejujuran yang
+                perlu diketahui: pipeline hanya menulis bukti
+                &ldquo;mendukung&rdquo;; &ldquo;menentang&rdquo; hanya
+                muncul dari review manusia. Jadi bila kedua sisi
+                tertulis &ldquo;mendukung&rdquo;, artinya belum ada
+                bukti yang menentang klaim itu — bukan berarti kedua
+                artikel sepakat.
               </p>
               <div style={{ overflowX: "auto" }}>
                 <table className="tabel-data">
@@ -143,7 +163,9 @@ export default function PerbandinganBersebelahan({
                     <tr>
                       <th scope="col">Klaim</th>
                       <th scope="col">Di artikel A</th>
+                      <th scope="col">Sikap bukti di A</th>
                       <th scope="col">Di artikel B</th>
+                      <th scope="col">Sikap bukti di B</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -165,6 +187,9 @@ export default function PerbandinganBersebelahan({
                           </Link>
                         </td>
                         <td>
+                          <SelSikap sikap={pasangan.sikapA} />
+                        </td>
+                        <td>
                           <span className="lencana">
                             {LABEL_STATUS_KLAIM[pasangan.klaimB.status] ??
                               pasangan.klaimB.status}
@@ -172,6 +197,9 @@ export default function PerbandinganBersebelahan({
                           <Link href={`/klaim/${pasangan.klaimB.id}`}>
                             Lacak klaim
                           </Link>
+                        </td>
+                        <td>
+                          <SelSikap sikap={pasangan.sikapB} />
                         </td>
                       </tr>
                     ))}
