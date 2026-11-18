@@ -48,6 +48,7 @@ import { hashJudul } from "../ingestion/dedup.ts";
 import type {
   AgenAi,
   AiAdapter,
+  ArahBukti,
   DipicuOleh,
   InputJenisAi,
   RawItemAntrean,
@@ -73,6 +74,7 @@ import type {
 import { buatRingkasan } from "./summarization.ts";
 import { periksaTerjemahan, cobaTerjemahkanJudul } from "./translation.ts";
 import { susunDrafArtikel } from "./writing.ts";
+import { turunkanKutipanTanpaBukti } from "./writing.ts";
 import type { SumberDraf } from "./writing.ts";
 import { periksaKualitasDraf } from "./quality.ts";
 import type { HasilKualitas } from "./quality.ts";
@@ -132,6 +134,9 @@ export interface HasilPipeline {
   unconfirmed: number;
   dilewati: number;
   gagal: number;
+  /** Item yang mencapai terminal 'DITOLAK' karena gagal
+   *  quality_check 3x berturut-turut (v29) — subset dari `gagal`. */
+  ditolak_qc: number;
   rekonsiliasi?: HasilRekonsiliasi;
   /** Mode antrean run ini ("terbaru" bawaan, "terlama" bila mode
    *  kejar aktif — P2-8). */
@@ -145,6 +150,16 @@ export interface OpsiBrief {
   // API route yang membaca pf_articles). Bila kurang dari 5, dilengkapi
   // entri UNCONFIRMED dari antrean — ditandai jujur statusnya.
   entri?: EntriBrief[];
+  /** v29: bila pemanggil TIDAK menyediakan entri, ambil HANYA
+   *  artikel TERBIT 24 jam terakhir (tanpa pengisian dari
+   *  antrean UNCONFIRMED). Bawaan false = perilaku lama (draf
+   *  terbaru + antrean UNCONFIRMED, status 'draft'). */
+  dariArtikelTerbit?: boolean;
+  /** v29: terbitkan brief langsung (hanya bermakna bila
+   *  dariArtikelTerbit=true dan ada >=1 entri — semua entri
+   *  adalah artikel yang sudah terbit, jadi tidak ada klaim
+   *  baru yang lolos tanpa review). Bawaan false. */
+  terbitkanLangsung?: boolean;
 }
 
 export interface HasilBrief {
@@ -152,6 +167,11 @@ export interface HasilBrief {
   briefId: string;
   jumlahEntri: number;
   jumlahIsu: number;
+  /** v29: true bila brief ini diterbitkan (bukan draf). */
+  diterbitkan: boolean;
+  /** v29: judul entri (maks 3 pertama) — dipakai pemanggil
+   *  untuk membangun payload push Daily Brief. */
+  judulEntri: string[];
 }
 
 // ---------- Util ----------
@@ -309,6 +329,28 @@ interface KonteksItem {
   klaimTersimpan: KlaimTerekstrak[];
   idKlaim: string[];
   tierUtama: number;
+  /** Teks halaman sumber hasil fetch research ("" bila fetch
+   *  gagal) — dipakai mencari kalimat kutipan evidence (v29):
+   *  klaim yang diekstrak dari halaman TIDAK PERNAH bisa
+   *  ditemukan kalimatnya bila pencarian hanya memakai
+   *  ringkasan (akar sistematis kutipan_tanpa_bukti). */
+  teksHalaman: string;
+}
+
+// ---------- Aturan arah bukti deterministik (v29, Fitur 4) ----------
+// Dipakai tulisBukti saat menulis pf_evidence — BUKAN LLM:
+//   kutipan verbatim ditemukan -> 'mendukung' (kalimat pendukung
+//     benar-benar ada di sumber);
+//   TIDAK ditemukan -> 'netral' (sumber menyebut klaim tapi sikap
+//     verbatim tidak terkonfirmasi — JUJUR, bukan 'mendukung'
+//     buta seperti sebelum v29);
+//   'menentang' HANYA dari label manual redaksi
+//     (/admin/label-sikap) — TIDAK PERNAH otomatis.
+// Murni (tanpa I/O) agar bisa diuji baterai.
+export function tentukanArahBukti(
+  kutipan: string | null | undefined,
+): ArahBukti {
+  return kutipan && kutipan.trim().length > 0 ? "mendukung" : "netral";
 }
 
 // ---------- Fase 1: riset satu item ----------
@@ -421,7 +463,13 @@ async function risetSatuItem(
     tierUtama = 3;
   }
 
-  return { item, klaimTersimpan, idKlaim, tierUtama };
+  return {
+    item,
+    klaimTersimpan,
+    idKlaim,
+    tierUtama,
+    teksHalaman: riset.teksHalaman,
+  };
 }
 // ---------- Fase 2: verifikasi + draf satu item ----------
 // Dijalankan SETELAH fase 1 selesai untuk semua item, agar
@@ -433,7 +481,7 @@ async function verifikasiSatuItem(
   opsi: OpsiPipeline,
   hasil: HasilPipeline,
 ): Promise<void> {
-  const { item, klaimTersimpan, idKlaim, tierUtama } = ctx;
+  const { item, klaimTersimpan, idKlaim, tierUtama, teksHalaman } = ctx;
   const dipicu = opsi.dipicu_oleh ?? "manual";
 
   // 3. Verification — dua sinyal (judul identik + koroborasi klaim).
@@ -702,12 +750,18 @@ async function verifikasiSatuItem(
         klaimDenganEvidence.add(klaimId);
         return;
       }
+      // ATURAN ARAH DETERMINISTIK (v29, Fitur 4 — BUKAN LLM):
+      // lihat tentukanArahBukti di bawah. Label manual SELALU
+      // menang: simpanBukti mendup per (klaim_id, sumber_url)
+      // dan MELEWATI baris yang sudah ada, jadi baris berlabel
+      // manual tidak pernah ditimpa pipeline (cabang sudahAda
+      // di atas juga tidak menimpa).
       await adapter.simpanBukti({
         klaim_id: klaimId,
         sumber_url: sumberUrl,
         sumber_nama: sumberNama,
         kutipan: kutipan ?? undefined,
-        arah: "mendukung",
+        arah: tentukanArahBukti(kutipan),
       });
       jumlahEvidence += 1;
       if (independen) jumlahEvidenceIndependen += 1;
@@ -733,7 +787,11 @@ async function verifikasiSatuItem(
     if (!klaimId) continue;
     const sudahTulis = new Set<string>();
     // (a) Sumber item sendiri — selalu.
-    const teksSendiri = [item.ringkasan, item.isi_ringkas]
+    // v29: pencarian kalimat kutipan memakai JUGA teks halaman
+    // hasil fetch (bila ada) — klaim yang diekstrak dari halaman
+    // tidak pernah ditemukan kalimatnya bila hanya dicari di
+    // ringkasan (akar sistematis kutipan_tanpa_bukti).
+    const teksSendiri = [item.ringkasan, item.isi_ringkas, teksHalaman]
       .filter(Boolean)
       .join(" ");
     await tulisBukti(
@@ -980,11 +1038,21 @@ async function verifikasiSatuItem(
   const sumberDraf: SumberDraf[] = [...sumberDrafMap.values()];
 
   // 6a. Draf in-memory (belum disimpan) — dipakai 6b/6c/6d + 7.
+  // v29: klaim 'kutipan' tanpa kalimat kutipan evidence DITURUNKAN
+  // dulu menjadi parafrasa (writing.ts turunkanKutipanTanpaBukti)
+  // — draf dibangun dari daftar yang sudah diturunkan, dan daftar
+  // yang SAMA dipakai quality_check (6c) agar K3/K5/K6 konsisten.
+  // Klaim tersimpan di pf_claims TIDAK diubah (jenis 'kutipan'
+  // tetap); yang diturunkan dicatat di detail run (6d + 6c).
+  const klaimDraf = turunkanKutipanTanpaBukti(
+    klaimTersimpan,
+    evidenceTercatat,
+  );
   let draf: SimpanArtikelInput;
   try {
     draf = susunDrafArtikel({
       item,
-      klaim: klaimTersimpan,
+      klaim: klaimDraf.klaim,
       ringkasan,
       keputusan: keputusanAkhir,
       sumber: sumberDraf,
@@ -1071,7 +1139,7 @@ async function verifikasiSatuItem(
           isi: draf.isi,
           fakta: draf.fakta_penting,
           sumber: sumberDraf,
-          klaim: klaimTersimpan,
+          klaim: klaimDraf.klaim,
           evidence: evidenceTercatat,
           tanggalDiketahui,
         });
@@ -1082,13 +1150,35 @@ async function verifikasiSatuItem(
         }
         return {
           nilai: hasilQc,
-          detail: { lolos: true, jumlah_pelanggaran: 0 },
+          detail: {
+            lolos: true,
+            jumlah_pelanggaran: 0,
+            kutipan_diturunkan_ke_parafrasa:
+              klaimDraf.diturunkan.map((k) => k.teks),
+          },
         };
       },
     );
   } catch {
     // Fail-closed (lihat komentar di atas): draf tidak disimpan,
     // status item tetap UNCONFIRMED, dicoba lagi run berikut.
+    // v29: catat kegagalan QC untuk batas ulang — item yang gagal
+    // quality_check 3x berturut-turut ditandai terminal 'DITOLAK'
+    // (tidak lagi diklaim antrean). Best-effort: kegagalan
+    // pencatatan TIDAK PERNAH mengubah hasil run.
+    try {
+      const adapterLuas = adapter as AiAdapter & {
+        catatGagalQualityCheck?: (
+          itemId: string,
+        ) => Promise<{ terminal: boolean; hitungan: number | null }>;
+      };
+      if (typeof adapterLuas.catatGagalQualityCheck === "function") {
+        const catat = await adapterLuas.catatGagalQualityCheck(item.id);
+        if (catat.terminal) hasil.ditolak_qc += 1;
+      }
+    } catch {
+      // Abaikan — batas ulang best-effort.
+    }
     hasil.gagal += 1;
     return;
   }
@@ -1129,6 +1219,8 @@ async function verifikasiSatuItem(
               analisis_tercatat: analisisTercatat,
               analisis_ringkasan: analisisRingkasan,
               quality_check: "lolos",
+              kutipan_diturunkan_ke_parafrasa:
+                klaimDraf.diturunkan.map((k) => k.teks),
             },
           };
         }
@@ -1143,6 +1235,8 @@ async function verifikasiSatuItem(
             analisis_tercatat: analisisTercatat,
             analisis_ringkasan: analisisRingkasan,
             quality_check: "lolos",
+            kutipan_diturunkan_ke_parafrasa:
+              klaimDraf.diturunkan.map((k) => k.teks),
           },
         };
       },
@@ -1206,6 +1300,18 @@ async function verifikasiSatuItem(
   } catch {
     hasil.gagal += 1;
     return;
+  }
+  // v29: item berhasil diproses — nol-kan hitungan gagal QC
+  // berturut-turut (best-effort; kolom pra-v29 tidak ada -> diam).
+  try {
+    const adapterLuas = adapter as AiAdapter & {
+      resetGagalQualityCheck?: (itemId: string) => Promise<void>;
+    };
+    if (typeof adapterLuas.resetGagalQualityCheck === "function") {
+      await adapterLuas.resetGagalQualityCheck(item.id);
+    }
+  } catch {
+    // Abaikan — reset best-effort.
   }
   if (keputusanAkhir === "VERIFIED") hasil.terverifikasi += 1;
   else hasil.cross_checked += 1;
@@ -1445,6 +1551,7 @@ export async function rekonsiliasiItemTerverifikasiTanpaArtikel(
       unconfirmed: 0,
       dilewati: 0,
       gagal: 0,
+      ditolak_qc: 0,
     };
   const drafSebelum = hitung.draf;
   const out: HasilRekonsiliasi = {
@@ -1668,6 +1775,7 @@ export async function jalankanPipelineEditorial(
     unconfirmed: 0,
     dilewati: 0,
     gagal: 0,
+    ditolak_qc: 0,
   };
 
   // P2-8 (integrasi B1): mode kejar — bila item UNCONFIRMED
@@ -1830,10 +1938,20 @@ export async function jalankanBriefHarian(
   const mulai = Date.now();
   try {
     const entri: EntriBrief[] = [...(opsi.entri ?? [])];
+    // v29 (Fitur 3): mode artikel terbit — entri HANYA dari
+    // artikel TERBIT 24 jam terakhir, TANPA pengisian dari
+    // antrean UNCONFIRMED (brief pagi tidak boleh memuat klaim
+    // yang belum terverifikasi). Bila 0 entri, brief tetap
+    // disimpan sebagai draf (tanpa terbit, tanpa push).
+    const modeTerbit = opsi.dariArtikelTerbit === true;
+    if (opsi.entri === undefined && modeTerbit) {
+      const terbit = await adapter.ambilArtikelTerbit24Jam(10);
+      for (const d of terbit) entri.push(entriBriefDariDraf(d));
+    }
     // Bila pemanggil tidak menyediakan entri, ambil dari draf artikel
     // terbaru (maks 10) — draf adalah satu-satunya entri "terverifikasi"
     // yang boleh masuk brief; artikel TIDAK PERNAH auto-terbit.
-    if (opsi.entri === undefined) {
+    if (opsi.entri === undefined && !modeTerbit) {
       const draf = await adapter.ambilDrafArtikel(10);
       for (const d of draf) entri.push(entriBriefDariDraf(d));
     }
@@ -1841,8 +1959,9 @@ export async function jalankanBriefHarian(
     // JUJUR berstatus UNCONFIRMED (tidak dinaikkan). Brief selalu
     // diisi sampai 10 entri bila antrean tersedia, campuran entri
     // terverifikasi dan UNCONFIRMED yang masing-masing berlabel
-    // statusnya sendiri.
-    if (entri.length < 10) {
+    // statusnya sendiri. Mode terbit TIDAK PERNAH dilengkapi dari
+    // antrean (lihat komentar v29 di atas).
+    if (!modeTerbit && entri.length < 10) {
       const antrean = await adapter.ambilAntrean(20);
       const tautanAda = new Set(entri.map((e) => e.tautan));
       for (const item of antrean) {
@@ -1877,7 +1996,18 @@ export async function jalankanBriefHarian(
       entri,
       isuBerkembang: isu.filter((t) => t.berkembang),
     });
-    const briefId = await adapter.simpanBrief(tanggal, isi);
+    // v29: auto-terbit HANYA di mode terbit dengan >=1 entri
+    // (semua entri sudah terbit — tidak ada klaim baru). Bila
+    // 0 entri -> tetap draf, tanpa terbit (dicatat di detail).
+    const terbitkan =
+      modeTerbit &&
+      opsi.terbitkanLangsung === true &&
+      entri.length > 0;
+    const briefId = await adapter.simpanBrief(
+      tanggal,
+      isi,
+      terbitkan ? "terbit" : "draft",
+    );
     await adapter.tutupRun(runId, {
       status: "berhasil",
       durasi_ms: Date.now() - mulai,
@@ -1885,6 +2015,14 @@ export async function jalankanBriefHarian(
       detail: {
         jumlah_entri: entri.length,
         jumlah_isu: isi.isu_berkembang.length,
+        dari_artikel_terbit: modeTerbit,
+        diterbitkan: terbitkan,
+        alasan_tidak_terbit:
+          modeTerbit && !terbitkan
+            ? entri.length === 0
+              ? "tidak ada artikel terbit 24 jam terakhir"
+              : "terbitkan_langsung tidak diminta"
+            : null,
       },
     });
     return {
@@ -1892,6 +2030,8 @@ export async function jalankanBriefHarian(
       briefId,
       jumlahEntri: entri.length,
       jumlahIsu: isi.isu_berkembang.length,
+      diterbitkan: terbitkan,
+      judulEntri: entri.slice(0, 3).map((e) => e.judul),
     };
   } catch (err) {
     const pesan = err instanceof Error ? err.message : String(err);
