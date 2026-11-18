@@ -127,12 +127,9 @@ const TABEL_PF = [
   // pf_item_cluster_members. v25 (alerts) — 1 tabel baru:
   // pf_alerts. Total sesudah v25: 68 tabel (dihitung ulang dari
   // CREATE TABLE di semua berkas migrasi, 17 Nov 2026).
-  // v27 (18 Nov 2026) menambah 1 tabel baru pf_push_deliveries —
-  // SENGAJA BELUM dimasukkan ke daftar ini sampai migrasi v27
-  // diterapkan di produksi (butuh otorisasi pemilik). Bila
-  // dimasukkan sebelum itu, backup gagal 404 (lihat catatan di
-  // bawah). Sesudah v27 diterapkan: tambahkan pf_push_deliveries
-  // di sini (total menjadi 69) + perbarui §E baterai.
+  // v27 (18 Nov 2026) — 1 tabel baru pf_push_deliveries, SUDAH
+  // diterapkan di produksi 18 Nov 2026 (±09.35 WIB, terverifikasi
+  // 69 tabel) sehingga kini masuk daftar backup (total 69).
   // (Nama tabel di komentar ini SENGAJA tanpa tanda kutip: §E
   // baterai menghitung semua string berpetik pf_* di berkas ini.)
   // Catatan: tabel yang migrasinya belum diterapkan di produksi
@@ -142,6 +139,7 @@ const TABEL_PF = [
   "pf_item_clusters",
   "pf_item_cluster_members",
   "pf_alerts",
+  "pf_push_deliveries",
 ];
 
 function bacaEnvLocal() {
