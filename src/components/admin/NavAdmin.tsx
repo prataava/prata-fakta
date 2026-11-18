@@ -64,6 +64,8 @@ export const NAV_ADMIN: {
       { href: "/admin/klaster", label: "Klaster" },
       { href: "/admin/radar", label: "Radar" },
       { href: "/admin/verifikasi", label: "Verifikasi" },
+      // v29: Compare Perspectives (b) — label sikap manual.
+      { href: "/admin/label-sikap", label: "Label Sikap" },
       { href: "/admin/agen-ai", label: "Pipeline AI" },
       { href: "/admin/duplikat", label: "Duplikat" },
       { href: "/admin/kualitas", label: "Kualitas" },
@@ -71,6 +73,9 @@ export const NAV_ADMIN: {
       { href: "/admin/kinerja", label: "Kinerja" },
       { href: "/admin/api-sehat", label: "API Sehat" },
       { href: "/admin/analitik", label: "Analitik" },
+      // v29: Audience Intelligence — kategori/tren/durasi baca
+      // + istilah pencarian teratas (agregat saja).
+      { href: "/admin/audiens", label: "Audiens" },
       { href: "/admin/cakupan", label: "Cakupan" },
     ],
   },
