@@ -43,10 +43,10 @@
 //       admin, dan tidak memanggil window.confirm( sendiri.
 //   §E  Backup mencakup semua tabel migrasi: TABEL_PF di
 //       scripts/backup-pf.mjs SAMA PERSIS dengan CREATE TABLE
-//       di migrasi v1–v27 (69/69), KECUALI pf_push_deliveries
-//       (v27, BELUM di TABEL_PF sampai v27 diterapkan di
-//       produksi — tabel yang migrasinya belum diterapkan akan
-//       gagal 404 dan membuat backup exit 1).
+//       di migrasi v1–v27 (69/69). pf_push_deliveries (v27)
+//       masuk TABEL_PF sesudah migrasi v27 diterapkan di
+//       produksi 18 Nov 2026 — tabel yang migrasinya belum
+//       diterapkan akan gagal 404 dan membuat backup exit 1.
 //   §F  Perbaikan temuan G/H: guard `if (!tujuan)` -> 400 di
 //       POST /api/admin/sistem/jobs/[nama]; klaster diteruskan
 //       route /api/ingestion/jalankan; angka CUTOVER §2.1 +
@@ -505,22 +505,20 @@ for (const nama of DAFTAR_MIGRASI) {
 }
 const hanyaMigrasi = [...daftarMigrasi].filter((t) => !daftarBackup.has(t));
 const hanyaBackup = [...daftarBackup].filter((t) => !daftarMigrasi.has(t));
-// v27: satu-satunya selisih yang diizinkan adalah pf_push_deliveries
-// (tabel baru v27, BELUM di TABEL_PF sampai v27 diterapkan di
-// produksi — bila ditambahkan sebelum itu, backup gagal 404).
-// Pengecualian ini HANYA untuk tabel itu; selisih lain = gagal.
+// v27 diterapkan di produksi 18 Nov 2026 — tidak ada lagi
+// pengecualian: TABEL_PF WAJIB sama persis dengan CREATE TABLE
+// migrasi (69/69). Selisih apa pun = gagal.
 cek(
-  "E1 TABEL_PF backup = CREATE TABLE migrasi (69 migrasi / 68 backup, selisih hanya pf_push_deliveries v27)",
-  daftarBackup.size === 68 &&
+  "E1 TABEL_PF backup = CREATE TABLE migrasi (69/69)",
+  daftarBackup.size === 69 &&
     daftarMigrasi.size === 69 &&
     hanyaBackup.length === 0 &&
-    hanyaMigrasi.length === 1 &&
-    hanyaMigrasi[0] === "pf_push_deliveries",
+    hanyaMigrasi.length === 0,
   hanyaMigrasi.length > 0
     ? `tidak di-backup: ${hanyaMigrasi.join(", ")}`
     : hanyaBackup.length > 0
       ? `di-backup tanpa migrasi: ${hanyaBackup.join(", ")}`
-      : "69/68",
+      : "69/69",
 );
 for (const tabel of [
   "pf_article_comparisons",
@@ -529,8 +527,9 @@ for (const tabel of [
   "pf_item_cluster_members",
   "pf_alerts",
   "pf_notes",
+  "pf_push_deliveries",
 ]) {
-  cek(`E2 backup mencakup ${tabel} (v19/v22/v24/v25)`, daftarBackup.has(tabel));
+  cek(`E2 backup mencakup ${tabel} (v19/v22/v24/v25/v27)`, daftarBackup.has(tabel));
 }
 
 // ---------- §F: perbaikan temuan G/H + wiring statis ----------
