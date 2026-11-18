@@ -28,7 +28,7 @@ export type AgenAi =
 
 export type StatusRunAi = "berjalan" | "berhasil" | "gagal" | "dilewati";
 
-export type DipicuOleh = "manual" | "jadwal" | "github_actions";
+export type DipicuOleh = "manual" | "jadwal" | "github_actions" | "pg_cron";
 
 export type InputJenisAi =
   | "raw_item"
