@@ -863,6 +863,28 @@ lewati(
     "IZIN-E5 PengalihPush: PATCH push_notifikasi false saat mematikan",
     pushSrc.includes("JSON.stringify({ push_notifikasi: false })"),
   );
+  // E15–E17 (v28): gerbang push TAMU — /saya/notifikasi TIDAK
+  // BOLEH lagi mengalihkan tamu ke /masuk (sebelum v28, endpoint
+  // langganan tamu praktis mati: tidak ada UI tamu yang
+  // mencapainya). PengalihPush + endpoint subscribe TIDAK diubah.
+  const halamanNotifikasi = baca("app/saya/notifikasi/page.tsx", DIR_SRC);
+  cek(
+    "IZIN-E15 halaman notifikasi: TIDAK ADA redirect tamu ke /masuk",
+    !halamanNotifikasi.includes('redirect("/masuk")') &&
+      !halamanNotifikasi.includes("redirect("),
+  );
+  cek(
+    "IZIN-E16 halaman notifikasi: cabang tamu merender PengalihPush + ajakan masuk",
+    halamanNotifikasi.includes("if (!penggunaId)") &&
+      halamanNotifikasi.includes("<PengalihPush />") &&
+      halamanNotifikasi.includes('href="/masuk"'),
+  );
+  cek(
+    "IZIN-E17 halaman notifikasi: daftar in-app + FormPreferensiNotifikasi tetap hanya untuk pengguna masuk",
+    halamanNotifikasi.indexOf("<FormPreferensiNotifikasi />") >
+      halamanNotifikasi.indexOf("if (!penggunaId)") &&
+      halamanNotifikasi.includes('from("pf_notifications")'),
+  );
 }
 {
   const petaSrc = baca("components/peta/PetaDunia.tsx", DIR_SRC);

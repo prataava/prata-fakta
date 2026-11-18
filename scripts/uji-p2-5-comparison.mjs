@@ -5,11 +5,7 @@
 // 1 bila ada yang gagal.
 //
 // CARA JALAN (wajib, dari akar repo):
-//   node --experimental-strip-types \
-//     --import /tmp/pf-register.mjs scripts/uji-p2-5-comparison.mjs
-// Loader /tmp/pf-register.mjs memetakan alias "@/" ke src/ dan
-// men-stub next/headers — diperlukan untuk impor pipeline.ts.
-// Tanpa loader, impor alias "@/..." gagal jujur.
+//   node --experimental-strip-types scripts/jalankan-baterai.mjs scripts/uji-p2-5-comparison.mjs
 //
 // YANG DIUJI:
 //   §A  bandingkanAntarItem (pure): pasangan judul identik +
@@ -37,6 +33,12 @@ import {
   bandingkanAntarItem,
   jalankanPipelineEditorial,
 } from "../src/lib/ai/pipeline.ts";
+import {
+  cocokkanKlaimDuaArtikel,
+  formatSikapBukti,
+  hitungSikapBukti,
+  rakitPerbandinganDuaArtikel,
+} from "../src/lib/perbandingan-dua.ts";
 import {
   gabungkanKeputusan,
   tentukanKeputusanDariKlaim,
@@ -481,6 +483,75 @@ console.log("--- §D penjaga statis ---");
   const halaman = bacaFile("src/app/artikel/[slug]/page.tsx");
   cek("D9 halaman artikel memakai ProvenanceAI", halaman.includes("ProvenanceAI"));
   cek("D10 halaman artikel tidak menambah ke data.ts (getter dipakai ulang)", !halaman.includes("getProvenance"));
+}
+
+// ---------- §E: sikap bukti /bandingkan (v28, opsi a) ----------
+// Logika murni perbandingan-dua.ts + penjaga statis getter +
+// komponen. "Perspektif" = sikap evidence (pf_evidence.arah)
+// terhadap klaim yang sama — label dibuat MESIN dari data,
+// bukan opini; tanpa taksonomi baru, tanpa pelabelan AI.
+console.log("--- §E sikap bukti perbandingan dua artikel (v28) ---");
+{
+  const s = hitungSikapBukti(["mendukung", "mendukung", "menentang", "netral"]);
+  cek("E1 hitungSikapBukti: 2 mendukung, 1 menentang, 1 netral, total 4",
+    s.mendukung === 2 && s.menentang === 1 && s.netral === 1 && s.total === 4,
+    JSON.stringify(s));
+  const sAneh = hitungSikapBukti(["mendukung", "tidak-tahu", "", "netral"]);
+  cek("E2 nilai arah di luar taksonomi diabaikan (bukan dipaksa netral)",
+    sAneh.mendukung === 1 && sAneh.netral === 1 && sAneh.total === 2,
+    JSON.stringify(sAneh));
+  cek("E3 format: hanya hitungan > 0 yang disebut",
+    formatSikapBukti(s) === "2 mendukung · 1 menentang · 1 netral",
+    formatSikapBukti(s));
+  cek("E4 format: satu hitungan saja",
+    formatSikapBukti({ mendukung: 1, menentang: 0, netral: 0, total: 1 }) === "1 mendukung");
+  cek("E5 format: total 0 = 'tanpa bukti'",
+    formatSikapBukti({ mendukung: 0, menentang: 0, netral: 0, total: 0 }) === "tanpa bukti");
+
+  const artA = { id: "a1", slug: "a", judul: "A", ringkasan: null, kategori_slug: null, status_verifikasi: "CROSS-CHECKED", diterbitkan_pada: null };
+  const artB = { id: "b1", slug: "b", judul: "B", ringkasan: null, kategori_slug: null, status_verifikasi: "CROSS-CHECKED", diterbitkan_pada: null };
+  const klaimA = [{ id: "ka1", teks: "Bantuan 150 juta rupiah disalurkan.", jenis: "angka", status: "terverifikasi" }];
+  const klaimB = [{ id: "kb1", teks: "Bantuan 150 juta rupiah disalurkan!", jenis: "angka", status: "belum_terverifikasi" }];
+  const peta = new Map([
+    ["ka1", { mendukung: 2, menentang: 0, netral: 1, total: 3 }],
+    ["kb1", { mendukung: 0, menentang: 1, netral: 0, total: 1 }],
+  ]);
+  const hasil = rakitPerbandinganDuaArtikel(artA, artB, klaimA, klaimB, [], [], peta);
+  cek("E6 rakit: 1 klaim bersama (teks sama sesudah normalisasi)",
+    hasil.bersama.length === 1, `dapat ${hasil.bersama.length}`);
+  cek("E7 rakit: sikapA dari id klaim A, sikapB dari id klaim B (tidak tertukar)",
+    hasil.bersama[0].sikapA?.total === 3 && hasil.bersama[0].sikapA?.mendukung === 2 &&
+      hasil.bersama[0].sikapB?.total === 1 && hasil.bersama[0].sikapB?.menentang === 1,
+    JSON.stringify({ a: hasil.bersama[0].sikapA, b: hasil.bersama[0].sikapB }));
+  const tanpaPeta = rakitPerbandinganDuaArtikel(artA, artB, klaimA, klaimB, [], []);
+  cek("E8 rakit tanpa peta: sikap undefined (bukan 'tanpa bukti')",
+    tanpaPeta.bersama[0].sikapA === undefined && tanpaPeta.bersama[0].sikapB === undefined);
+  const petaKosong = new Map([["ka1", { mendukung: 0, menentang: 0, netral: 0, total: 0 }]]);
+  const hasilKosong = rakitPerbandinganDuaArtikel(artA, artB, klaimA, klaimB, [], [], petaKosong);
+  cek("E9 entri total 0 dibedakan dari tidak-dibaca (total 0 vs undefined)",
+    hasilKosong.bersama[0].sikapA?.total === 0 && hasilKosong.bersama[0].sikapB === undefined);
+  const cocok = cocokkanKlaimDuaArtikel(klaimA, klaimB);
+  cek("E10 pencocokan klaim tidak berubah oleh penambahan sikap",
+    cocok.bersama.length === 1 && cocok.hanyaA.length === 0 && cocok.hanyaB.length === 0);
+}
+{
+  const data = bacaFile("src/lib/data.ts");
+  cek("E11 getPerbandinganDuaArtikel membaca pf_evidence + hitungSikapBukti",
+    data.includes('.from("pf_evidence")') &&
+      data.includes('select("klaim_id, arah")') &&
+      data.includes("hitungSikapBukti(arah)"));
+  cek("E12 getter fail-open: baca bukti gagal dicatat + lanjut tanpa sikap",
+    data.includes('catatGalatBaca("getPerbandinganDuaArtikel.bukti"'));
+  const komponen = bacaFile("src/components/artikel/PerbandinganBersebelahan.tsx");
+  cek("E13 komponen: kolom 'Sikap bukti di A/B' di tabel klaim bersama",
+    komponen.includes("Sikap bukti di A") && komponen.includes("Sikap bukti di B"));
+  cek("E14 komponen: sel sikap jujur 'belum dibaca' bila bukti tidak terbaca",
+    komponen.includes("belum dibaca") && komponen.includes("function SelSikap"));
+  cek("E15 komponen: penjelasan jujur (pipeline hanya 'mendukung'; 'menentang' dari review manusia)",
+    komponen.includes("review manusia") && komponen.includes("hanya menulis bukti"));
+  const halaman = bacaFile("src/app/bandingkan/page.tsx");
+  cek("E16 halaman /bandingkan menyebut sikap bukti di hero",
+    halaman.includes("sikap bukti"));
 }
 
 console.log(`\nP2-5: ${lolos} lolos, ${gagal} gagal`);
