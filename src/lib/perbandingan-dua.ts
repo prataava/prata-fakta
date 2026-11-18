@@ -38,7 +38,54 @@ export type KlaimBersama = {
   teks: string;
   klaimA: KlaimPerbandingan;
   klaimB: KlaimPerbandingan;
+  /** Ringkasan sikap bukti (pf_evidence.arah) di balik klaim A.
+   *  undefined = bukti tidak dibaca (getter gagal) — BUKAN
+   *  "tanpa bukti". Total 0 = klaim itu memang tanpa bukti. */
+  sikapA?: SikapBukti;
+  /** Sama untuk klaim B. */
+  sikapB?: SikapBukti;
 };
+
+/** Ringkasan sikap bukti (pf_evidence.arah) untuk SATU klaim:
+ *  hitungan mesin dari kolom arah — bukan label opini.
+ *  CATATAN JUJUR (v28): pipeline hanya menulis arah
+ *  'mendukung' (pipeline.ts); 'menentang' hanya muncul dari
+ *  review manusia lewat chat (verification.ts). Jadi ringkasan
+ *  yang isinya hanya 'mendukung' berarti "belum ada bukti yang
+ *  menentang", BUKAN "kedua artikel sepakat". */
+export type SikapBukti = {
+  mendukung: number;
+  menentang: number;
+  netral: number;
+  total: number;
+};
+
+/** Hitung ringkasan sikap dari daftar nilai arah mentah.
+ *  Nilai di luar taksonomi CHECK (mendukung/menentang/netral)
+ *  diabaikan — tidak dihitung ke mana pun, bukan dipaksa netral. */
+export function hitungSikapBukti(arah: string[]): SikapBukti {
+  let mendukung = 0;
+  let menentang = 0;
+  let netral = 0;
+  for (const a of arah) {
+    if (a === "mendukung") mendukung += 1;
+    else if (a === "menentang") menentang += 1;
+    else if (a === "netral") netral += 1;
+  }
+  return { mendukung, menentang, netral, total: mendukung + menentang + netral };
+}
+
+/** Format ringkasan sikap untuk tampilan: hanya hitungan yang
+ *  > 0 yang disebut ("2 mendukung · 1 netral"); total 0 =
+ *  "tanpa bukti". */
+export function formatSikapBukti(sikap: SikapBukti): string {
+  if (sikap.total === 0) return "tanpa bukti";
+  const bagian: string[] = [];
+  if (sikap.mendukung > 0) bagian.push(`${sikap.mendukung} mendukung`);
+  if (sikap.menentang > 0) bagian.push(`${sikap.menentang} menentang`);
+  if (sikap.netral > 0) bagian.push(`${sikap.netral} netral`);
+  return bagian.join(" · ");
+}
 
 export type PerbandinganDuaArtikel = {
   /** false = satu/dua slug tak ada, draf, atau data klaim gagal dibaca. */
@@ -111,7 +158,11 @@ export function cocokkanKlaimDuaArtikel(
  *  Salah satu artikel null → tersedia=false + daftar kosong
  *  (bukan null). Kedua artikel ada → tersedia=true meski
  *  bersama=[] (tidak ada klaim bersama adalah hasil yang jujur,
- *  bukan galat). */
+ *  bukan galat).
+ *  `sikapPerKlaim` (opsional, v28): peta id klaim -> ringkasan
+ *  sikap bukti. Getter WAJIB mengisi entri untuk SETIAP id klaim
+ *  yang dibaca (total 0 = "tanpa bukti"); id yang tidak ada di
+ *  peta berarti buktinya tidak dibaca (sikap undefined). */
 export function rakitPerbandinganDuaArtikel(
   artikelA: ArtikelPerbandinganRingkas | null,
   artikelB: ArtikelPerbandinganRingkas | null,
@@ -119,6 +170,7 @@ export function rakitPerbandinganDuaArtikel(
   klaimB: KlaimPerbandingan[],
   sumberA: SumberArtikelPerbandingan[],
   sumberB: SumberArtikelPerbandingan[],
+  sikapPerKlaim?: Map<string, SikapBukti>,
 ): PerbandinganDuaArtikel {
   const kosong: PerbandinganDuaArtikel = {
     tersedia: false,
@@ -132,6 +184,12 @@ export function rakitPerbandinganDuaArtikel(
   };
   if (!artikelA || !artikelB) return kosong;
   const { bersama, hanyaA, hanyaB } = cocokkanKlaimDuaArtikel(klaimA, klaimB);
+  if (sikapPerKlaim) {
+    for (const pasangan of bersama) {
+      pasangan.sikapA = sikapPerKlaim.get(pasangan.klaimA.id);
+      pasangan.sikapB = sikapPerKlaim.get(pasangan.klaimB.id);
+    }
+  }
   return {
     tersedia: true,
     artikelA,

@@ -15,10 +15,12 @@ import {
   tierDariPrioritas,
 } from "@/lib/ai/source-analysis";
 import {
+  hitungSikapBukti,
   rakitPerbandinganDuaArtikel,
   type ArtikelPerbandinganRingkas,
   type KlaimPerbandingan,
   type PerbandinganDuaArtikel,
+  type SikapBukti,
 } from "@/lib/perbandingan-dua";
 
 export type PfCategoryRow = {
@@ -1972,6 +1974,8 @@ export {
   normalisasiTeksKlaim,
   cocokkanKlaimDuaArtikel,
   rakitPerbandinganDuaArtikel,
+  hitungSikapBukti,
+  formatSikapBukti,
 } from "@/lib/perbandingan-dua";
 export type {
   KlaimPerbandingan,
@@ -1980,6 +1984,7 @@ export type {
   KlaimBersama,
   PerbandinganDuaArtikel,
   HasilCocokKlaim,
+  SikapBukti,
 } from "@/lib/perbandingan-dua";
 
 /** Perbandingan dua artikel terbit berdasarkan slug. Hanya
@@ -2037,23 +2042,58 @@ export async function getPerbandinganDuaArtikel(
       status_verifikasi: art.status_verifikasi,
       diterbitkan_pada: art.diterbitkan_pada,
     });
+    // v28 (Compare Perspectives opsi a): baca sikap bukti
+    // (pf_evidence.arah) untuk tiap klaim, agar klaim bersama
+    // menampilkan sikap bukti di baliknya per artikel — bukan
+    // hanya status klaim. Pola baca sama seperti
+    // getPerbandinganSumber (anon, kolom yang sama). Bila baca
+    // bukti gagal: dicatat + lanjut TANPA sikap (fail-open,
+    // perbandingan tetap tampil) — bukan gagal total.
+    const klaimA = ((resA.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
+      id: String(k.id),
+      teks: String(k.teks ?? ""),
+      jenis: String(k.jenis ?? "lain"),
+      status: String(k.status ?? "belum_terverifikasi"),
+    }));
+    const klaimB = ((resB.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
+      id: String(k.id),
+      teks: String(k.teks ?? ""),
+      jenis: String(k.jenis ?? "lain"),
+      status: String(k.status ?? "belum_terverifikasi"),
+    }));
+    let sikapPerKlaim: Map<string, SikapBukti> | undefined;
+    const semuaIdKlaim = [...klaimA, ...klaimB].map((k) => k.id);
+    if (semuaIdKlaim.length > 0) {
+      const resBukti = await supabase
+        .from("pf_evidence")
+        .select("klaim_id, arah")
+        .in("klaim_id", semuaIdKlaim);
+      if (resBukti.error) {
+        catatGalatBaca("getPerbandinganDuaArtikel.bukti", resBukti.error);
+      } else {
+        const arahPerKlaim = new Map<string, string[]>();
+        for (const id of semuaIdKlaim) arahPerKlaim.set(id, []);
+        for (const b of (resBukti.data ?? []) as unknown as Record<string, unknown>[]) {
+          const kid = String(b.klaim_id ?? "");
+          const daftar = arahPerKlaim.get(kid);
+          if (daftar) daftar.push(String(b.arah ?? "netral"));
+        }
+        sikapPerKlaim = new Map(
+          [...arahPerKlaim.entries()].map(([id, arah]) => [
+            id,
+            hitungSikapBukti(arah),
+          ]),
+        );
+      }
+    }
     return rakitPerbandinganDuaArtikel(
       ringkas(a),
       ringkas(b),
-      ((resA.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
-        id: String(k.id),
-        teks: String(k.teks ?? ""),
-        jenis: String(k.jenis ?? "lain"),
-        status: String(k.status ?? "belum_terverifikasi"),
-      })),
-      ((resB.data ?? []) as unknown as KlaimPerbandingan[]).map((k) => ({
-        id: String(k.id),
-        teks: String(k.teks ?? ""),
-        jenis: String(k.jenis ?? "lain"),
-        status: String(k.status ?? "belum_terverifikasi"),
-      })),
+      klaimA,
+      klaimB,
       a.sumber_list.map((s) => ({ nama: s.nama, url: s.url })),
       b.sumber_list.map((s) => ({ nama: s.nama, url: s.url })),
+      sikapPerKlaim,
     );
   } catch (err) {
     catatGalatBaca("getPerbandinganDuaArtikel", err);
