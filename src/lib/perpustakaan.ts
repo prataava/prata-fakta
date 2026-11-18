@@ -7,7 +7,7 @@
 // getRiwayatBaca) dipakai ulang dari lib/data.ts / lib/lanjutan.ts
 // — tidak diduplikasi di sini.
 import { createClient } from "@/lib/supabase/server";
-import { GalatBaca, catatGalatBaca } from "@/lib/galat";
+import { GalatBaca, catatGalatBaca, galatKolomBelumAda } from "@/lib/galat";
 import type { PencarianTersimpan } from "@/app/api/saya/pencarian-tersimpan/route";
 
 // Tipe pencarian tersimpan dipakai ulang dari route P0 (satu definisi).
@@ -78,6 +78,22 @@ async function hitungPerFolder(userId: string): Promise<FolderBookmark[]> {
       .from("pf_bookmarks")
       .select("folder")
       .eq("user_id", userId);
+    if (error && galatKolomBelumAda(error)) {
+      // Kolom folder belum ada (migrasi v19 belum diterapkan di
+      // produksi — galat 42703 tercatat 16 Nov 2026): semua
+      // bookmark dihitung sebagai "Tanpa folder", bukan halaman
+      // kosong.
+      const total = await supabase
+        .from("pf_bookmarks")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+      if (total.error) {
+        if (catatGalatBaca("hitungPerFolder", total.error)) return [];
+        throw new GalatBaca("hitungPerFolder", total.error);
+      }
+      const jumlah = total.count ?? 0;
+      return jumlah > 0 ? [{ folder: null, jumlah }] : [];
+    }
     if (error) {
       if (catatGalatBaca("hitungPerFolder", error)) return [];
       throw new GalatBaca("hitungPerFolder", error);

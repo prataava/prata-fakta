@@ -10,7 +10,7 @@
 // "Hari ini dalam sejarah" memakai hari-bulan WIB (Asia/Jakarta)
 // dari dimulai_pada, tahun berapa pun.
 import { createClient } from "@/lib/supabase/server";
-import { GalatBaca, catatGalatBaca } from "@/lib/galat";
+import { GalatBaca, catatGalatBaca, galatKolomBelumAda } from "@/lib/galat";
 import type { PfEvent } from "@/lib/lanjutan";
 
 export type PfEventSejarah = PfEvent & {
@@ -110,6 +110,27 @@ export function tahunFilterValid(tahun: number): boolean {
 const KOLOM_EVENT_SEJARAH =
   "id, judul, ringkasan, lokasi_teks, lintang, bujur, dimulai_pada, berakhir_pada, dampak, sumber_url, artikel_id, era, penting, negara_kode";
 
+/** Tanpa artikel_id — fallback bila migrasi v17 belum diterapkan
+ *  di produksi (42703); lihat KOLOM_EVENT_TANPA_ARTIKEL di
+ *  src/lib/lanjutan.ts. */
+const KOLOM_EVENT_SEJARAH_TANPA_ARTIKEL =
+  "id, judul, ringkasan, lokasi_teks, lintang, bujur, dimulai_pada, berakhir_pada, dampak, sumber_url, era, penting, negara_kode";
+
+type HasilPilih = {
+  data: unknown;
+  error: { code?: string | null; message: string } | null;
+};
+
+/** Jalankan kueri pf_events dengan kolom penuh; bila ditolak 42703,
+ *  ulangi sekali tanpa artikel_id. */
+async function pilihEventSejarah(
+  jalan: (kolom: string) => Promise<HasilPilih>,
+): Promise<HasilPilih> {
+  const pertama = await jalan(KOLOM_EVENT_SEJARAH);
+  if (!pertama.error || !galatKolomBelumAda(pertama.error)) return pertama;
+  return jalan(KOLOM_EVENT_SEJARAH_TANPA_ARTIKEL);
+}
+
 function barisSejarah(
   r: Record<string, unknown>,
   namaNegara: Map<string, string>,
@@ -194,11 +215,13 @@ export async function getHariIniDalamSejarah(
   const hari = Number(cocok[3]);
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_events")
-      .select(KOLOM_EVENT_SEJARAH)
-      .order("dimulai_pada", { ascending: false })
-      .limit(500);
+    const { data, error } = await pilihEventSejarah(async (kolom) =>
+      await supabase
+        .from("pf_events")
+        .select(kolom)
+        .order("dimulai_pada", { ascending: false })
+        .limit(500),
+    );
     if (error) {
       if (catatGalatBaca("getHariIniDalamSejarah", error)) return kosong;
       throw new GalatBaca("getHariIniDalamSejarah", error);
@@ -235,19 +258,24 @@ export async function getArsipSejarah(
   };
   try {
     const supabase = await createClient();
-    let query = supabase
-      .from("pf_events")
-      .select(KOLOM_EVENT_SEJARAH)
-      .order("dimulai_pada", { ascending: false })
-      .limit(limit);
-    if (filter.tahun !== undefined && tahunFilterValid(filter.tahun)) {
-      query = query
-        .gte("dimulai_pada", `${filter.tahun}-01-01T00:00:00+07:00`)
-        .lt("dimulai_pada", `${filter.tahun + 1}-01-01T00:00:00+07:00`);
-    }
-    if (filter.era) query = query.eq("era", filter.era);
-    if (filter.hanyaPenting) query = query.eq("penting", true);
-    const { data, error } = await query;
+    const bangunKueri = (kolom: string) => {
+      let query = supabase
+        .from("pf_events")
+        .select(kolom)
+        .order("dimulai_pada", { ascending: false })
+        .limit(limit);
+      if (filter.tahun !== undefined && tahunFilterValid(filter.tahun)) {
+        query = query
+          .gte("dimulai_pada", `${filter.tahun}-01-01T00:00:00+07:00`)
+          .lt("dimulai_pada", `${filter.tahun + 1}-01-01T00:00:00+07:00`);
+      }
+      if (filter.era) query = query.eq("era", filter.era);
+      if (filter.hanyaPenting) query = query.eq("penting", true);
+      return query;
+    };
+    const { data, error } = await pilihEventSejarah(async (kolom) =>
+      await bangunKueri(kolom),
+    );
     if (error) {
       if (catatGalatBaca("getArsipSejarah", error)) return kosong;
       throw new GalatBaca("getArsipSejarah", error);

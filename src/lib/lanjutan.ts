@@ -5,7 +5,7 @@
 // menjadi [] diam-diam). Bahasa Indonesia, tanpa data palsu.
 import { createClient } from "@/lib/supabase/server";
 import { cobaServiceClient } from "@/lib/supabase/service";
-import { GalatBaca, catatGalatBaca } from "@/lib/galat";
+import { GalatBaca, catatGalatBaca, galatKolomBelumAda } from "@/lib/galat";
 import { tanggalWibHariIni } from "@/lib/rutin";
 import type { PfArtikelRingkas } from "@/lib/data";
 import type { JenisSoalKuis } from "@/lib/akademi/penilaian";
@@ -207,6 +207,30 @@ function barisEvent(r: Record<string, unknown>): PfEvent {
 const KOLOM_EVENT =
   "id, judul, ringkasan, lokasi_teks, lintang, bujur, dimulai_pada, berakhir_pada, dampak, sumber_url, artikel_id";
 
+/** Kolom yang sama tanpa artikel_id — dipakai bila PostgREST
+ *  menolak dengan 42703 (migrasi v17 belum diterapkan di produksi;
+ *  galat 42703 tercatat 16 Nov 2026 untuk ketiga fungsi di bawah).
+ *  Tanpa fallback ini, /peta + /timeline + /graf gagal total;
+ *  dengan fallback, event tetap tampil, hanya tautan artikelnya
+ *  kosong (barisEvent mengembalikan artikel_id null). */
+const KOLOM_EVENT_TANPA_ARTIKEL =
+  "id, judul, ringkasan, lokasi_teks, lintang, bujur, dimulai_pada, berakhir_pada, dampak, sumber_url";
+
+type HasilPilih = {
+  data: unknown;
+  error: { code?: string | null; message: string } | null;
+};
+
+/** Jalankan kueri pf_events dengan kolom penuh; bila ditolak 42703,
+ *  ulangi sekali tanpa artikel_id. */
+async function pilihEvent(
+  jalan: (kolom: string) => Promise<HasilPilih>,
+): Promise<HasilPilih> {
+  const pertama = await jalan(KOLOM_EVENT);
+  if (!pertama.error || !galatKolomBelumAda(pertama.error)) return pertama;
+  return jalan(KOLOM_EVENT_TANPA_ARTIKEL);
+}
+
 /* ============================================================
    Peta & peristiwa
    ============================================================ */
@@ -218,13 +242,15 @@ export async function getEventDenganKoordinat(
 ): Promise<PfEvent[]> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_events")
-      .select(KOLOM_EVENT)
-      .not("lintang", "is", null)
-      .not("bujur", "is", null)
-      .order("dimulai_pada", { ascending: false })
-      .limit(limit);
+    const { data, error } = await pilihEvent(async (kolom) =>
+      await supabase
+        .from("pf_events")
+        .select(kolom)
+        .not("lintang", "is", null)
+        .not("bujur", "is", null)
+        .order("dimulai_pada", { ascending: false })
+        .limit(limit),
+    );
     if (error) {
       if (catatGalatBaca("getEventDenganKoordinat", error)) return [];
       throw new GalatBaca("getEventDenganKoordinat", error);
@@ -335,11 +361,13 @@ export async function getRiwayatSkor(
 ): Promise<{ events: PfEvent[]; adaKoordinat: number }> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_events")
-      .select(KOLOM_EVENT)
-      .order("dimulai_pada", { ascending: false })
-      .limit(limit);
+    const { data, error } = await pilihEvent(async (kolom) =>
+      await supabase
+        .from("pf_events")
+        .select(kolom)
+        .order("dimulai_pada", { ascending: false })
+        .limit(limit),
+    );
     if (error) {
       if (catatGalatBaca("getSemuaEvent", error)) return { events: [], adaKoordinat: 0 };
       throw new GalatBaca("getSemuaEvent", error);
@@ -365,11 +393,13 @@ export async function getRiwayatSkor(
 export async function getEvent(id: string): Promise<PfEvent | null> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("pf_events")
-      .select(KOLOM_EVENT)
-      .eq("id", id)
-      .maybeSingle();
+    const { data, error } = await pilihEvent(async (kolom) =>
+      await supabase
+        .from("pf_events")
+        .select(kolom)
+        .eq("id", id)
+        .maybeSingle(),
+    );
     if (error) {
       if (catatGalatBaca("getEvent", error)) return null;
       throw new GalatBaca("getEvent", error);
