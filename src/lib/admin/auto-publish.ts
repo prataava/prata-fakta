@@ -25,6 +25,13 @@
 //   5. Catatan verifikasi TERAKHIR (pf_verification_records)
 //      keputusannya CROSS-CHECKED/VERIFIED — kolom status saja
 //      tidak cukup; record-nya harus ada dan sejalan.
+//   6. HARD GATES v27 (src/lib/admin/hard-gates.ts, G1–G6,
+//      mandat pemilik 18 Nov 2026): ≥2 sumber independen; tanpa
+//      konflik material; referensi https valid; quality-check
+//      K1–K7 diulang dari data DB; sumber terbaru ≤14 hari;
+//      topik sensitif (konflik/kriminalitas/kesehatan/tuduhan)
+//      WAJIB review manusia. Satu gate gagal = tetap draft.
+//      Rumus FACT SCORE TIDAK diubah.
 // Gate ini SENGAJA tidak meminta review editorial 'setuju':
 // draf pipeline TIDAK PERNAH punya review manusia (pipeline
 // tidak menulis pf_editorial_reviews), jadi meminta review
@@ -94,6 +101,7 @@
 import { kirimNotifikasiTopik } from "../notifikasi/tulis.ts";
 import type { Aktor } from "./editorial.ts";
 import type { AdminAdapter, StatusVerifikasi } from "./types.ts";
+import { evaluasiHardGate } from "./hard-gates.ts";
 
 /** Ambang FACT SCORE untuk auto-publish Tier-1 (disetujui pemilik
  *  17 Nov 2026; sama dengan batas label "Sangat kuat" di
@@ -141,6 +149,9 @@ export interface HasilAutoPublish {
   factScore: number | null;
   /** Alasan bila tidak diterbitkan; null bila diterbitkan. */
   alasan: string | null;
+  /** Ringkasan per hard gate (v27) — selalu ada bila gate sempat
+   *  dievaluasi (gagal di gate skor/toggle/verifikasi = undefined). */
+  hardGates?: Record<string, { lolos: boolean; detail: string }>;
 }
 
 /** Status verifikasi yang membolehkan auto-publish — sama seperti
@@ -224,6 +235,21 @@ export async function terbitkanOtomatis(
     };
   }
 
+  // Hard gates v27 (18 Nov 2026, mandat pemilik): FACT SCORE ≥85
+  // BUKAN kebenaran. Satu gate gagal = tetap draft + alasan
+  // dicatat pipeline agar masuk antrean review manusia.
+  // Lihat src/lib/admin/hard-gates.ts (G1–G6).
+  const hardGate = await evaluasiHardGate(adapter, artikel, verifikasi);
+  if (!hardGate.lolos) {
+    return {
+      diterbitkan: false,
+      artikelId,
+      factScore,
+      alasan: hardGate.alasan,
+      hardGates: hardGate.rincian,
+    };
+  }
+
   const sekarang = new Date().toISOString();
   const baru = await adapter.perbaruiArtikel({
     id: artikelId,
@@ -258,6 +284,7 @@ export async function terbitkanOtomatis(
       versi: (terakhir?.versi ?? 0) + 1,
       judul: baru.judul,
       isi: baru.isi,
+      isi_sebelum: artikel.isi,
       dibuat_oleh: aktor.id,
       catatan: "Terbit (auto-publish)",
     });
@@ -285,6 +312,7 @@ export async function terbitkanOtomatis(
         auto_publish: true,
         fact_score: factScore,
         ambang_auto_publish: AMBANG_AUTO_PUBLISH,
+        hard_gates: hardGate.rincian,
         keterangan: "auto-publish",
       },
       ip: aktor.ip ?? null,
@@ -329,5 +357,11 @@ export async function terbitkanOtomatis(
   } catch {
     // Diam-diam: artikel sudah terbit; notifikasi hanya tambahan.
   }
-  return { diterbitkan: true, artikelId, factScore, alasan: null };
+  return {
+    diterbitkan: true,
+    artikelId,
+    factScore,
+    alasan: null,
+    hardGates: hardGate.rincian,
+  };
 }
