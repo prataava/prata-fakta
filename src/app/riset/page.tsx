@@ -189,6 +189,7 @@ export default async function Riset({
                   <th scope="col">Penerbit</th>
                   <th scope="col">Kategori</th>
                   <th scope="col">Tanggal</th>
+                  <th scope="col">Hak penggunaan</th>
                   <th scope="col">Sumber</th>
                 </tr>
               </thead>
@@ -200,6 +201,12 @@ export default async function Riset({
                     <td>{d.penerbit ?? "—"}</td>
                     <td>{d.kategori ?? "—"}</td>
                     <td>{formatTanggal(d.tanggal)}</td>
+                    <td>
+                      {typeof d.metadata["hak_penggunaan"] === "string" &&
+                      d.metadata["hak_penggunaan"]
+                        ? (d.metadata["hak_penggunaan"] as string)
+                        : "—"}
+                    </td>
                     <td>
                       {d.url_sumber ? (
                         <a

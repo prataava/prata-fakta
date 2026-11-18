@@ -38,8 +38,19 @@
 # yang dilarang Tahap E. Bila POST ini gagal sementara, run cron
 # 2 jam berikutnya yang mengambil alih; kegagalan sebagian sudah
 # terlihat lewat assert di bawah + pf_ai_runs.
-# Assert respons (F5): sukses palsu parsial ditolak — job gagal bila
-# `ok != true` atau `gagal > 0`, bukan hanya bila HTTP non-2xx.
+# Assert respons (F5, diubah v27 18 Nov 2026): sukses palsu parsial
+# ditolak — job gagal bila `gagal > 0` (item gagal per-item), bukan
+# hanya bila HTTP non-2xx. NAMUN kegagalan SATU PANGGILAN
+# (ok != true / HTTP 500/503/409 sementara) TIDAK LAGI
+# menghentikan run: panggilan itu dicatat (PERINGATAN +
+# panggilan_gagal), dilewati, dan panggilan berikut tetap jalan —
+# run #31 (44197264506) gagal total padahal 4 dari 5 panggilan
+# berhasil. Run gagal bila tidak satu pun item berhasil diproses
+# (semua panggilan gagal) atau bila ada item gagal per-item.
+# Bukti panggilan gagal: pf_app_errors (catatGalatRoute
+# "POST /api/ai/jalankan") + baris "Total: ... panggilan_gagal=N"
+# di log ini — Reliability Center membacanya dari sana, BUKAN dari
+# pf_scheduled_jobs.status_terakhir (yang ditimpa panggilan terakhir).
 #
 # Alerting: belum ada notifikasi (email/Slack/WhatsApp) — kegagalan
 # terlihat di tab Actions (log run + badge workflow) dan di tabel
@@ -84,20 +95,43 @@ jobs:
           TOTAL_DRAF=0
           TOTAL_GAGAL=0
           PANGGILAN=0
+          PANGGILAN_GAGAL=0
           while [ "$PANGGILAN" -lt 5 ] && [ "$TOTAL_DIPROSES" -lt "$TARGET" ]; do
             PANGGILAN=$((PANGGILAN + 1))
             SISA=$((TARGET - TOTAL_DIPROSES))
             if [ "$SISA" -gt 10 ]; then SISA=10; fi
             RESP="$(mktemp)"
-            curl --fail-with-body -sS -X POST \
+            # v27 (18 Nov 2026): kegagalan SATU panggilan (HTTP 500/503/
+            # 409 sementara, galat jaringan) TIDAK LAGI menghentikan
+            # seluruh run — run #31 (44197264506) gagal total padahal
+            # 4 dari 5 panggilan berhasil, dan status job-level
+            # (pf_scheduled_jobs) sesudahnya justru tercatat "berhasil"
+            # karena panggilan terakhir menimpa kegagalan panggilan
+            # ke-2. Panggilan gagal dicatat + dilewati; item-itemnya
+            # tetap di antrean (klaim basi 30 mnt) untuk run 2 jam
+            # berikut; buktinya tetap ada di pf_app_errors
+            # (catatGalatRoute "POST /api/ai/jalankan") + ringkasan
+            # di bawah. Run HANYA gagal bila tidak satu pun item
+            # berhasil diproses, atau bila ada item gagal per-item
+            # (assert TOTAL_GAGAL, desain F5, dipertahankan).
+            if ! curl --fail-with-body -sS -X POST \
               "${{ secrets.PF_SITE_URL }}/api/ai/jalankan" \
               -H "x-pf-ai-secret: ${{ secrets.PF_AI_SECRET }}" \
               -H "Content-Type: application/json" \
               -d "{\"dipicu_oleh\":\"github_actions\",\"limit\":$SISA}" \
-              -o "$RESP"
+              -o "$RESP"; then
+              echo "PERINGATAN: pipeline panggilan $PANGGILAN gagal (curl/HTTP) — isi respons: $(cat "$RESP" 2>/dev/null || echo '(kosong)')"
+              PANGGILAN_GAGAL=$((PANGGILAN_GAGAL + 1))
+              rm -f "$RESP"
+              continue
+            fi
             echo "Respons pipeline panggilan $PANGGILAN: $(cat "$RESP")"
-            jq -e '.ok == true' "$RESP" >/dev/null \
-              || { echo "ASSERT GAGAL: pipeline panggilan $PANGGILAN melaporkan ok != true"; exit 1; }
+            if ! jq -e '.ok == true' "$RESP" >/dev/null; then
+              echo "PERINGATAN: pipeline panggilan $PANGGILAN melaporkan ok != true — dilewati, lanjut ke panggilan berikut."
+              PANGGILAN_GAGAL=$((PANGGILAN_GAGAL + 1))
+              rm -f "$RESP"
+              continue
+            fi
             DIPROSES="$(jq -r '.diproses // 0' "$RESP")"
             DRAF="$(jq -r '.draf // 0' "$RESP")"
             GAGAL="$(jq -r '.gagal // 0' "$RESP")"
@@ -110,8 +144,12 @@ jobs:
               break
             fi
           done
-          echo "Total: diproses=$TOTAL_DIPROSES draf=$TOTAL_DRAF gagal=$TOTAL_GAGAL (target=$TARGET, panggilan=$PANGGILAN)"
+          echo "Total: diproses=$TOTAL_DIPROSES draf=$TOTAL_DRAF gagal=$TOTAL_GAGAL panggilan_gagal=$PANGGILAN_GAGAL (target=$TARGET, panggilan=$PANGGILAN)"
           if [ "$TOTAL_GAGAL" -gt 0 ]; then
             echo "ASSERT GAGAL: pipeline melaporkan gagal > 0"
+            exit 1
+          fi
+          if [ "$TOTAL_DIPROSES" -eq 0 ] && [ "$PANGGILAN_GAGAL" -gt 0 ]; then
+            echo "ASSERT GAGAL: tidak satu pun item berhasil diproses ($PANGGILAN_GAGAL panggilan gagal)"
             exit 1
           fi

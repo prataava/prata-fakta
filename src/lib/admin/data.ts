@@ -10,6 +10,9 @@
 // /api/admin/pengguna (lihat TabelPengguna).
 import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { cobaServiceClient } from "@/lib/supabase/service";
+import { buatAdminAdapter } from "./supabase-adapter";
+import { evaluasiHardGate } from "./hard-gates";
 import { getUserRoles, punyaRole, ROLES, type Role } from "@/lib/auth/roles";
 import { getKategori, type PfCategoryRow } from "@/lib/data";
 // Ops Center (Fase 12): daftar job dikenal dipakai getRingkasanOps.
@@ -298,6 +301,231 @@ export async function getRingkasanAdmin(): Promise<RingkasanAdmin> {
   }
 }
 
+// ---------- Reliability Center (v27) ----------
+
+export type GalatTerbaru = {
+  dibuat_pada: string | null;
+  sumber: string | null;
+  pesan: string | null;
+  rute: string | null;
+};
+
+/**
+ * Galat aplikasi terbaru (pf_app_errors, 10 terakhir) untuk
+ * Reliability Center. Dibaca via SERVICE client — RLS menolak
+ * pembacaan tabel ini lewat session client (hasil kosong, bukan
+ * error), jadi tanpa service key mustahil membedakan "tidak ada
+ * galat" dari "tidak bisa membaca". null = tidak dapat dibaca
+ * (service key belum diatur / query gagal); pemanggil menampilkan
+ * empty state jujur, bukan "0 galat".
+ */
+export async function getGalatTerbaru(): Promise<GalatTerbaru[] | null> {
+  try {
+    await connection();
+    const service = cobaServiceClient();
+    if (!service) return null;
+    const { data, error } = await service
+      .from("pf_app_errors")
+      .select("dibuat_pada,sumber,pesan,rute")
+      .order("dibuat_pada", { ascending: false })
+      .limit(10);
+    if (error || !data) return null;
+    return (data as GalatTerbaru[]).map((r) => ({
+      dibuat_pada: r.dibuat_pada ?? null,
+      sumber: r.sumber ?? null,
+      pesan: r.pesan ?? null,
+      rute: r.rute ?? null,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Source Intelligence (v27) ----------
+
+export type KinerjaSumber = {
+  /** Artikel TERBIT yang mencantumkan sumber ini (pf_article_sources). */
+  artikel_terbit: number;
+  /** Koreksi 'diperbaiki' pada artikel yang mencantumkan sumber ini. */
+  koreksi_diperbaiki: number;
+};
+
+/**
+ * Kinerja editorial per sumber (Source Intelligence): jumlah
+ * artikel terbit + koreksi yang diperbaiki per sumber_id.
+ * Satu artikel bisa mencantumkan beberapa sumber — koreksi pada
+ * artikel itu dihitung untuk SEMUA sumbernya (bukan menuduh satu
+ * sumber); kolom tabel menjelaskannya. Dibaca via SERVICE client
+ * (pf_correction_reports hanya bisa dibaca staf + pelapor lewat
+ * RLS — pola getJumlahKoreksiTerbuka). null = tidak dapat
+ * dihitung (service key belum diatur / galat), bukan 0.
+ */
+export async function getKinerjaSumber(): Promise<Map<
+  string,
+  KinerjaSumber
+> | null> {
+  try {
+    const service = cobaServiceClient();
+    if (!service) return null;
+    const { data: kaitan, error: errKaitan } = await service
+      .from("pf_article_sources")
+      .select("sumber_id,artikel_id,pf_articles!inner(status)")
+      .limit(2000);
+    if (errKaitan) return null;
+    const sumberPerArtikel = new Map<string, string[]>();
+    const kinerja = new Map<string, KinerjaSumber>();
+    for (const k of (kaitan ?? []) as {
+      sumber_id: string;
+      artikel_id: string;
+      // Embed to-many: PostgREST mengembalikan array (1 elemen
+      // karena !inner pada FK artikel_id).
+      pf_articles: { status: string }[];
+    }[]) {
+      if (k.pf_articles?.[0]?.status !== "terbit") continue;
+      const daftar = sumberPerArtikel.get(k.artikel_id) ?? [];
+      daftar.push(k.sumber_id);
+      sumberPerArtikel.set(k.artikel_id, daftar);
+      const s = kinerja.get(k.sumber_id) ?? {
+        artikel_terbit: 0,
+        koreksi_diperbaiki: 0,
+      };
+      s.artikel_terbit += 1;
+      kinerja.set(k.sumber_id, s);
+    }
+    const { data: koreksi, error: errKoreksi } = await service
+      .from("pf_correction_reports")
+      .select("artikel_id")
+      .eq("status", "diperbaiki")
+      .limit(1000);
+    if (errKoreksi) return null;
+    for (const r of (koreksi ?? []) as { artikel_id: string | null }[]) {
+      if (!r.artikel_id) continue;
+      for (const sid of sumberPerArtikel.get(r.artikel_id) ?? []) {
+        const s = kinerja.get(sid) ?? {
+          artikel_terbit: 0,
+          koreksi_diperbaiki: 0,
+        };
+        s.koreksi_diperbaiki += 1;
+        kinerja.set(sid, s);
+      }
+    }
+    return kinerja;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Editorial Quality Center (v27) ----------
+
+export type ButirChecklistPraTerbit = {
+  artikel_id: string;
+  slug: string;
+  judul: string;
+  status_verifikasi: string;
+  verifikasi_terakhir: string | null;
+  review_terakhir: string | null;
+  hard_gates: { kode: string; lolos: boolean; detail: string }[] | null;
+  hard_gates_lolos: boolean | null;
+  /** true hanya bila hard gates lolos + verifikasi CROSS/VERIFIED. */
+  auto_publish_mungkin: boolean;
+  catatan: string;
+};
+
+/**
+ * Checklist pra-terbit untuk 10 draf terbaru (Editorial Quality
+ * Center): status verifikasi + catatan verifikasi terakhir +
+ * review editorial terakhir + hard gates G1–G6 (dievaluasi dari
+ * data DB via evaluasiHardGate). Dibaca via SERVICE client
+ * (buatAdminAdapter) — RLS menolak sebagian bacaan ini lewat
+ * session client. null = tidak dapat dinilai (service key belum
+ * diatur / adapter gagal); pemanggil menampilkan empty state
+ * jujur. Checklist ini TIDAK menerbitkan apa pun — hanya menilai.
+ */
+export async function getChecklistPraTerbit(): Promise<
+  ButirChecklistPraTerbit[] | null
+> {
+  try {
+    await connection();
+    let adapter: ReturnType<typeof buatAdminAdapter>;
+    try {
+      adapter = buatAdminAdapter();
+    } catch {
+      return null;
+    }
+    const { artikel } = await adapter.listArtikel({
+      status: "draft",
+      page: 1,
+      limit: 10,
+    });
+    const hasil: ButirChecklistPraTerbit[] = [];
+    for (const a of artikel) {
+      let verifikasi: Awaited<
+        ReturnType<typeof adapter.getVerifikasiTerakhir>
+      > = null;
+      let review: Awaited<
+        ReturnType<typeof adapter.getReviewTerakhir>
+      > = null;
+      try {
+        verifikasi = await adapter.getVerifikasiTerakhir({
+          artikel_id: a.id,
+        });
+      } catch {
+        verifikasi = null;
+      }
+      try {
+        review = await adapter.getReviewTerakhir({ artikel_id: a.id });
+      } catch {
+        review = null;
+      }
+      let gates: ButirChecklistPraTerbit["hard_gates"] = null;
+      let gatesLolos: boolean | null = null;
+      let catatan = "";
+      if (!verifikasi) {
+        catatan =
+          "Tidak ada catatan verifikasi — hard gates tidak dapat dinilai; auto-publish tidak mungkin.";
+      } else {
+        try {
+          const nilai = await evaluasiHardGate(adapter, a, verifikasi);
+          gates = Object.entries(nilai.rincian).map(([kode, r]) => ({
+            kode,
+            lolos: r.lolos,
+            detail: r.detail,
+          }));
+          gatesLolos = nilai.lolos;
+          catatan =
+            nilai.alasan ??
+            (nilai.lolos
+              ? "Semua hard gates lolos."
+              : "Hard gates gagal (tanpa alasan tercatat).");
+        } catch {
+          gates = null;
+          gatesLolos = null;
+          catatan = "Hard gates gagal dievaluasi (galat baca data).";
+        }
+      }
+      const verifikasiOk =
+        verifikasi !== null &&
+        ["CROSS-CHECKED", "VERIFIED"].includes(verifikasi.keputusan);
+      hasil.push({
+        artikel_id: a.id,
+        slug: a.slug,
+        judul: a.judul,
+        status_verifikasi: a.status_verifikasi,
+        verifikasi_terakhir: verifikasi?.keputusan ?? null,
+        review_terakhir: review?.keputusan ?? null,
+        hard_gates: gates,
+        hard_gates_lolos: gatesLolos,
+        auto_publish_mungkin: gatesLolos === true && verifikasiOk,
+        catatan,
+      });
+    }
+    return hasil;
+  } catch {
+    return null;
+  }
+}
+
+
 /* ============================================================
    Antrean review
    ============================================================ */
@@ -503,7 +731,13 @@ export type ArtikelAdmin = {
   verifikasi_terakhir: VerifikasiAdmin | null;
   review_terakhir: ReviewAdmin | null;
   reviews: ReviewAdmin[];
-  versi: { versi: number; judul: string | null; dibuat_pada: string | null; catatan: string | null }[];
+  versi: {
+    versi: number;
+    judul: string | null;
+    dibuat_pada: string | null;
+    catatan: string | null;
+    isi_sebelum?: string | null;
+  }[];
 };
 
 const KOLOM_ARTIKEL_ADMIN =
@@ -543,7 +777,7 @@ export async function getArtikelAdmin(
       "klaim" | "verifikasi_terakhir" | "review_terakhir" | "reviews" | "versi"
     >;
 
-    const [klaimRes, evRes, verRes, revRes, versiRes] = await Promise.all([
+    const [klaimRes, evRes, verRes, revRes] = await Promise.all([
       supabase
         .from("pf_claims")
         .select("id, teks, jenis, status")
@@ -562,13 +796,33 @@ export async function getArtikelAdmin(
         .select("id, keputusan, catatan, dibuat_pada")
         .eq("artikel_id", id)
         .order("dibuat_pada", { ascending: false }),
-      supabase
+    ]);
+
+    // v27: isi_sebelum dibaca bila kolom sudah ada (migrasi v27);
+    // bila belum, PostgREST menjawab PGRST204 — mundur ke select
+    // tanpa isi_sebelum (pola yang sama seperti kolom isu v15).
+    // Kueri ini di luar Promise.all agar fallback-nya bisa
+    // diuji sebelum dipakai.
+    const versiRes = await supabase
+      .from("pf_article_versions")
+      .select("versi, judul, dibuat_pada, catatan, isi_sebelum")
+      .eq("artikel_id", id)
+      .order("versi", { ascending: false })
+      .limit(10);
+    let versi: ArtikelAdmin["versi"] = [];
+    if (!versiRes.error) {
+      versi = (versiRes.data ?? []) as ArtikelAdmin["versi"];
+    } else if (
+      (versiRes.error as { code?: string }).code === "PGRST204"
+    ) {
+      const versiResLama = await supabase
         .from("pf_article_versions")
         .select("versi, judul, dibuat_pada, catatan")
         .eq("artikel_id", id)
         .order("versi", { ascending: false })
-        .limit(10),
-    ]);
+        .limit(10);
+      versi = (versiResLama.data ?? []) as ArtikelAdmin["versi"];
+    }
 
     // Evidence hanya relevan bila klaimnya ada; filter di JS agar
     // satu query cukup (tabel evidence kecil per artikel).
@@ -608,7 +862,7 @@ export async function getArtikelAdmin(
       verifikasi_terakhir: verifikasi[0] ?? null,
       review_terakhir: reviews[0] ?? null,
       reviews,
-      versi: (versiRes.data ?? []) as ArtikelAdmin["versi"],
+      versi,
     };
   } catch {
     return null;
@@ -973,6 +1227,17 @@ export type RingkasanOps = {
     error_terakhir: string | null;
   })[];
   jobs_tersedia: boolean;
+  /** Baris pf_scheduled_jobs yang namanya TIDAK ada di
+   *  DAFTAR_JOB_DIKENAL (mis. backup, tanya-jawab, retensi) — v27:
+   *  job yang tidak dikenal tetap harus terpantau, bukan hilang
+   *  diam-diam dari Ops Center. */
+  jobs_lain: {
+    nama: string;
+    aktif: boolean;
+    terakhir_jalan: string | null;
+    status_terakhir: string;
+    error_terakhir: string | null;
+  }[];
   sumber: SumberOps[];
   sumber_tersedia: boolean;
   /** true hanya bila kolom kesehatan v22 (Worker A) terbaca. */
@@ -1011,6 +1276,7 @@ export async function getRingkasanOps(): Promise<RingkasanOps> {
     db_ms: null,
     jobs: [],
     jobs_tersedia: false,
+    jobs_lain: [],
     sumber: [],
     sumber_tersedia: false,
     sumber_v22_tersedia: false,
@@ -1062,6 +1328,20 @@ export async function getRingkasanOps(): Promise<RingkasanOps> {
           error_terakhir: baris?.error_terakhir ?? null,
         };
       });
+      // v27: baris job yang namanya tidak dikenal — tetap
+      // dikembalikan agar Reliability Center bisa menilainya
+      // (backup, tanya-jawab, retensi, ...).
+      const namaDikenal = new Set(DAFTAR_JOB_DIKENAL.map((d) => d.nama));
+      kosong.jobs_lain = [...peta.values()]
+        .filter((b) => !namaDikenal.has(b.nama))
+        .map((b) => ({
+          nama: b.nama,
+          aktif: b.aktif,
+          terakhir_jalan: b.terakhir_jalan,
+          status_terakhir: b.status_terakhir,
+          error_terakhir: b.error_terakhir,
+        }))
+        .sort((a, b) => a.nama.localeCompare(b.nama));
       kosong.jobs_tersedia = true;
       kosong.tersedia = true;
     }

@@ -35,15 +35,22 @@ export type KelasGalat =
 /**
  * Kelas BERAT — satu-satunya yang menggagalkan job workflow
  * ingestion (lihat .github/workflows/ingestion.yml). Kelas lain
- * (rate-limited / dilewati / unavailable / sebagian) = job sukses
- * dengan peringatan: kegagalannya tetap tercatat di
+ * (rate-limited / dilewati / unavailable / sebagian / invalid-feed)
+ * = job sukses dengan peringatan: kegagalannya tetap tercatat di
  * pf_ingestion_runs + respons JSON, hanya tidak menghentikan
  * jadwal cron. 'gagal' (galat engine — mis. semua item gagal
  * disimpan) juga berat: itu bukan gangguan sumber, itu gangguan
  * sistem kita sendiri.
+ *
+ * CATATAN v27 (18 Nov 2026): 'invalid-feed' DIKELUARKAN dari kelas
+ * berat. Satu respons bukan-XML BISA jadi gangguan sementara sisi
+ * penyedia (kasus UN News 17 Nov 2026: sempat mengirim halaman
+ * bukan-XML, lalu normal lagi) — bukan bukti feed berubah format.
+ * Feed yang BENAR-BENAR mati tetap dieskalasi: invalid-feed 5x
+ * beruntun → 'permanently-failed' (engine.ts), dan itu BERAT.
+ * Begitu pula redirect-login berulang (5x → permanently-failed).
  */
 export const KELAS_BERAT: ReadonlySet<KelasGalat> = new Set([
-  "invalid-feed",
   "permanently-failed",
   "gagal",
 ]);

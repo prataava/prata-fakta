@@ -4,13 +4,21 @@
 // PERNAH mencetak nilai key.) Keluar 0 bila semua tabel berhasil;
 // keluar 1 bila ada tabel yang gagal (kegagalan dicatat di manifest).
 // Keluaran: <out>/backup-YYYYMMDD-HHmmss/<tabel>.json + manifest.json
-// berisi {waktu, tabel: {nama: jumlah}, gagal: [...], durasi_ms}.
+// berisi {waktu, tabel: {nama: jumlah}, hash: {nama: sha256},
+// gagal: [...], durasi_ms}.
+// Mode verifikasi (v27): node scripts/backup-pf.mjs --verify <dir>
+// — membaca manifest + tiap berkas tabel, memeriksa JSON bisa
+// diparse, jumlah baris cocok dengan manifest, dan hash SHA-256
+// cocok. Keluar 0 bila semua cocok, 1 bila ada yang tidak cocok.
+// "Backup sukses hanya bila isinya terverifikasi": workflow backup
+// menjalankan --verify sesudah ekspor, sebelum artefak diunggah.
 // Strategi backup (lihat LAPORAN-AKHIR.md): Supabase mengelola backup
 // harian proyek di sisi server; skrip ini adalah lapis kedua yang
 // dimiliki redaksi — ekspor berkala yang bisa diarsipkan dan dipakai
 // untuk audit isi database tanpa mengakses Dashboard.
 // Keamanan: service-role key HANYA dibaca dari env/.env.local dan
 // tidak pernah ditulis ke berkas keluaran.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -119,6 +127,14 @@ const TABEL_PF = [
   // pf_item_cluster_members. v25 (alerts) — 1 tabel baru:
   // pf_alerts. Total sesudah v25: 68 tabel (dihitung ulang dari
   // CREATE TABLE di semua berkas migrasi, 17 Nov 2026).
+  // v27 (18 Nov 2026) menambah 1 tabel baru pf_push_deliveries —
+  // SENGAJA BELUM dimasukkan ke daftar ini sampai migrasi v27
+  // diterapkan di produksi (butuh otorisasi pemilik). Bila
+  // dimasukkan sebelum itu, backup gagal 404 (lihat catatan di
+  // bawah). Sesudah v27 diterapkan: tambahkan pf_push_deliveries
+  // di sini (total menjadi 69) + perbarui §E baterai.
+  // (Nama tabel di komentar ini SENGAJA tanpa tanda kutip: §E
+  // baterai menghitung semua string berpetik pf_* di berkas ini.)
   // Catatan: tabel yang migrasinya belum diterapkan di produksi
   // akan tercatat GAGAL (404) dan membuat skrip exit 1 — perilaku
   // yang sama seperti tabel lain sebelum migrasinya jalan (lihat
@@ -172,6 +188,88 @@ async function eksporTabel(url, key, tabel) {
   return semua;
 }
 
+function sha256Berkas(berkas) {
+  return crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(berkas))
+    .digest("hex");
+}
+
+async function verifikasiBackup(dir) {
+  // Verifikasi isi backup dari manifest-nya sendiri (tanpa DB):
+  // tiap tabel di manifest harus punya berkas JSON yang bisa diparse,
+  // jumlah barisnya cocok, dan hash-nya cocok. Manifest TANPA hash
+  // (dibuat sebelum v27) tetap diverifikasi jumlah barisnya, dengan
+  // peringatan bahwa hash tidak tersedia.
+  const berkasManifest = path.join(dir, "manifest.json");
+  if (!fs.existsSync(berkasManifest)) {
+    console.error(`GAGAL VERIFIKASI: manifest.json tidak ada di ${dir}`);
+    return 1;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(berkasManifest, "utf8"));
+  } catch (err) {
+    console.error(`GAGAL VERIFIKASI: manifest.json tidak bisa diparse — ${err.message}`);
+    return 1;
+  }
+  const namaTabel = Object.keys(manifest.tabel ?? {});
+  if (namaTabel.length === 0) {
+    console.error("GAGAL VERIFIKASI: manifest tidak memuat satu pun tabel.");
+    return 1;
+  }
+  let buruk = 0;
+  for (const tabel of namaTabel) {
+    const berkas = path.join(dir, `${tabel}.json`);
+    if (!fs.existsSync(berkas)) {
+      console.error(`GAGAL VERIFIKASI: ${tabel}.json hilang.`);
+      buruk++;
+      continue;
+    }
+    let baris;
+    try {
+      baris = JSON.parse(fs.readFileSync(berkas, "utf8"));
+    } catch (err) {
+      console.error(`GAGAL VERIFIKASI: ${tabel}.json tidak bisa diparse — ${err.message}`);
+      buruk++;
+      continue;
+    }
+    if (!Array.isArray(baris)) {
+      console.error(`GAGAL VERIFIKASI: ${tabel}.json bukan array JSON.`);
+      buruk++;
+      continue;
+    }
+    if (baris.length !== manifest.tabel[tabel]) {
+      console.error(
+        `GAGAL VERIFIKASI: ${tabel}.json berisi ${baris.length} baris, manifest mencatat ${manifest.tabel[tabel]}.`,
+      );
+      buruk++;
+      continue;
+    }
+    const hashTercatat = manifest.hash?.[tabel];
+    if (hashTercatat === undefined) {
+      console.log(`PERINGATAN: ${tabel} — jumlah cocok (${baris.length}), tanpa hash untuk diperiksa (manifest pra-v27).`);
+    } else if (sha256Berkas(berkas) !== hashTercatat) {
+      console.error(`GAGAL VERIFIKASI: hash ${tabel}.json tidak cocok dengan manifest (berkas berubah sesudah ekspor?).`);
+      buruk++;
+      continue;
+    }
+    console.log(`OK: ${tabel} — ${baris.length} baris, hash cocok.`);
+  }
+  if ((manifest.gagal ?? []).length > 0) {
+    console.error(
+      `GAGAL VERIFIKASI: manifest mencatat ${manifest.gagal.length} tabel gagal diekspor: ${manifest.gagal.join(", ")}.`,
+    );
+    buruk++;
+  }
+  if (buruk > 0) {
+    console.error(`VERIFIKASI GAGAL: ${buruk} masalah di ${dir}`);
+    return 1;
+  }
+  console.log(`VERIFIKASI LOLOS: ${namaTabel.length} tabel di ${dir}`);
+  return 0;
+}
+
 async function utama() {
   bacaEnvLocal();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -193,15 +291,15 @@ async function utama() {
 
   const mulai = Date.now();
   const hasil = {};
+  const hash = {};
   const gagal = [];
   for (const tabel of TABEL_PF) {
     try {
       const baris = await eksporTabel(url, key, tabel);
-      fs.writeFileSync(
-        path.join(dir, `${tabel}.json`),
-        JSON.stringify(baris, null, 2),
-      );
+      const berkas = path.join(dir, `${tabel}.json`);
+      fs.writeFileSync(berkas, JSON.stringify(baris, null, 2));
       hasil[tabel] = baris.length;
+      hash[tabel] = sha256Berkas(berkas);
       console.log(`OK: ${tabel} — ${baris.length} baris`);
     } catch (err) {
       gagal.push(tabel);
@@ -211,6 +309,7 @@ async function utama() {
   const manifest = {
     waktu: sekarang.toISOString(),
     tabel: hasil,
+    hash,
     gagal,
     durasi_ms: Date.now() - mulai,
   };
@@ -223,6 +322,17 @@ async function utama() {
     `SELESAI: ${Object.keys(hasil).length}/${TABEL_PF.length} tabel, ${total} baris, ${gagal.length} gagal → ${dir}`,
   );
   if (gagal.length > 0) process.exit(1);
+}
+
+// Mode --verify tidak butuh kredensial/DB sama sekali.
+const iVerify = process.argv.indexOf("--verify");
+if (iVerify !== -1) {
+  const dir = process.argv[iVerify + 1];
+  if (!dir) {
+    console.error("GAGAL: --verify butuh <dir> (contoh: node scripts/backup-pf.mjs --verify backup/backup-20261118-100000)");
+    process.exit(2);
+  }
+  process.exit(await verifikasiBackup(path.resolve(dir)));
 }
 
 await utama();

@@ -155,6 +155,11 @@ export default async function AdminArtikelDetail({
                 <strong>Versi {v.versi}</strong>
                 {v.judul ? ` — ${v.judul}` : ""} · {formatTanggal(v.dibuat_pada)}
                 {v.catatan ? ` — ${v.catatan}` : ""}
+                {v.isi_sebelum
+                  ? " · isi sebelum revisi tercatat"
+                  : v.catatan !== "Draf awal"
+                    ? " · isi sebelum belum tercatat (versi pra-v27)"
+                    : ""}
               </li>
             ))}
           </ol>

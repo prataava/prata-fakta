@@ -72,6 +72,24 @@ export function galatTabelBelumAda(err: unknown): boolean {
 }
 
 /**
+ * true bila galat PostgREST berarti KOLOM belum ada (42703
+ * undefined_column) — bukan tabelnya. Terjadi bila migrasi yang
+ * menambah kolom (v17 pf_events.artikel_id, v19
+ * pf_bookmarks.folder) belum diterapkan di produksi: pemanggil
+ * boleh mengulang kueri tanpa kolom itu (degradasi jujur) daripada
+ * melempar dan mengosongkan halaman. BUKAN empty state tabel
+ * belum ada — kolom yang hilang dicatat lewat catatGalatBaca
+ * seperti galat baca lain bila pemanggil memilih melempar.
+ */
+export function galatKolomBelumAda(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === "object" &&
+    (err as { code?: unknown }).code === "42703"
+  );
+}
+
+/**
  * Catat galat baca dengan konteks fungsi.
  * Mengembalikan true bila galat adalah "tabel belum ada"
  * (pemanggil boleh mengembalikan empty state); false bila

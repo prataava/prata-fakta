@@ -52,6 +52,12 @@ import {
   cobaUlang,
   GalatSementara,
 } from "../src/lib/ingestion/retry.ts";
+import { fetchAman } from "../src/lib/ingestion/ssrf.ts";
+import { tolakHostFeedAman } from "../src/lib/ingestion/feed-allowlist.ts";
+import {
+  KELAS_BERAT,
+  klasifikasiGalatFetch,
+} from "../src/lib/ingestion/ketahanan.ts";
 import { jalankanPipelineEditorial } from "../src/lib/ai/pipeline.ts";
 import { cariKalimatKutipan, polaPencarianInti } from "../src/lib/ai/research.ts";
 import { susunDrafArtikel } from "../src/lib/ai/writing.ts";
@@ -653,6 +659,93 @@ async function statusRunTerakhir(sumberId) {
   });
   const per = hasil.perSumber[0];
   cek("A3 engine: GDELT 429 2x lalu 200 -> baru=1, percobaan_fetch=3", per.baru === 1 && per.percobaan_fetch === 3 && panggilan === 3, `baru=${per.baru} panggilan=${panggilan}`);
+}
+
+// A4 (v27): 429 + Retry-After BESAR (300 dtk) tidak tidur di dalam run —
+// gagal cepat pada percobaan pertama; penanganannya cooldown antar-run.
+{
+  let panggilan429 = 0;
+  let tidurDipanggil = 0;
+  let galat429 = null;
+  try {
+    await cobaUlang(async () => {
+      panggilan429++;
+      throw new GalatSementara("GDELT 429", { status: 429, retryAfterDetik: 300 });
+    }, { percobaanMaks: 3, jedaAwalMs: 10, tidur: async () => { tidurDipanggil++; } });
+  } catch (e) {
+    galat429 = e;
+  }
+  cek("A4 retry: 429 + Retry-After 300 dtk gagal cepat (1 percobaan, 0 tidur)", panggilan429 === 1 && tidurDipanggil === 0 && galat429 instanceof GalatSementara && galat429.status === 429, `panggilan=${panggilan429} tidur=${tidurDipanggil}`);
+  cek("A4 retry: 429 + Retry-After kecil (2 dtk) tetap diulang tidur (A1/A2 utuh)", await (async () => {
+    let p = 0;
+    const j = [];
+    const h = await cobaUlang(async () => {
+      p++;
+      if (p < 2) throw new GalatSementara("429 kecil", { status: 429, retryAfterDetik: 2 });
+      return "ok";
+    }, { percobaanMaks: 3, jedaAwalMs: 10, tidur: async (ms) => { j.push(ms); } });
+    return h.nilai === "ok" && p === 2 && j.length === 1 && j[0] >= 1500;
+  })());
+}
+
+// A5 (v27): engine — GDELT 429 Retry-After 300 + RSS sehat. GDELT
+// gagal cepat (kelas rate-limited, 1 percobaan), RSS tetap jalan,
+// total.gagal_berat = 0 (satu sumber rate-limited tidak boleh
+// menggagalkan run — pelajaran run ingestion #7, 18 Nov 2026).
+{
+  const sumberG = await buatSumber("GDELT 429 Besar", "api", "https://contoh.test/gdelt-429", 50);
+  const sumberR = await buatSumber("RSS Sehat", "rss", "https://contoh.test/rss-sehat.xml", 60);
+  let panggilanG = 0;
+  const fetchCampur = async (url) => {
+    if (String(url).includes("gdeltproject.org")) {
+      panggilanG++;
+      return responsMock({ ok: false, status: 429, retryAfter: "300" });
+    }
+    if (String(url).includes("rss-sehat.xml")) {
+      return responsMock({ teks: buatRss(buatItemRss("RSS Sehat Satu", "https://contoh.test/sehat/1", "Mon, 16 Nov 2026 07:00:00 GMT")) });
+    }
+    throw new Error(`URL tak dikenal di mock: ${url}`);
+  };
+  const hasil5 = await jalankanIngestion(adapter, [sumberG, sumberR], {
+    dipicu_oleh: "manual",
+    fetchFn: fetchCampur,
+    lewatiAllowlistFeed: true,
+    retry: { percobaanMaks: 3, jedaAwalMs: 10, tidur: async () => {} },
+  });
+  const perG = hasil5.perSumber.find((p) => p.sumber_nama === "GDELT 429 Besar");
+  const perR = hasil5.perSumber.find((p) => p.sumber_nama === "RSS Sehat");
+  cek("A5 engine: GDELT 429/300 gagal cepat — gagal=1, kelas rate-limited, percobaan_fetch=1", perG?.gagal === 1 && perG?.kelas === "rate-limited" && perG?.percobaan_fetch === 1 && panggilanG === 1, `gagal=${perG?.gagal} kelas=${perG?.kelas} percobaan=${perG?.percobaan_fetch} panggilan=${panggilanG}`);
+  cek("A5 engine: RSS sehat tetap baru=1 meski GDELT 429", perR?.baru === 1 && perR?.gagal === 0, `rss baru=${perR?.baru}`);
+  cek("A5 engine: total.gagal_berat=0 — rate-limited saja tidak gagalkan run", hasil5.total.gagal_berat === 0, `gagal_berat=${hasil5.total.gagal_berat}`);
+}
+
+// A6 (v27): Nature — redirect sementara ke host login/SSO penyedia
+// (kasus idp.nature.com, run ingestion #7) BUKAN penolakan permanen.
+{
+  const fetchLogin = async (url) => {
+    if (String(url).includes("www.nature.com")) {
+      return {
+        ok: false,
+        status: 302,
+        headers: new Headers({ location: "https://idp.nature.com/login?x=1" }),
+        text: async () => "",
+        json: async () => ({}),
+      };
+    }
+    throw new Error(`URL tak dikenal: ${url}`);
+  };
+  let galatLogin = null;
+  try {
+    await fetchAman("https://www.nature.com/nature.rss", {}, fetchLogin, {
+      periksaHost: tolakHostFeedAman,
+      periksaHopLanjutan: tolakHostFeedAman,
+    });
+  } catch (e) {
+    galatLogin = e;
+  }
+  cek("A6 nature: redirect ke idp.nature.com -> GalatSementara 303 (bukan penolakan permanen)", galatLogin instanceof GalatSementara && galatLogin.status === 303 && String(galatLogin.message).includes("Redirect sementara ke host login"), String(galatLogin?.message ?? "tidak ada galat").slice(0, 90));
+  cek("A6 nature: GalatSementara redirect-login diklasifikasi 'unavailable'", galatLogin !== null && klasifikasiGalatFetch(galatLogin).kelas === "unavailable", galatLogin !== null ? klasifikasiGalatFetch(galatLogin).kelas : "-");
+  cek("A6 nature: 'invalid-feed' BUKAN kelas berat (UN News transient tidak gagalkan run)", !KELAS_BERAT.has("invalid-feed") && KELAS_BERAT.has("permanently-failed") && KELAS_BERAT.has("gagal"), `berat=[${[...KELAS_BERAT].join(",")}]`);
 }
 
 // ================= B. Fallback: satu sumber gagal tidak menghentikan yang lain =================

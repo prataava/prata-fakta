@@ -7,6 +7,7 @@
 // bisa menjawab 503 yang jujur.
 import { createServiceClient } from "../supabase/service.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { galatKolomBelumAda } from "../galat.ts";
 import {
   AWALAN_BELUM_SIAP,
   adalahGalatTabelBelumAda,
@@ -18,6 +19,7 @@ import {
   type AuditLog,
   type BriefAdmin,
   type CatatanVerifikasi,
+  type EvidenceArtikel,
   type FilterArtikel,
   type FilterAudit,
   type HasilListArtikel,
@@ -28,6 +30,7 @@ import {
   type KategoriInput,
   type KategoriPatch,
   type KesehatanSupabase,
+  type KlaimArtikel,
   type Koreksi,
   type NamaJob,
   type PenggunaAdmin,
@@ -38,6 +41,7 @@ import {
   type RunIngestion,
   type StatusKoreksi,
   type StatusVerifikasi,
+  type SumberArtikel,
   type VerificationInput,
   type VersiArtikel,
   type VersiInput,
@@ -268,6 +272,114 @@ export class SupabaseAdminAdapter implements AdminAdapter {
     return (data as CatatanVerifikasi | null) ?? null;
   }
 
+  // ---------- Hard gate auto-publish (v27) ----------
+
+  async listSumberArtikel({
+    artikel_id,
+  }: {
+    artikel_id: string;
+  }): Promise<SumberArtikel[]> {
+    const { data, error } = await this.klien()
+      .from("pf_article_sources")
+      .select("sumber_id, url")
+      .eq("artikel_id", artikel_id);
+    if (error) this.lempar("listSumberArtikel", error);
+    return (data as SumberArtikel[] | null) ?? [];
+  }
+
+  async listKlaimArtikel({
+    artikel_id,
+    raw_item_id,
+  }: {
+    artikel_id: string;
+    raw_item_id?: string | null;
+  }): Promise<KlaimArtikel[]> {
+    const gabung = new Map<string, KlaimArtikel>();
+    const { data, error } = await this.klien()
+      .from("pf_claims")
+      .select("id, teks, jenis, status")
+      .eq("artikel_id", artikel_id);
+    if (error) this.lempar("listKlaimArtikel", error);
+    for (const k of (data as KlaimArtikel[] | null) ?? []) {
+      gabung.set(k.id, k);
+    }
+    if (raw_item_id) {
+      const { data: dataItem, error: errItem } = await this.klien()
+        .from("pf_claims")
+        .select("id, teks, jenis, status")
+        .eq("raw_item_id", raw_item_id);
+      if (errItem) this.lempar("listKlaimArtikel", errItem);
+      for (const k of (dataItem as KlaimArtikel[] | null) ?? []) {
+        gabung.set(k.id, k);
+      }
+    }
+    return [...gabung.values()];
+  }
+
+  async listEvidenceArtikel({
+    klaim_id,
+  }: {
+    klaim_id: string[];
+  }): Promise<EvidenceArtikel[]> {
+    if (klaim_id.length === 0) return [];
+    const { data, error } = await this.klien()
+      .from("pf_evidence")
+      .select("id, klaim_id, sumber_url, sumber_nama, kutipan, arah")
+      .in("klaim_id", klaim_id);
+    if (error) this.lempar("listEvidenceArtikel", error);
+    return (data as EvidenceArtikel[] | null) ?? [];
+  }
+
+  async listTanggalSumberArtikel({
+    artikel_id,
+    raw_item_id,
+  }: {
+    artikel_id: string;
+    raw_item_id?: string | null;
+  }): Promise<string[]> {
+    const tanggal = new Set<string>();
+    const catat = (nilai: unknown) => {
+      if (typeof nilai === "string" && nilai.trim() !== "") {
+        tanggal.add(nilai);
+      }
+    };
+    // (a) Item mentah catatan verifikasi (jalur pipeline — paling
+    //     dapat diandalkan: satu item = satu tanggal).
+    if (raw_item_id) {
+      const { data, error } = await this.klien()
+        .from("pf_raw_items")
+        .select("waktu_terbit_asli")
+        .eq("id", raw_item_id)
+        .maybeSingle();
+      if (error) this.lempar("listTanggalSumberArtikel", error);
+      catat(
+        (data as { waktu_terbit_asli?: unknown } | null)?.waktu_terbit_asli,
+      );
+    }
+    // (b) Item mentah yang URL-nya cocok dengan tautan sumber
+    //     artikel (jalur draf lama / multi-sumber).
+    const sumber = await this.listSumberArtikel({ artikel_id });
+    const url = [
+      ...new Set(
+        sumber
+          .map((s) => (typeof s.url === "string" ? s.url.trim() : ""))
+          .filter(Boolean),
+      ),
+    ];
+    if (url.length > 0) {
+      const { data, error } = await this.klien()
+        .from("pf_raw_items")
+        .select("waktu_terbit_asli")
+        .in("url", url);
+      if (error) this.lempar("listTanggalSumberArtikel", error);
+      for (const r of (data as { waktu_terbit_asli?: unknown }[] | null) ??
+        []) {
+        catat(r.waktu_terbit_asli);
+      }
+    }
+    return [...tanggal];
+  }
+
   async simpanReview(input: ReviewInput): Promise<Review> {
     const { data, error } = await this.klien()
       .from("pf_editorial_reviews")
@@ -359,6 +471,10 @@ export class SupabaseAdminAdapter implements AdminAdapter {
   // ---------- Versi ----------
 
   async simpanVersi(input: VersiInput): Promise<VersiArtikel> {
+    // v27: isi_sebelum dicatat bila ada. Bila migrasi v27 BELUM
+    // diterapkan di produksi, kolom belum ada (42703) — mundur ke
+    // insert tanpa isi_sebelum agar penerbitan tidak gagal; isi
+    // sesudah revisi tetap tersimpan.
     const { data, error } = await this.klien()
       .from("pf_article_versions")
       .insert({
@@ -366,11 +482,28 @@ export class SupabaseAdminAdapter implements AdminAdapter {
         versi: input.versi,
         judul: input.judul,
         isi: input.isi,
+        isi_sebelum: input.isi_sebelum ?? null,
         dibuat_oleh: input.dibuat_oleh,
         catatan: input.catatan,
       })
       .select("id,artikel_id,versi,judul,isi,dibuat_oleh,dibuat_pada,catatan")
       .single();
+    if (error && galatKolomBelumAda(error)) {
+      const { data: dataLama, error: errorLama } = await this.klien()
+        .from("pf_article_versions")
+        .insert({
+          artikel_id: input.artikel_id,
+          versi: input.versi,
+          judul: input.judul,
+          isi: input.isi,
+          dibuat_oleh: input.dibuat_oleh,
+          catatan: input.catatan,
+        })
+        .select("id,artikel_id,versi,judul,isi,dibuat_oleh,dibuat_pada,catatan")
+        .single();
+      if (errorLama) this.lempar("simpanVersi", errorLama);
+      return dataLama as VersiArtikel;
+    }
     if (error) this.lempar("simpanVersi", error);
     return data as VersiArtikel;
   }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 
 export const metadata: Metadata = {
@@ -50,7 +51,9 @@ export default async function Koreksi() {
         </ol>
         <p>
           Kami tidak menghapus artikel yang dikoreksi secara diam-diam.
-          Riwayat pembaruan adalah bagian dari artikel.
+          Riwayat pembaruan adalah bagian dari artikel. Daftar koreksi
+          yang sudah diterapkan dapat dilihat di{" "}
+          <Link href="/koreksi">Pusat Koreksi</Link>.
         </p>
         <h2>Hak jawab</h2>
         <p>

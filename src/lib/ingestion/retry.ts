@@ -3,6 +3,16 @@
 // satu sumber yang gagal sementara (429/5xx/gangguan jaringan) dicoba
 // ulang sendiri — tanpa mengulang seluruh job dan tanpa memaksa sumber
 // lain menunggu. Retry-After dari server dihormati (khusus GDELT 429).
+//
+// PENGECUALIAN 429 (v27, 18 Nov 2026): 429 dengan Retry-After BESAR
+// (> batasTidur429Detik, bawaan 10 dtk) TIDAK diulang tidur di dalam
+// run. "Coba lagi sesudah Retry-After" diwujudkan sebagai COOLDOWN
+// antar-run (ketahanan.ts: 30 mnt–6 jam), bukan tidur sampai 300
+// detik × 2 di dalam satu panggilan route — tidur itu berisiko
+// mendorong route melewati batas waktu serverless dan menggagalkan
+// SEMUA sumber. Retry-After kecil (≤10 dtk) tetap dihormati dengan
+// tidur di dalam run; 5xx/gangguan jaringan tetap diulang 3x dengan
+// backoff + jitter.
 
 // Galat sementara: boleh dicoba ulang. Galat lain (validasi, allowlist,
 // SSRF, HTTP 4xx selain 429) TIDAK boleh dicoba ulang — melempar Error
@@ -29,6 +39,16 @@ export function bisaDiulang(err: unknown): boolean {
   if (err.status === undefined) return true; // gangguan jaringan / timeout
   return err.status === 429 || err.status >= 500;
 }
+
+/**
+ * Penanda pesan untuk redirect sementara ke host login/SSO penyedia
+ * (mis. Nature yang sesekali me-redirect feed-nya ke idp.nature.com).
+ * Dipakai ssrf.ts (pelempar) + engine.ts (eskalasi sesudah 5x
+ * beruntun) agar tidak bergantung pada string harfiah di dua tempat.
+ * BUKAN penolakan allowlist permanen: feed-nya sah, yang sementara
+ * adalah pengalihannya ke halaman masuk.
+ */
+export const PESAN_REDIRECT_LOGIN = "Redirect sementara ke host login";
 
 /**
  * Jumlah percobaan yang sudah dipakai saat sebuah galat dilempar
@@ -114,6 +134,11 @@ export interface OpsiCobaUlang {
   jedaMaksMs?: number;
   /** Pengali backoff. Bawaan 2. */
   pengali?: number;
+  /** Batas Retry-After (detik) yang masih diulang tidur di dalam run
+   *  (v27, bawaan 10): 429 dengan Retry-After lebih besar langsung
+   *  dilempar tanpa tidur — penanganannya adalah cooldown antar-run,
+   *  bukan tidur sampai 300 detik di dalam satu panggilan route. */
+  batasTidur429Detik?: number;
   /** Fungsi tidur (dapat di-injeksi uji agar tidak menunggu nyata). */
   tidur?: (ms: number) => Promise<void>;
   /** Sumber acak untuk jitter (dapat di-injeksi uji agar deterministik). */
@@ -171,6 +196,17 @@ export async function cobaUlang<T>(
         (err as unknown as { percobaan?: number }).percobaan = percobaan;
       }
       if (percobaan >= percobaanMaks || !bisaDiulang(err)) {
+        throw err;
+      }
+      // 429 dengan Retry-After besar (v27): gagal cepat tanpa tidur —
+      // penanganannya adalah cooldown antar-run (ketahanan.ts),
+      // bukan tidur sampai 300 detik di dalam satu panggilan route.
+      if (
+        err instanceof GalatSementara &&
+        err.status === 429 &&
+        err.retryAfterDetik !== undefined &&
+        err.retryAfterDetik > (opsi.batasTidur429Detik ?? 10)
+      ) {
         throw err;
       }
       // Retry-After didahulukan (khusus 429); bila tidak ada, backoff

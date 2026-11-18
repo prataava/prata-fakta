@@ -26,15 +26,20 @@
 # yang mengambil alih; kegagalan sebagian sudah terlihat lewat
 # assert di bawah + status run 'sebagian'/'gagal' di
 # pf_ingestion_runs (bukan sukses diam-diam).
-# Assert respons (F5, diubah Fase 3): sukses palsu parsial ditolak —
-# TAPI hanya untuk kegagalan kelas BERAT. Job gagal bila
-# `ok != true` atau `total.gagal_berat > 0` (kelas invalid-feed /
-# permanently-failed / galat engine). Kegagalan sementara
-# (rate-limited / unavailable / dilewati / sebagian) = job SUCCESS
-# dengan peringatan: kegagalan tetap tercatat di pf_ingestion_runs
-# (status + kelas_gagal) dan di ringkasan run di bawah, hanya tidak
-# menghentikan jadwal cron — GDELT 429 tidak boleh membuat 7 feed
-# RSS yang sehat terlihat "gagal" setiap 30 menit.
+# Assert respons (F5, diubah Fase 3, diubah v27): sukses palsu parsial
+# ditolak — TAPI hanya untuk kegagalan kelas BERAT. Job gagal bila
+# `ok != true` atau `total.gagal_berat > 0` (kelas permanently-failed
+# / galat engine). Sejak v27 'invalid-feed' BUKAN lagi kelas berat:
+# satu respons bukan-XML bisa jadi gangguan sementara sisi penyedia
+# (UN News 17 Nov 2026) — feed yang benar-benar mati tetap
+# dieskalasi ke permanently-failed sesudah 5x beruntun (engine.ts)
+# dan tetap menggagalkan job. Kegagalan sementara
+# (rate-limited / unavailable / dilewati / sebagian / invalid-feed)
+# = job SUCCESS dengan peringatan: kegagalan tetap tercatat di
+# pf_ingestion_runs (status + kelas_gagal) dan di ringkasan run di
+# bawah, hanya tidak menghentikan jadwal cron — GDELT 429 tidak
+# boleh membuat 7 feed RSS yang sehat terlihat "gagal" setiap
+# 30 menit.
 # Transisi: bila endpoint masih kode lama (tanpa total.gagal_berat),
 # pakai aturan lama (total.gagal == 0) agar assert tidak lolos
 # diam-diam selama deploy bergulir.

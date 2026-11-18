@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import { createClient } from "@/lib/supabase/server";
+import { getChecklistPraTerbit } from "@/lib/admin/data";
 import { formatWaktu } from "@/lib/admin/format";
 
 export const metadata: Metadata = {
@@ -60,6 +62,11 @@ export default async function AdminKualitas() {
     tersedia = false;
   }
 
+  // Editorial Quality Center (v27): checklist pra-terbit 10 draf
+  // terbaru — hard gates G1–G6 dievaluasi dari data DB. null =
+  // tidak dapat dinilai (service key belum diatur); bukan "semua lolos".
+  const checklist = await getChecklistPraTerbit();
+
   if (!tersedia) {
     return (
       <section className="seksi">
@@ -77,6 +84,76 @@ export default async function AdminKualitas() {
 
   return (
     <>
+      {/* ============ Checklist pra-terbit (v27) ============ */}
+      <section className="seksi" aria-labelledby="judul-checklist">
+        <div className="seksi-kepala">
+          <h2 id="judul-checklist">Checklist Pra-Terbit — 10 Draf Terbaru</h2>
+        </div>
+        <p className="artikel-meta-kecil">
+          Setiap draf dinilai dari data DB: catatan verifikasi
+          terakhir, review editorial terakhir, dan hard gates G1–G6
+          (≥2 sumber independen, tanpa konflik material, referensi
+          https valid, K1–K7, sumber ≤14 hari, topik sensitif wajib
+          review manusia). &quot;Auto-publish mungkin&quot; = hard
+          gates lolos + verifikasi CROSS-CHECKED/VERIFIED. Checklist
+          ini hanya menilai — tidak menerbitkan. Penerbitan manual
+          tetap mensyaratkan review editorial &quot;setuju&quot;.
+        </p>
+        {checklist === null ? (
+          <EmptyState
+            judul="Checklist tidak dapat dinilai"
+            pesan="Service client belum tersedia di server (SUPABASE_SERVICE_ROLE_KEY belum diatur) atau draf tidak dapat dibaca — ini berarti 'tidak dapat dinilai', bukan 'semua lolos'."
+          />
+        ) : checklist.length === 0 ? (
+          <EmptyState
+            judul="Belum ada draf"
+            pesan="Tidak ada artikel berstatus draft saat ini."
+          />
+        ) : (
+          <div className="tabel-gulir">
+            <table className="tabel-data">
+              <thead>
+                <tr>
+                  <th>Artikel</th>
+                  <th>Verifikasi</th>
+                  <th>Review</th>
+                  <th>Hard gates G1–G6</th>
+                  <th>Auto-publish mungkin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {checklist.map((c) => (
+                  <tr key={c.artikel_id}>
+                    <td>
+                      <Link href={`/admin/artikel/${c.artikel_id}`}>
+                        {c.judul}
+                      </Link>
+                      <br />
+                      <span className="artikel-meta-kecil">
+                        {c.status_verifikasi} · {c.catatan}
+                      </span>
+                    </td>
+                    <td>{c.verifikasi_terakhir ?? "—"}</td>
+                    <td>{c.review_terakhir ?? "—"}</td>
+                    <td>
+                      {c.hard_gates === null
+                        ? "tidak dapat dinilai"
+                        : c.hard_gates.map((g) => (
+                            <span key={g.kode}>
+                              {g.kode}: {g.lolos ? "lolos" : "gagal"}
+                              <br />
+                            </span>
+                          ))}
+                    </td>
+                    <td>{c.auto_publish_mungkin ? "Ya" : "Tidak"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="seksi" aria-labelledby="judul-ringkasan">
         <div className="seksi-kepala">
           <h2 id="judul-ringkasan">Hasil Quality Check</h2>

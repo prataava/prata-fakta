@@ -32,6 +32,74 @@ export const ENV_VAPID_PUBLIC_ALTERNATIF = "NEXT_PUBLIC_VAPID_PUBLIC_KEY";
 export const ENV_VAPID_PRIVATE = "VAPID_PRIVATE_KEY";
 export const ENV_VAPID_SUBJECT = "VAPID_SUBJECT";
 
+/** Batas pengiriman push per endpoint per 24 jam (frequency cap,
+ *  v27, Notification Intelligence): broadcast adalah aksi admin
+ *  eksplisit dan jarang, tetapi satu admin yang salah klik
+ *  berulang tidak boleh membanjiri satu perangkat. Cap 5/hari
+ *  per endpoint — longgar untuk pemakaian normal, menahan spam
+ *  akibat kesalahan. Dihitung dari pf_push_deliveries. */
+export const BATAS_KIRIM_PER_HARI = 5;
+
+/** Status pengiriman untuk pf_push_deliveries. */
+export type StatusPengirimanPush = "terkirim" | "gagal" | "dihapus";
+
+export type CatatanPengirimanPush = {
+  endpoint: string;
+  judul: string | null;
+  status: StatusPengirimanPush;
+  kode_http: number | null;
+};
+
+/**
+ * Catat percobaan kirim push ke pf_push_deliveries (v27).
+ * BEST-EFFORT: tabel baru ada di migrasi v27 — bila migrasi
+ * belum diterapkan di produksi, insert gagal dan DITELAN
+ * diam-diam (pengiriman tetap jalan; riwayat belum tersedia).
+ * TIDAK PERNAH melempar — pemanggil tidak boleh menggagalkan
+ * broadcast karena log gagal ditulis.
+ */
+export async function catatPengirimanPush(
+  service: SupabaseClient,
+  catatan: CatatanPengirimanPush[],
+): Promise<void> {
+  if (catatan.length === 0) return;
+  try {
+    await service.from("pf_push_deliveries").insert(catatan);
+  } catch {
+    // Tabel belum ada (pra-v27) atau galat tulis lain — log
+    // pengiriman bersifat best-effort, bukan penentu kirim.
+  }
+}
+
+/**
+ * Hitung pengiriman 24 jam terakhir per endpoint dari
+ * pf_push_deliveries (untuk frequency cap). Mengembalikan Map
+ * endpoint -> jumlah. null = riwayat tidak dapat dibaca (tabel
+ * belum ada pra-v27 / galat) — pemanggil memperlakukan null
+ * sebagai "tanpa riwayat" (cap tidak ditegakkan), BUKAN sebagai
+ * "semua endpoint sudah melewati cap".
+ */
+export async function hitungKirim24Jam(
+  service: SupabaseClient,
+): Promise<Map<string, number> | null> {
+  try {
+    const sejak = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await service
+      .from("pf_push_deliveries")
+      .select("endpoint")
+      .gte("dibuat_pada", sejak)
+      .limit(5000);
+    if (error || !data) return null;
+    const peta = new Map<string, number>();
+    for (const r of data as { endpoint: string }[]) {
+      peta.set(r.endpoint, (peta.get(r.endpoint) ?? 0) + 1);
+    }
+    return peta;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Kunci publik VAPID yang dipakai server: nama kanonik
  * VAPID_PUBLIC_KEY, jatuh ke NEXT_PUBLIC_VAPID_PUBLIC_KEY bila
@@ -166,6 +234,8 @@ export async function kirimPushKePengguna(
   const publik = ambilKunciPublikVapid() as string;
   let terkirim = 0;
   let dihapus = 0;
+  // Riwayat pengiriman (v27, best-effort — lihat catatPengirimanPush).
+  const catatan: CatatanPengirimanPush[] = [];
   for (const s of langganan) {
     try {
       const asal = new URL(s.endpoint).origin;
@@ -186,16 +256,41 @@ export async function kirimPushKePengguna(
           .delete()
           .eq("id", s.id);
         dihapus += 1;
+        catatan.push({
+          endpoint: s.endpoint,
+          judul: "Uji push",
+          status: "dihapus",
+          kode_http: res.status,
+        });
       } else if (res.ok) {
         terkirim += 1;
+        catatan.push({
+          endpoint: s.endpoint,
+          judul: "Uji push",
+          status: "terkirim",
+          kode_http: res.status,
+        });
       } else {
         console.error(
           `[push] kirim gagal (${res.status}) ke endpoint ${s.endpoint.slice(0, 60)}…`,
         );
+        catatan.push({
+          endpoint: s.endpoint,
+          judul: "Uji push",
+          status: "gagal",
+          kode_http: res.status,
+        });
       }
     } catch (err) {
       console.error("[push] galat kirim:", err);
+      catatan.push({
+        endpoint: s.endpoint,
+        judul: "Uji push",
+        status: "gagal",
+        kode_http: null,
+      });
     }
   }
+  await catatPengirimanPush(service, catatan);
   return { terkirim, dihapus, terkonfigurasi: true };
 }

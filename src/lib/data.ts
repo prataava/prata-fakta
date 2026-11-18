@@ -1438,6 +1438,114 @@ export async function getJumlahKoreksiTerbuka(
   }
 }
 
+/** Daftar koreksi yang sudah DITERBITKAN untuk Pusat Koreksi publik
+ *  (/koreksi) — Public Correction Center v27. HANYA baris
+ *  status='diperbaiki' + kolom aman (artikel, jenis, tanggal,
+ *  versi, tanggapan redaksi); TIDAK ADA nama/email/id pelapor.
+ *  PENTING: policy RLS "pf_correction_reports baca" (v2) hanya
+ *  mengizinkan staf + pelapor sendiri, jadi klien anon TIDAK BISA
+ *  membaca tabel ini — getter memakai cobaServiceClient() (pola
+ *  getJumlahKoreksiTerbuka). null = tidak dapat dimuat (service
+ *  key belum diatur / galat), BUKAN "belum ada koreksi".
+ *  Kolom v27 (diterapkan_pada/versi_artikel/tanggapan_redaksi)
+ *  dibaca bila ada; bila migrasi v27 belum diterapkan, PostgREST
+ *  menjawab PGRST204 dan getter mundur ke kolom stabil. */
+export type KoreksiPublik = {
+  id: string;
+  artikel_id: string | null;
+  artikel_judul: string | null;
+  artikel_slug: string | null;
+  jenis: string;
+  dibuat_pada: string | null;
+  diterapkan_pada: string | null;
+  versi_artikel: number | null;
+  tanggapan_redaksi: string | null;
+};
+
+export async function getKoreksiDiterbitkan(): Promise<
+  KoreksiPublik[] | null
+> {
+  try {
+    const service = cobaServiceClient();
+    if (!service) {
+      catatGalatBaca(
+        "getKoreksiDiterbitkan",
+        new Error("SUPABASE_SERVICE_ROLE_KEY belum diatur"),
+      );
+      return null;
+    }
+    const resAwal = await service
+      .from("pf_correction_reports")
+      .select(
+        "id,artikel_id,jenis,status,dibuat_pada,diterapkan_pada,versi_artikel,tanggapan_redaksi",
+      )
+      .eq("status", "diperbaiki")
+      .order("diterapkan_pada", { ascending: false, nullsFirst: false })
+      .order("dibuat_pada", { ascending: false })
+      .limit(50);
+    // Bila migrasi v27 belum diterapkan, PostgREST menjawab
+    // PGRST204 — mundur ke kolom stabil (tanpa kolom v27).
+    const res =
+      resAwal.error &&
+      (resAwal.error as { code?: string }).code === "PGRST204"
+        ? await service
+            .from("pf_correction_reports")
+            .select("id,artikel_id,jenis,status,dibuat_pada")
+            .eq("status", "diperbaiki")
+            .order("dibuat_pada", { ascending: false })
+            .limit(50)
+        : resAwal;
+    if (res.error) {
+      catatGalatBaca("getKoreksiDiterbitkan", res.error);
+      return null;
+    }
+    const baris = (res.data ?? []) as {
+      id: string;
+      artikel_id: string | null;
+      jenis: string;
+      dibuat_pada: string | null;
+      diterapkan_pada?: string | null;
+      versi_artikel?: number | null;
+      tanggapan_redaksi?: string | null;
+    }[];
+    const ids = [...new Set(baris.map((b) => b.artikel_id).filter(Boolean))] as string[];
+    const petaArtikel = new Map<
+      string,
+      { judul: string | null; slug: string | null }
+    >();
+    if (ids.length > 0) {
+      const { data: artikel } = await service
+        .from("pf_articles")
+        .select("id,judul,slug")
+        .in("id", ids);
+      for (const a of (artikel ?? []) as {
+        id: string;
+        judul: string | null;
+        slug: string | null;
+      }[]) {
+        petaArtikel.set(a.id, { judul: a.judul, slug: a.slug });
+      }
+    }
+    return baris.map((b) => {
+      const a = b.artikel_id ? petaArtikel.get(b.artikel_id) : undefined;
+      return {
+        id: b.id,
+        artikel_id: b.artikel_id,
+        artikel_judul: a?.judul ?? null,
+        artikel_slug: a?.slug ?? null,
+        jenis: b.jenis,
+        dibuat_pada: b.dibuat_pada,
+        diterapkan_pada: b.diterapkan_pada ?? null,
+        versi_artikel: b.versi_artikel ?? null,
+        tanggapan_redaksi: b.tanggapan_redaksi ?? null,
+      };
+    });
+  } catch (err) {
+    catatGalatBaca("getKoreksiDiterbitkan", err);
+    return null;
+  }
+}
+
 /**
  * Multi-Source View: matriks klaim × sumber untuk satu artikel
  * TERBIT. Status sel dihitung dari pf_evidence (arah

@@ -6,6 +6,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent as ReactFormEvent } from "react";
+import DialogKonfirmasi from "@/components/admin/DialogKonfirmasi";
 import type { KursusAdmin } from "@/components/admin/FormKursus";
 
 export type ReferensiAkademi = { judul: string | null; url: string | null };
@@ -86,6 +87,14 @@ export default function FormStrukturAkademi({
   const [pelUrutan, setPelUrutan] = useState("0");
   const [statusStruktur, setStatusStruktur] = useState<StatusForm>("idle");
   const [pesanStruktur, setPesanStruktur] = useState("");
+  // Modul/pelajaran yang menunggu konfirmasi hapus (dialog
+  // dalam-halaman, bukan window.confirm — dialog bawaan ditolak
+  // otomatisasi).
+  const [modulTertunda, setModulTertunda] = useState<ModulAdmin | null>(
+    null,
+  );
+  const [pelajaranTertunda, setPelajaranTertunda] =
+    useState<PelajaranAdmin | null>(null);
 
   useEffect(() => {
     let batal = false;
@@ -217,13 +226,10 @@ export default function FormStrukturAkademi({
   }
 
   async function hapusModul(m: ModulAdmin) {
-    if (
-      !window.confirm(
-        `Hapus modul "${m.judul}" beserta semua pelajaran dan progresnya?`,
-      )
-    ) {
-      return;
-    }
+    setModulTertunda(m);
+  }
+
+  async function jalankanHapusModul(m: ModulAdmin) {
     setStatusStruktur("loading");
     setPesanStruktur("");
     const ok = await patchKursus(kursusId, { modul: [{ id: m.id, hapus: true }] });
@@ -234,9 +240,10 @@ export default function FormStrukturAkademi({
   }
 
   async function hapusPelajaran(p: PelajaranAdmin) {
-    if (!window.confirm(`Hapus pelajaran "${p.judul}" beserta progresnya?`)) {
-      return;
-    }
+    setPelajaranTertunda(p);
+  }
+
+  async function jalankanHapusPelajaran(p: PelajaranAdmin) {
     setStatusStruktur("loading");
     setPesanStruktur("");
     const ok = await patchKursus(kursusId, {
@@ -462,6 +469,46 @@ export default function FormStrukturAkademi({
           {pesanStruktur}
         </p>
       )}
+      <DialogKonfirmasi
+        terbuka={modulTertunda !== null}
+        judul="Hapus modul?"
+        pesan={
+          modulTertunda
+            ? `Hapus modul "${modulTertunda.judul}" beserta semua pelajaran dan progresnya?`
+            : ""
+        }
+        labelKonfirmasi="Ya, hapus"
+        varian="bahaya"
+        sibuk={statusStruktur === "loading"}
+        onKonfirmasi={() => {
+          if (modulTertunda) {
+            const m = modulTertunda;
+            setModulTertunda(null);
+            void jalankanHapusModul(m);
+          }
+        }}
+        onTutup={() => setModulTertunda(null)}
+      />
+      <DialogKonfirmasi
+        terbuka={pelajaranTertunda !== null}
+        judul="Hapus pelajaran?"
+        pesan={
+          pelajaranTertunda
+            ? `Hapus pelajaran "${pelajaranTertunda.judul}" beserta progresnya?`
+            : ""
+        }
+        labelKonfirmasi="Ya, hapus"
+        varian="bahaya"
+        sibuk={statusStruktur === "loading"}
+        onKonfirmasi={() => {
+          if (pelajaranTertunda) {
+            const p = pelajaranTertunda;
+            setPelajaranTertunda(null);
+            void jalankanHapusPelajaran(p);
+          }
+        }}
+        onTutup={() => setPelajaranTertunda(null)}
+      />
     </>
   );
 }

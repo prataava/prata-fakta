@@ -165,8 +165,8 @@ function dimensiPng(relatif) {
 // ---------- §P3-1: sw.js — caching PWA ----------
 {
   const sw = baca("public/sw.js");
-  cek("PWA-C1 CACHE_VERSION prata-fakta-v1",
-    sw.includes('CACHE_VERSION = "prata-fakta-v1"'));
+  cek("PWA-C1 CACHE_VERSION prata-fakta-v2 (v27: batas runtime + TTL)",
+    sw.includes('CACHE_VERSION = "prata-fakta-v2"'));
   cek("PWA-C2 fetch handler ada", sw.includes('self.addEventListener("fetch"'));
   cek("PWA-C3 hanya GET ditangani",
     sw.includes('req.method !== "GET"'));

@@ -58,6 +58,7 @@
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
+import { GalatSementara, PESAN_REDIRECT_LOGIN } from "./retry.ts";
 
 /** Batas waktu SATU resolve DNS (ms). Longgar untuk DNS sehat,
  *  cukup untuk fail-fast bila resolver menggantung — tanpa ini,
@@ -462,6 +463,30 @@ export async function fetchTerpin(
 
 const MAKS_REDIRECT = 5;
 
+/**
+ * True bila hostname adalah host login/SSO/identitas penyedia
+ * (label persis idp/login/sso/auth/signin). Dipakai fetchAman:
+ * feed yang sesekali dialihkan penyedianya ke halaman masuk
+ * (kasus Nature → idp.nature.com, 17–18 Nov 2026) adalah gangguan
+ * SEMENTARA, bukan feed mati — JANGAN diperlakukan sebagai
+ * penolakan allowlist permanen. Host login TIDAK PERNAH ditambahkan
+ * ke allowlist feed (halaman masuk bukan konten berita).
+ */
+function apakahHostLogin(hostname: string): boolean {
+  return hostname
+    .toLowerCase()
+    .split(".")
+    .some(
+      (label) =>
+        label === "idp" ||
+        label === "login" ||
+        label === "sso" ||
+        label === "auth" ||
+        label === "signin" ||
+        label === "sign-in",
+    );
+}
+
 export interface OpsiFetchAman {
   /** Pemeriksa hop pertama (default: tolakHostPrivat). */
   periksaHost?: (url: string) => Promise<string | null>;
@@ -503,7 +528,30 @@ export async function fetchAman(
     const ditolak = await (hop === 0 ? periksaAwal : periksaLanjutan)(
       saatIni,
     );
-    if (ditolak) throw new Error(`URL ditolak: ${ditolak}`);
+    if (ditolak) {
+      // Redirect SEMENTARA ke host login/SSO (hop ≥ 1): penyedia
+      // mengalihkan feed ke halaman masuk, bukan ke konten — ini
+      // gangguan sementara (GalatSementara status 303: tidak
+      // diulang tidur di dalam run, diklasifikasikan 'unavailable'
+      // oleh ketahanan.ts, dan baru dieskalasi permanen sesudah 5x
+      // beruntun oleh engine). Penolakan URL AWAL (hop 0) tetap
+      // permanen — URL feed yang salah butuh tindakan admin.
+      if (hop >= 1) {
+        let host = "";
+        try {
+          host = new URL(saatIni).hostname;
+        } catch {
+          host = "";
+        }
+        if (host && apakahHostLogin(host)) {
+          throw new GalatSementara(
+            `${PESAN_REDIRECT_LOGIN} ${host} — feed dialihkan ke halaman masuk (SSO/login) penyedia, bukan ke konten feed; gangguan sementara, dicoba lagi run berikut.`,
+            { status: 303 },
+          );
+        }
+      }
+      throw new Error(`URL ditolak: ${ditolak}`);
+    }
     const pra = await resolusiHost(saatIni);
     const alamatDivalidasi = pra ? pra.alamat : null;
 

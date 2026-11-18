@@ -110,7 +110,11 @@ self.addEventListener("notificationclick", (event) => {
 
 /* ---------- PWA + offline reading (P3-1) ---------- */
 
-const CACHE_VERSION = "prata-fakta-v1";
+// v2 (18 Nov 2026, v27): batas runtime + TTL navigasi. Naik versi
+// MEMAKSA instalasi lama membuang cache v1 (activate di bawah
+// menghapus semua nama cache lain) sehingga kebijakan baru
+// langsung berlaku di perangkat yang sudah memasang v1.
+const CACHE_VERSION = "prata-fakta-v2";
 const PRECACHE = [
   "/",
   "/offline",
@@ -119,6 +123,17 @@ const PRECACHE = [
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
 ];
+
+// Batas runtime (v27): maks 100 entri BUKAN-precache di cache.
+// Tanpa batas, navigasi + gambar menumpuk tanpa henti (Cache
+// Storage tidak mengusir sendiri) sampai kuota browser penuh.
+// TTL navigasi 7 hari: halaman yang tersimpan lebih lama dari
+// itu dianggap basi dan TIDAK disajikan saat offline (jatuh ke
+// /offline) — berita basi lebih buruk daripada "offline".
+// Aset ber-hash (/_next/static, ikon, font) immutable — tanpa
+// TTL. Gambar stale-while-revalidate — diperbarui di latar.
+const BATAS_ENTRI_RUNTIME = 100;
+const TTL_NAVIGASI_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Apakah URL ini WAJIB dilewati total (tanpa cache)?
 // /api/* (respons API, apalagi yang butuh auth) + halaman yang
@@ -147,9 +162,38 @@ async function simpanKeCache(request, response) {
   try {
     const cache = await caches.open(CACHE_VERSION);
     await cache.put(request, response.clone());
+    await pangkasCache(cache);
   } catch {
     // Gagal tulis cache (mis. kuota) = bukan error fatal.
   }
+}
+
+// Pangkas entri runtime tertua (FIFO menurut urutan keys())
+// sampai di bawah batas; precache TIDAK pernah dihapus.
+async function pangkasCache(cache) {
+  try {
+    const kunci = await cache.keys();
+    const runtime = kunci.filter(
+      (k) => !PRECACHE.includes(new URL(k.url).pathname),
+    );
+    const lebih = runtime.length - BATAS_ENTRI_RUNTIME;
+    for (let i = 0; i < lebih; i++) {
+      await cache.delete(runtime[i]);
+    }
+  } catch {
+    // Gagal memangkas = bukan error fatal.
+  }
+}
+
+// Apakah respons cache sudah melewati TTL? Header Date asal
+// tidak ada = tidak bisa dinilai → dianggap segar (jangan buang
+// yang tidak bisa dibuktikan basi).
+function apakahBasi(response, ttlMs) {
+  const tanggal = response.headers.get("date");
+  if (!tanggal) return false;
+  const waktu = Date.parse(tanggal);
+  if (Number.isNaN(waktu)) return false;
+  return Date.now() - waktu > ttlMs;
 }
 
 self.addEventListener("install", (event) => {
@@ -230,7 +274,11 @@ self.addEventListener("fetch", (event) => {
           return res;
         } catch {
           const dariCache = await caches.match(req);
-          if (dariCache) return dariCache;
+          // Sajikan cache hanya bila belum basi (TTL navigasi);
+          // halaman basi jatuh ke /offline, bukan ke berita lama.
+          if (dariCache && !apakahBasi(dariCache, TTL_NAVIGASI_MS)) {
+            return dariCache;
+          }
           const offline = await caches.match("/offline");
           if (offline) return offline;
           return Response.error();

@@ -55,6 +55,14 @@ jobs:
           echo "Manifest:"
           cat backup/backup-*/manifest.json
 
+      # v27: backup sukses HANYA bila isinya terverifikasi — periksa
+      # tiap berkas JSON bisa diparse, jumlah baris cocok manifest,
+      # dan hash SHA-256 cocok, SEBELUM artefak diunggah. Bila
+      # verifikasi gagal, run gagal dan artefak rusak tidak diunggah.
+      - name: Verifikasi isi backup (jumlah baris + hash)
+        run: |
+          node scripts/backup-pf.mjs --verify backup/backup-*/
+
       - name: Unggah artefak backup (retensi 7 hari)
         uses: actions/upload-artifact@v4
         with:

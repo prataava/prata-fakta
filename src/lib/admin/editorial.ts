@@ -138,6 +138,8 @@ async function simpanVersiBaru(
   artikel: Artikel,
   aktor: Aktor,
   catatan: string,
+  /** Isi SEBELUM revisi (v27) — null bila revisi ini tidak mengubah isi. */
+  isiLama?: string | null,
 ): Promise<VersiArtikel> {
   const terakhir = await adapter.getVersiTerakhir({ artikel_id: artikel.id });
   return adapter.simpanVersi({
@@ -145,6 +147,7 @@ async function simpanVersiBaru(
     versi: (terakhir?.versi ?? 0) + 1,
     judul: artikel.judul,
     isi: artikel.isi,
+    isi_sebelum: isiLama ?? null,
     dibuat_oleh: aktor.id,
     catatan,
   });
@@ -272,7 +275,13 @@ export async function perbaruiArtikel(
   delete bersih.catatan_versi;
   const baru = await adapter.perbaruiArtikel({ id, patch: bersih });
   if (!baru) throw new Error("Artikel tidak ditemukan.");
-  const versiBaru = await simpanVersiBaru(adapter, baru, aktor, catatanVersi);
+  const versiBaru = await simpanVersiBaru(
+    adapter,
+    baru,
+    aktor,
+    catatanVersi,
+    lama.isi,
+  );
   try {
     await catat(adapter, aktor, "artikel.ubah", "pf_articles", id, {
       judul: lama.judul,
@@ -501,7 +510,7 @@ export async function terbitkanArtikel(
     throw new Error(
       "Artikel berubah status sesudah dibaca (kemungkinan diterbitkan proses lain) — muat ulang dan coba lagi.",
     );
-  const versiBaru = await simpanVersiBaru(adapter, baru, aktor, "Terbit");
+  const versiBaru = await simpanVersiBaru(adapter, baru, aktor, "Terbit", artikel.isi);
   try {
     await catat(adapter, aktor, "artikel.terbit", "pf_articles", id, {
       status: artikel.status,

@@ -369,7 +369,7 @@ export const DAFTAR_JOB_DIKENAL: JobDikenal[] = [
   {
     nama: "editorial",
     label: "Pipeline editorial AI",
-    jadwal_workflow: "Setiap 6 jam",
+    jadwal_workflow: "Setiap 2 jam",
     bisa_dipicu: true,
   },
   {

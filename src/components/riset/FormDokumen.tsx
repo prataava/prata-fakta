@@ -8,7 +8,10 @@ import type { PfDokumen } from "@/lib/riset";
 // metadata + tautan ke sumbernya — isi berhak cipta TIDAK disalin.
 // "Slug laporan terkait" (opsional) menulis metadata
 // { "riset_slug": ... } agar dokumen muncul di halaman detail
-// laporan itu.
+// laporan itu. "Hak penggunaan" (v27, opsional) menulis metadata
+// { "hak_penggunaan": ... } — ketentuan pemakaian ulang dokumen
+// (mis. "Dokumen publik — lihat ketentuan di sumber"); tampil di
+// /riset. Kosongkan bila tidak diketahui — jangan dikarang.
 const JENIS = ["laporan", "dokumen", "publikasi", "penelitian", "statistik"] as const;
 
 const LABEL_JENIS: Record<string, string> = {
@@ -36,6 +39,11 @@ export default function FormDokumen({
       ? (dokumen?.metadata["riset_slug"] as string)
       : "",
   );
+  const [hakPenggunaan, setHakPenggunaan] = useState(
+    typeof dokumen?.metadata["hak_penggunaan"] === "string"
+      ? (dokumen?.metadata["hak_penggunaan"] as string)
+      : "",
+  );
   const [statusDokumen, setStatusDokumen] = useState(
     dokumen?.status ?? "terbit",
   );
@@ -54,6 +62,9 @@ export default function FormDokumen({
     };
     if (risetSlug.trim()) metadata["riset_slug"] = risetSlug.trim();
     else delete metadata["riset_slug"];
+    if (hakPenggunaan.trim())
+      metadata["hak_penggunaan"] = hakPenggunaan.trim();
+    else delete metadata["hak_penggunaan"];
     const payload: Record<string, unknown> = {
       tipe: "dokumen",
       jenis,
@@ -176,6 +187,16 @@ export default function FormDokumen({
           value={risetSlug}
           onChange={(e) => setRisetSlug(e.target.value)}
           placeholder="Slug laporan riset yang memakai dokumen ini"
+        />
+      </label>
+      <label>
+        Hak penggunaan (opsional)
+        <input
+          type="text"
+          maxLength={200}
+          value={hakPenggunaan}
+          onChange={(e) => setHakPenggunaan(e.target.value)}
+          placeholder="Contoh: Dokumen publik — lihat ketentuan di sumber"
         />
       </label>
       <label>

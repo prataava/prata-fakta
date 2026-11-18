@@ -231,6 +231,8 @@ export interface VersiArtikel {
   versi: number;
   judul: string | null;
   isi: string | null;
+  /** Isi SEBELUM revisi ini (v27; null untuk versi pra-v27). */
+  isi_sebelum?: string | null;
   dibuat_oleh: string | null;
   dibuat_pada: string;
   catatan: string | null;
@@ -241,6 +243,8 @@ export interface VersiInput {
   versi: number;
   judul: string | null;
   isi: string | null;
+  /** Isi SEBELUM revisi (v27); null bila tidak ada/tidak diketahui. */
+  isi_sebelum?: string | null;
   dibuat_oleh: string | null;
   catatan: string | null;
 }
@@ -454,6 +458,36 @@ export interface KesehatanSupabase {
   ms: number;
 }
 
+/** Satu tautan sumber artikel (pf_article_sources). Dipakai hard
+ *  gate auto-publish: independensi dihitung dari sumber_id yang
+ *  berbeda (satu outlet yang menyalin berita yang sama = satu
+ *  sumber), dan URL-nya diperiksa strukturnya. */
+export interface SumberArtikel {
+  sumber_id: string;
+  url: string | null;
+}
+
+/** Satu klaim artikel (pf_claims). Klaim pipeline terikat
+ *  raw_item_id, bukan artikel_id — pembaca hard gate memakai
+ *  keduanya (lihat listKlaimArtikel). */
+export interface KlaimArtikel {
+  id: string;
+  teks: string;
+  jenis: string;
+  status: string;
+}
+
+/** Satu evidence klaim (pf_evidence). arah 'menentang' = konflik
+ *  material yang belum terselesaikan. */
+export interface EvidenceArtikel {
+  id: string;
+  klaim_id: string;
+  sumber_url: string;
+  sumber_nama: string | null;
+  kutipan: string | null;
+  arah: string;
+}
+
 // ---------- Interface adapter ----------
 
 /** Adapter data lapisan admin. Semua method async, SATU param objek
@@ -483,6 +517,29 @@ export interface AdminAdapter {
   getVerifikasiTerakhir(input: {
     artikel_id: string;
   }): Promise<CatatanVerifikasi | null>;
+  /** Tautan sumber satu artikel (hard gate auto-publish G1/G3). */
+  listSumberArtikel(input: {
+    artikel_id: string;
+  }): Promise<SumberArtikel[]>;
+  /** Klaim artikel — dicari lewat artikel_id DAN raw_item_id
+   *  (klaim pipeline terikat item mentah, bukan artikel).
+   *  Digabung + didedup berdasarkan id. */
+  listKlaimArtikel(input: {
+    artikel_id: string;
+    raw_item_id?: string | null;
+  }): Promise<KlaimArtikel[]>;
+  /** Evidence untuk daftar klaim (hard gate G2/G4). */
+  listEvidenceArtikel(input: {
+    klaim_id: string[];
+  }): Promise<EvidenceArtikel[]>;
+  /** Tanggal terbit sumber artikel (waktu_terbit_asli pf_raw_items)
+   *  — dari item mentah catatan verifikasi + dari pencocokan URL
+   *  tautan sumber. Dipakai hard gate G4 (tanggal diketahui) dan
+   *  G5 (kebaruan). ISO string; kosong bila tak satu pun diketahui. */
+  listTanggalSumberArtikel(input: {
+    artikel_id: string;
+    raw_item_id?: string | null;
+  }): Promise<string[]>;
   simpanReview(input: ReviewInput): Promise<Review>;
   /** Hapus satu baris review (compensating T10: hapus-balik
    *  review yang baru disimpan bila auditnya gagal). */
