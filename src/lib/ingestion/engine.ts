@@ -58,7 +58,7 @@ import {
   JENDELA_DUPLIKAT_LUNAK_MS,
   tentukanStatusDuplikat,
 } from "./dedup.ts";
-import { cobaUlang, percobaanGalat, type OpsiCobaUlang } from "./retry.ts";
+import { cobaUlang, percobaanGalat, PESAN_REDIRECT_LOGIN, type OpsiCobaUlang } from "./retry.ts";
 import {
   alasanLewati,
   AMBANG_CIRCUIT_BREAKER,
@@ -585,6 +585,11 @@ async function prosesSatuSumber(
     const { nilai, percobaan } = await cobaUlang(ambilSekali, {
       percobaanMaks: 3,
       jedaAwalMs: 1000,
+      // v27: 429 dengan Retry-After besar (>10 dtk) tidak diulang
+      // tidur di dalam run (cobaUlang melempar cepat) — Retry-After
+      // diwujudkan sebagai cooldown antar-run (30 mnt–6 jam);
+      // tidur sampai 300 dtk × 2 berisiko mendorong route melewati
+      // batas waktu serverless dan menggagalkan semua sumber.
       ...(opsi.retry ?? {}),
     });
     items = nilai.items;
@@ -610,10 +615,20 @@ async function prosesSatuSumber(
     // - gagal beruntun >= 3 (kelas apa pun) -> cooldown 30 mnt
     //   (circuit breaker terbuka).
     // - invalid-feed 5x beruntun -> permanently-failed.
+    // - redirect-login 5x beruntun -> permanently-failed (v27:
+    //   feed yang dialihkan PERMANEN ke halaman masuk = paywall/
+    //   mati, bukan gangguan sementara).
     const { kelas, retryAfterDetik } = klasifikasiGalatFetch(err);
     const failureCountBaru = keadaan.failureCount + 1;
     let kelasAkhir: KelasGalat = kelas;
     if (kelas === "invalid-feed" && failureCountBaru >= AMBANG_PERMANEN) {
+      kelasAkhir = "permanently-failed";
+    }
+    if (
+      kelasAkhir === "unavailable" &&
+      pesanAkhir.includes(PESAN_REDIRECT_LOGIN) &&
+      failureCountBaru >= AMBANG_PERMANEN
+    ) {
       kelasAkhir = "permanently-failed";
     }
     let cooldownSampai: Date | null = null;
