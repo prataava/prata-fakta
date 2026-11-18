@@ -537,10 +537,10 @@ const OPSI_CEPAT = {
   const kelas = (nama) => hasil.perSumber.find((h) => h.sumber_nama === nama)?.kelas;
   cek("S3: 500 -> unavailable (sementara, bukan berat)", kelas("RSS 500") === "unavailable", `kelas=${kelas("RSS 500")}`);
   cek("S3: timeout -> unavailable", kelas("RSS Timeout") === "unavailable", `kelas=${kelas("RSS Timeout")}`);
-  cek("S3: XML invalid -> invalid-feed (berat)", kelas("RSS Invalid") === "invalid-feed", `kelas=${kelas("RSS Invalid")}`);
+  cek("S3: XML invalid -> invalid-feed (kelas tetap, v27: BUKAN berat)", kelas("RSS Invalid") === "invalid-feed", `kelas=${kelas("RSS Invalid")}`);
   cek("S3: feed kosong valid -> selesai (0 item, tanpa basi di DB baru)", kelas("RSS Kosong") === "selesai", `kelas=${kelas("RSS Kosong")}`);
   cek("S3: satu sumber gagal tidak mengganggu sumber sehat", kelas("RSS Sehat") === "selesai" && hasil.perSumber.find((h) => h.sumber_nama === "RSS Sehat")?.baru === 1, `baru sehat=${hasil.perSumber.find((h) => h.sumber_nama === "RSS Sehat")?.baru}`);
-  cek("S3: gagal_berat=1 (hanya invalid-feed)", hasil.total.gagal_berat === 1, `gagal_berat=${hasil.total.gagal_berat} gagal=${hasil.total.gagal}`);
+  cek("S3: gagal_berat=0 — invalid-feed pertama transient, tidak gagalkan run (v27)", hasil.total.gagal_berat === 0, `gagal_berat=${hasil.total.gagal_berat} gagal=${hasil.total.gagal}`);
   await db.close();
 }
 
@@ -799,7 +799,11 @@ const OPSI_CEPAT = {
   );
   cek("S9 cobaUlang: sukses sesudah 2 gagal", hasilRetry.nilai === "ok" && hasilRetry.percobaan === 3, `percobaan=${hasilRetry.percobaan}`);
   cek("S9 cobaUlang: jeda backoff dalam rentang jitter", jedaDilihat.length === 2 && jedaDilihat[0] >= 750 && jedaDilihat[0] <= 1500 && jedaDilihat[1] >= 1500 && jedaDilihat[1] <= 3000, `jeda=${JSON.stringify(jedaDilihat)}`);
-  // Retry-After 600 dtk -> jeda dijepit 300 dtk (bukan 600), + jitter.
+  // v27 (18 Nov 2026): Retry-After 600 dtk TIDAK LAGI tidur dijepit
+  // 300 dtk di dalam run — 429 dengan Retry-After > 10 dtk gagal
+  // cepat (1 percobaan, 0 tidur); penanganannya cooldown antar-run.
+  // Yang tetap dijepit 300 dtk adalah NILAI parseRetryAfter (dipakai
+  // cooldown), bukan tidur di dalam run.
   const jedaRetryAfter = [];
   let gagal429 = 0;
   try {
@@ -811,7 +815,8 @@ const OPSI_CEPAT = {
       { percobaanMaks: 2, tidur: async (ms) => { jedaRetryAfter.push(ms); } },
     );
   } catch { /* diharapkan gagal */ }
-  cek("S9 cobaUlang: Retry-After 600 dtk dijepit ke 300 dtk (+jitter)", gagal429 === 2 && jedaRetryAfter.length === 1 && jedaRetryAfter[0] >= 225000 && jedaRetryAfter[0] <= 450000, `jeda=${JSON.stringify(jedaRetryAfter)}`);
+  cek("S9 cobaUlang: Retry-After 600 dtk gagal cepat (1 percobaan, 0 tidur) — v27", gagal429 === 1 && jedaRetryAfter.length === 0, `percobaan=${gagal429} tidur=${JSON.stringify(jedaRetryAfter)}`);
+  cek("S9 cobaUlang: parseRetryAfter tetap menjepit 600 -> 300 dtk (untuk cooldown)", parseRetryAfter("600") === 300, `nilai=${parseRetryAfter("600")}`);
 }
 
 // ================= S10: kontrak respons untuk workflow =================

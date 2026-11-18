@@ -12,11 +12,11 @@
 // module.register() lewat jalankan-baterai.mjs adalah jalurnya.)
 //
 // YANG DIUJI:
-//   §A  Migrasi v1–v26 diterapkan BERURUTAN di PGlite (25 berkas,
-//       v20 memang tidak ada) + v22–v25 diulang (idempoten):
-//       68 tabel pf_*, RLS 68/68, CHECK v22 31 nilai (semua
+//   §A  Migrasi v1–v27 diterapkan BERURUTAN di PGlite (26 berkas,
+//       v20 memang tidak ada) + v22–v27 diulang (idempoten):
+//       69 tabel pf_*, RLS 69/69, CHECK v22 31 nilai (semua
 //       diterima incl. quality_check + analysis; nilai liar
-//       ditolak), kolom v23, tabel v24/v25/v19.
+//       ditolak), kolom v23, tabel v24/v25/v19, tabel v27.
 //   §B  Wiring pipeline.ts (live, mock adapter in-memory):
 //       2 item judul identik tier-1 -> VERIFIED + 2 draf;
 //       baris run 'quality_check' + 'analysis' HARFIAH tercatat;
@@ -31,17 +31,22 @@
 //       detail.langkah 'quality_check' dan agen
 //       'article_writing' + detail.langkah 'analysis'; draf
 //       tetap dibuat (fallback tidak menggagalkan item).
-//   §D  window.confirm — INVENTARIS BEKU (bukan 0 literal):
+//   §D  window.confirm — NOL di jalur admin (v27, 18 Nov 2026):
 //       TombolAksi.tsx SUDAH Radix di main (PR #7, merge
-//       d626cbb) — tanpa window.confirm — + 5 pemakaian
-//       window.confirm( yang DIKETAHUI (akademi 2,
-//       TabelPengguna 1, FormStrukturAkademi 2) — pemakaian
-//       BARU di luar inventaris = GAGAL.
-//       DialogKonfirmasi.tsx ada, dipakai 3 halaman admin, dan
-//       tidak memanggil window.confirm( sendiri.
+//       d626cbb) — tanpa window.confirm — dan 5 pemakaian
+//       terakhir yang DIKETAHUI (akademi 2, TabelPengguna 1,
+//       FormStrukturAkademi 2) dikonversi ke DialogKonfirmasi
+//       Radix. Pemakaian window.confirm( APAPUN di jalur admin
+//       = GAGAL. Komentar yang menyebut nama fungsi tanpa
+//       memanggilnya tidak dihitung (pola regex butuh "(").
+//       DialogKonfirmasi.tsx ada, dipakai 6 halaman/komponen
+//       admin, dan tidak memanggil window.confirm( sendiri.
 //   §E  Backup mencakup semua tabel migrasi: TABEL_PF di
 //       scripts/backup-pf.mjs SAMA PERSIS dengan CREATE TABLE
-//       di migrasi v1–v25 (68/68, tanpa selisih dua arah).
+//       di migrasi v1–v27 (69/69), KECUALI pf_push_deliveries
+//       (v27, BELUM di TABEL_PF sampai v27 diterapkan di
+//       produksi — tabel yang migrasinya belum diterapkan akan
+//       gagal 404 dan membuat backup exit 1).
 //   §F  Perbaikan temuan G/H: guard `if (!tujuan)` -> 400 di
 //       POST /api/admin/sistem/jobs/[nama]; klaster diteruskan
 //       route /api/ingestion/jalankan; angka CUTOVER §2.1 +
@@ -64,13 +69,11 @@
 //       punya fallback NEXT_PUBLIC_*.
 //
 // BATAS UJI YANG JUJUR:
-// - "0 window.confirm di jalur admin" TIDAK BISA ditegakkan
-//   literal: TombolAksi.tsx sudah Radix (PR #7, di main) dan
-//   5 pemakaian lain di aksi admin (akademi/TabelPengguna/
-//   FormStrukturAkademi) belum dikonversi. §D menegakkan
-//   "tidak ada window.confirm BARU" sebagai pengganti yang
-//   jujur; konversi sisa dicatat tindak lanjut, bukan
-//   disembunyikan.
+// - "0 window.confirm di jalur admin" DITEGAKKAN literal sejak
+//   v27 (18 Nov 2026): kelima pemakaian terakhir dikonversi ke
+//   DialogKonfirmasi Radix; §D gagal bila ada satu pun
+//   pemanggilan window.confirm( di berkas admin yang dipindai.
+//   Komentar yang menyebut nama fungsi tanpa "(" tidak dihitung.
 // - Auto-publish TIDAK dieksekusi di sini (tidak ada penerbitan
 //   nyata): mock artikel tidak ada di DB admin, jadi gate
 //   menolak. Uji penerbitan nyata milik verifikasi live.
@@ -110,7 +113,7 @@ function bacaMigrasi(nama) {
   return sql;
 }
 
-// ---------- §A: migrasi v1–v26 berurutan di PGlite ----------
+// ---------- §A: migrasi v1–v27 berurutan di PGlite ----------
 
 const DAFTAR_MIGRASI = fs
   .readdirSync(DIR_MIGRASI)
@@ -126,10 +129,10 @@ const VERSI_MIGRASI = DAFTAR_MIGRASI.map(
   (f) => Number(/_pf_v(\d+)_/.exec(f)?.[1] ?? 0),
 );
 cek(
-  "A0 urutan migrasi: 25 berkas v1–v26, v20 memang tidak ada",
-  DAFTAR_MIGRASI.length === 25 &&
+  "A0 urutan migrasi: 26 berkas v1–v27, v20 memang tidak ada",
+  DAFTAR_MIGRASI.length === 26 &&
     JSON.stringify(VERSI_MIGRASI) ===
-      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26]),
+      JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27]),
   `versi: ${VERSI_MIGRASI.join(",")}`,
 );
 
@@ -157,12 +160,12 @@ for (const nama of DAFTAR_MIGRASI) {
     break;
   }
 }
-cek("A1 migrasi v1–v26 diterapkan BERURUTAN tanpa error", migrasiOk, migrasiGagal);
+cek("A1 migrasi v1–v27 diterapkan BERURUTAN tanpa error", migrasiOk, migrasiGagal);
 
 let idempotenOk = true;
 let idempotenGagal = "";
 if (migrasiOk) {
-  for (const nama of DAFTAR_MIGRASI.filter((f) => /_pf_v2[2-5]_/.test(f))) {
+  for (const nama of DAFTAR_MIGRASI.filter((f) => /_pf_v2[2-7]_/.test(f))) {
     try {
       await db.exec(bacaMigrasi(nama));
     } catch (e) {
@@ -172,17 +175,17 @@ if (migrasiOk) {
     }
   }
 }
-cek("A2 migrasi v22–v25 idempoten (putaran ke-2 tanpa error)", idempotenOk, idempotenGagal);
+cek("A2 migrasi v22–v27 idempoten (putaran ke-2 tanpa error)", idempotenOk, idempotenGagal);
 
 if (migrasiOk) {
   const jmlTabel = await db.query(
     `select count(*) as n from pg_tables where schemaname = 'public' and tablename like 'pf_%'`,
   );
-  cek("A3 jumlah tabel pf_* = 68", Number(jmlTabel.rows[0].n) === 68, `${jmlTabel.rows[0].n} tabel`);
+  cek("A3 jumlah tabel pf_* = 69", Number(jmlTabel.rows[0].n) === 69, `${jmlTabel.rows[0].n} tabel`);
   const jmlRls = await db.query(
     `select count(*) as n from pg_tables where schemaname = 'public' and tablename like 'pf_%' and rowsecurity`,
   );
-  cek("A4 tabel ber-RLS = 68/68", Number(jmlRls.rows[0].n) === 68, `${jmlRls.rows[0].n}/68`);
+  cek("A4 tabel ber-RLS = 69/69", Number(jmlRls.rows[0].n) === 69, `${jmlRls.rows[0].n}/69`);
   const cekV22 = await db.query(
     `select pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.pf_ai_runs'::regclass and conname = 'pf_ai_runs_agen_check_v22'`,
   );
@@ -422,10 +425,11 @@ cek(
   !mockC1.runs.some((r) => r.agen === "quality_check" || r.agen === "analysis"),
 );
 
-// ---------- §D: window.confirm — inventaris beku ----------
-// Di main (pasca-PR #9), TombolAksi.tsx adalah versi Radix dari
-// PR #7 — tanpa window.confirm. D1 menegakkan itu (bukan lagi
-// "identik de2f062", yang hanya berlaku di branch PR #9).
+// ---------- §D: window.confirm — NOL di jalur admin ----------
+// v27 (18 Nov 2026): kelima pemakaian terakhir dikonversi ke
+// DialogKonfirmasi Radix — tidak ada lagi inventaris beku;
+// pemakaian window.confirm( APAPUN di berkas admin yang dipindai
+// = GAGAL.
 
 const tombolAksiTanpaConfirm =
   pemakaianConfirm("src/components/admin/TombolAksi.tsx").length === 0;
@@ -443,13 +447,6 @@ function pemakaianConfirm(relatif) {
   });
   return hasil;
 }
-const INVENTARIS_BEKU = new Set([
-  "src/app/admin/akademi/page.tsx:364",
-  "src/app/admin/akademi/page.tsx:389",
-  "src/components/admin/TabelPengguna.tsx:184",
-  "src/components/admin/FormStrukturAkademi.tsx:221",
-  "src/components/admin/FormStrukturAkademi.tsx:237",
-]);
 const semuaConfirm = [];
 for (const f of [
   "src/components/admin/TombolAksi.tsx",
@@ -465,16 +462,12 @@ for (const f of [
 ]) {
   semuaConfirm.push(...pemakaianConfirm(f));
 }
-const diLuarInventaris = semuaConfirm.filter((x) => !INVENTARIS_BEKU.has(x));
-const hilangDariInventaris = [...INVENTARIS_BEKU].filter((x) => !semuaConfirm.includes(x));
 cek(
-  "D2 window.confirm di jalur admin = inventaris beku (5 pemakaian, 0 baru)",
-  diLuarInventaris.length === 0 && hilangDariInventaris.length === 0,
-  diLuarInventaris.length > 0
-    ? `BARU: ${diLuarInventaris.join(", ")}`
-    : hilangDariInventaris.length > 0
-      ? `HILANG (mungkin sudah dikonversi — perbarui inventaris): ${hilangDariInventaris.join(", ")}`
-      : "5/5 cocok",
+  "D2 window.confirm di jalur admin = 0 pemakaian",
+  semuaConfirm.length === 0,
+  semuaConfirm.length > 0
+    ? `MASIH ADA: ${semuaConfirm.join(", ")}`
+    : "0/0 — kelima call site sudah DialogKonfirmasi",
 );
 cek(
   "D3 DialogKonfirmasi.tsx ada + tidak memanggil window.confirm(",
@@ -512,14 +505,22 @@ for (const nama of DAFTAR_MIGRASI) {
 }
 const hanyaMigrasi = [...daftarMigrasi].filter((t) => !daftarBackup.has(t));
 const hanyaBackup = [...daftarBackup].filter((t) => !daftarMigrasi.has(t));
+// v27: satu-satunya selisih yang diizinkan adalah pf_push_deliveries
+// (tabel baru v27, BELUM di TABEL_PF sampai v27 diterapkan di
+// produksi — bila ditambahkan sebelum itu, backup gagal 404).
+// Pengecualian ini HANYA untuk tabel itu; selisih lain = gagal.
 cek(
-  "E1 TABEL_PF backup = CREATE TABLE migrasi (68/68, tanpa selisih)",
-  daftarBackup.size === 68 && daftarMigrasi.size === 68 && hanyaMigrasi.length === 0 && hanyaBackup.length === 0,
+  "E1 TABEL_PF backup = CREATE TABLE migrasi (69 migrasi / 68 backup, selisih hanya pf_push_deliveries v27)",
+  daftarBackup.size === 68 &&
+    daftarMigrasi.size === 69 &&
+    hanyaBackup.length === 0 &&
+    hanyaMigrasi.length === 1 &&
+    hanyaMigrasi[0] === "pf_push_deliveries",
   hanyaMigrasi.length > 0
     ? `tidak di-backup: ${hanyaMigrasi.join(", ")}`
     : hanyaBackup.length > 0
       ? `di-backup tanpa migrasi: ${hanyaBackup.join(", ")}`
-      : "68/68",
+      : "69/68",
 );
 for (const tabel of [
   "pf_article_comparisons",
@@ -818,7 +819,7 @@ console.log("\n--- §I push notifications (v26) ---");
   cek(
     "I12 sw.js: handler push ber-ikon (/icons/icon-512.png) + cache offline utuh + notificationclick",
     sw.includes('icon: "/icons/icon-512.png"') &&
-      sw.includes("prata-fakta-v1") &&
+      sw.includes("prata-fakta-v2") &&
       sw.includes("notificationclick") &&
       !sw.includes('"/icon.png"'),
     "ikon /icon.png tidak ada — wajib /icons/icon-512.png",
@@ -867,6 +868,451 @@ console.log("\n--- §I push notifications (v26) ---");
   cek(
     "I18 NavAdmin menautkan /admin/notifikasi (grup Kendali)",
     navAdmin.includes('"/admin/notifikasi"'),
+  );
+}
+
+// ---------- §J: pipeline parsial tidak gagalkan run (v27) ----------
+// Run #31 (44197264506, 18 Nov 2026): SATU panggilan gagal (ok:false)
+// menghentikan SELURUH run padahal 4 dari 5 panggilan berhasil —
+// loop lama `exit 1` tepat sesudah panggilan gagal. Sejak v27,
+// panggilan gagal dicatat (PANGGILAN_GAGAL) + dilewati (continue);
+// run hanya gagal bila tidak satu pun item diproses atau ada item
+// gagal per-item (assert TOTAL_GAGAL, desain F5, dipertahankan).
+console.log("\n--- §J pipeline parsial (v27, run #31) ---");
+{
+  const yml = baca(".github/workflows/editorial-pipeline.yml");
+  cek(
+    "J1 workflow menghitung PANGGILAN_GAGAL (bukan exit 1 langsung)",
+    yml.includes("PANGGILAN_GAGAL=0") &&
+      yml.includes("PANGGILAN_GAGAL=$((PANGGILAN_GAGAL + 1))"),
+  );
+  cek(
+    "J2 panggilan curl gagal -> PERINGATAN + continue (loop lanjut)",
+    yml.includes("if ! curl --fail-with-body") &&
+      yml.includes("PERINGATAN: pipeline panggilan") &&
+      yml.includes("continue"),
+  );
+  cek(
+    "J3 panggilan ok != true -> dilewati + continue (bukan exit 1)",
+    yml.includes("if ! jq -e '.ok == true'") &&
+      !yml.includes("melaporkan ok != true\"; exit 1"),
+  );
+  cek(
+    "J4 assert TOTAL_GAGAL > 0 dipertahankan (F5: item gagal per-item tetap gagalkan run)",
+    yml.includes('if [ "$TOTAL_GAGAL" -gt 0 ]'),
+  );
+  cek(
+    "J5 run gagal bila tidak satu pun item diproses + ada panggilan gagal",
+    yml.includes('if [ "$TOTAL_DIPROSES" -eq 0 ] && [ "$PANGGILAN_GAGAL" -gt 0 ]'),
+  );
+  cek(
+    "J6 ringkasan run menampilkan panggilan_gagal",
+    yml.includes("panggilan_gagal=$PANGGILAN_GAGAL"),
+  );
+}
+
+// ---------- §K: Editorial Quality Center (v27) ----------
+// Checklist pra-terbit di /admin/kualitas: 10 draf terbaru dinilai
+// dari data DB (verifikasi + review + hard gates G1–G6). Halaman
+// TIDAK menerbitkan — hanya menilai; null = tidak dapat dinilai.
+console.log("\n--- §K Editorial Quality Center (v27) ---");
+{
+  const halamanKualitas = baca("src/app/admin/kualitas/page.tsx");
+  const dataAdmin = baca("src/lib/admin/data.ts");
+  cek(
+    "K1 /admin/kualitas memuat seksi Checklist Pra-Terbit (getChecklistPraTerbit)",
+    halamanKualitas.includes("getChecklistPraTerbit") &&
+      halamanKualitas.includes("Checklist Pra-Terbit") &&
+      halamanKualitas.includes("Hard gates G1–G6"),
+  );
+  cek(
+    "K2 checklist menampilkan 'tidak dapat dinilai' (bukan 'semua lolos') bila null",
+    halamanKualitas.includes("Checklist tidak dapat dinilai") &&
+      halamanKualitas.includes("tidak dapat dinilai"),
+  );
+  cek(
+    "K3 getChecklistPraTerbit ada di data.ts + memakai evaluasiHardGate + review terakhir",
+    dataAdmin.includes("getChecklistPraTerbit") &&
+      dataAdmin.includes("evaluasiHardGate") &&
+      dataAdmin.includes("getReviewTerakhir") &&
+      dataAdmin.includes("auto_publish_mungkin"),
+  );
+  cek(
+    "K4 checklist TIDAK memanggil terbitkanOtomatis/terbitkanArtikel (hanya menilai)",
+    !halamanKualitas.includes("terbitkanOtomatis") &&
+      !halamanKualitas.includes("terbitkanArtikel") &&
+      !dataAdmin
+        .split("getChecklistPraTerbit")[1]
+        .split("export async function")[0]
+        .includes("perbaruiArtikel"),
+  );
+}
+
+// ---------- §L: Article Version Control + migrasi v27 ----------
+// Tiap revisi menyimpan isi SEBELUM (isi_sebelum) + SESUDAH (isi);
+// simpanVersi mundur tanpa isi_sebelum bila kolom v27 belum ada
+// (42703) agar penerbitan tidak gagal di produksi pra-v27.
+// Tabel baru pf_push_deliveries (log push) ber-RLS + policy staf.
+console.log("\n--- §L Version Control + migrasi v27 ---");
+{
+  const sql27 = baca(
+    "supabase/migrations/20261118_pf_v27_koreksi_versi_push.sql",
+  );
+  cek(
+    "L1 v27: pf_article_versions.isi_sebelum + 3 kolom koreksi + tabel pf_push_deliveries (RLS + policy staf)",
+    sql27.includes("isi_sebelum text") &&
+      sql27.includes("diterapkan_pada timestamptz") &&
+      sql27.includes("versi_artikel integer") &&
+      sql27.includes("tanggapan_redaksi text") &&
+      sql27.includes("create table if not exists public.pf_push_deliveries") &&
+      sql27.includes("enable row level security") &&
+      sql27.includes('"pf_push_deliveries baca staf"'),
+  );
+  // L2: idempoten — setiap ALTER/CREATE/DROP di v27 memakai
+  // IF NOT EXISTS / IF EXISTS. Diuji pada teks yang dinormalisasi
+  // satu baris (pernyataan ALTER v27 merentang beberapa baris).
+  const sql27SatuBaris = sql27.replace(/\s+/g, " ");
+  cek(
+    "L2 v27 idempoten (semua pernyataan IF NOT EXISTS / IF EXISTS)",
+    !/alter table public\.pf_\w+\s+add column (?!if not exists)/.test(
+      sql27SatuBaris,
+    ) &&
+      !/create (table|index) (?!if not exists)/.test(sql27SatuBaris) &&
+      !/drop policy (?!if exists)/.test(sql27SatuBaris),
+  );
+  const adapter = baca("src/lib/admin/supabase-adapter.ts");
+  cek(
+    "L3 simpanVersi menulis isi_sebelum + mundur 42703 tanpa kolom itu",
+    adapter.includes("isi_sebelum: input.isi_sebelum ?? null") &&
+      adapter.includes("galatKolomBelumAda(error)"),
+  );
+  const editorial = baca("src/lib/admin/editorial.ts");
+  cek(
+    "L4 ubahArtikel + terbitkanArtikel meneruskan isi lama ke simpanVersiBaru",
+    editorial.includes("catatanVersi,\n    lama.isi,") &&
+      editorial.includes('"Terbit", artikel.isi'),
+  );
+  const detailArtikel = baca("src/app/admin/artikel/[id]/page.tsx");
+  cek(
+    "L5 detail artikel menampilkan status isi_sebelum per versi",
+    detailArtikel.includes("isi sebelum revisi tercatat") &&
+      detailArtikel.includes("isi sebelum belum tercatat (versi pra-v27)"),
+  );
+  cek(
+    "L6 v27 TIDAK menambah host login ke allowlist / tidak mengubah FACT SCORE",
+    !sql27.includes("idp.nature.com") &&
+      !baca("src/lib/fact-score.ts").includes("isi_sebelum"),
+  );
+}
+
+// ---------- §M: Public Correction Center (v27) ----------
+// Halaman publik /koreksi: daftar koreksi status 'diperbaiki'
+// (artikel, jenis, tanggal, versi, tanggapan redaksi). RLS v2
+// hanya mengizinkan staf + pelapor membaca tabel ini, jadi
+// getter memakai service client (pola getJumlahKoreksiTerbuka)
+// dan HANYA mengembalikan kolom aman — tanpa nama/email pelapor.
+// null = tidak dapat dimuat, bukan "belum ada koreksi".
+console.log("\n--- §M Public Correction Center (v27) ---");
+{
+  const halaman = baca("src/app/koreksi/page.tsx");
+  const libData = baca("src/lib/data.ts");
+  cek(
+    "M1 /koreksi ada: instant=false + connection() + EmptyState jujur (null vs kosong)",
+    halaman.includes("export const instant = false") &&
+      halaman.includes("await connection()") &&
+      halaman.includes("tidak dapat dimuat") &&
+      halaman.includes("Belum ada koreksi yang diterbitkan"),
+  );
+  cek(
+    "M2 getKoreksiDiterbitkan: hanya status diperbaiki + service client + fallback PGRST204 kolom v27",
+    libData.includes("getKoreksiDiterbitkan") &&
+      libData.includes('eq("status", "diperbaiki")') &&
+      libData.includes("cobaServiceClient()") &&
+      libData.includes("diterapkan_pada,versi_artikel,tanggapan_redaksi") &&
+      libData.includes('code === "PGRST204"'),
+  );
+  cek(
+    "M3 getter TIDAK mengembalikan data pelapor (tanpa pelapor_email/email/pelapor_id di select)",
+    !libData
+      .split("getKoreksiDiterbitkan")[1]
+      .split("export async function")[0]
+      .includes("pelapor"),
+  );
+  cek(
+    "M4 /kebijakan/koreksi menautkan ke /koreksi",
+    baca("src/app/kebijakan/koreksi/page.tsx").includes('href="/koreksi"'),
+  );
+}
+
+// ---------- §N: Breaking News Radar (v27) ----------
+// /admin/radar: 20 klaster terbaru dari pf_item_clusters dengan
+// label TURUNAN dari data (bukan klaim trending): 1 laporan =
+// "baru", ≥2 = "peristiwa sama", anggota >6j sesudah dibuat =
+// "pembaruan". "Bertentangan" TIDAK dinilai (butuh analisis
+// klaim) — halaman wajib mengatakannya, bukan mengarang label.
+console.log("\n--- §N Breaking News Radar (v27) ---");
+{
+  const radar = baca("src/app/admin/radar/page.tsx");
+  cek(
+    "N1 /admin/radar ada: instant=false + baca pf_item_clusters + anggota + raw items",
+    radar.includes("export const instant = false") &&
+      radar.includes('from("pf_item_clusters")') &&
+      radar.includes('from("pf_item_cluster_members")') &&
+      radar.includes('from("pf_raw_items")'),
+  );
+  cek(
+    "N2 label turunan: baru / peristiwa sama / pembaruan (>6j, BATAS_PEMBARUAN_MS)",
+    radar.includes("BATAS_PEMBARUAN_MS") &&
+      radar.includes('"baru"') &&
+      radar.includes('"peristiwa sama"') &&
+      radar.includes("pembaruan"),
+  );
+  cek(
+    "N3 halaman JELAS menyatakan bertentangan tidak dinilai + bukan trending",
+    radar.includes("Bertentangan") &&
+      radar.includes("TIDAK dinilai di radar") &&
+      radar.includes("bukan peringkat popularitas"),
+  );
+  cek(
+    "N4 Radar terdaftar di NavAdmin (grup Monitoring, sesudah Klaster)",
+    baca("src/components/admin/NavAdmin.tsx").includes(
+      '{ href: "/admin/radar", label: "Radar" }',
+    ),
+  );
+}
+
+// ---------- §O: Source Intelligence + Global Coverage Map (v27) ----------
+// /admin/sumber: +2 kolom kinerja editorial (artikel terbit +
+// koreksi diperbaiki per sumber). /admin/cakupan: item 7 hari
+// per sumber (count exact) + artikel terbit 30 hari per kategori.
+// TIDAK ADA persentase cakupan karangan; perincian negara/bahasa
+// TIDAK tersedia (pf_sources tanpa kolom itu) — halaman wajib
+// mengatakannya + menautkan /peta.
+console.log("\n--- §O Source Intelligence + Coverage Map (v27) ---");
+{
+  const dataAdmin = baca("src/lib/admin/data.ts");
+  cek(
+    "O1 getKinerjaSumber: artikel terbit via pf_article_sources + koreksi diperbaiki, null bila service key belum ada",
+    dataAdmin.includes("getKinerjaSumber") &&
+      dataAdmin.includes("pf_article_sources") &&
+      dataAdmin.includes("koreksi_diperbaiki") &&
+      dataAdmin.includes("cobaServiceClient()"),
+  );
+  const sumberPage = baca("src/app/admin/sumber/page.tsx");
+  cek(
+    "O2 /admin/sumber menampilkan kolom Artikel terbit + Koreksi diperbaiki + catatan multi-sumber",
+    sumberPage.includes("Artikel terbit") &&
+      sumberPage.includes("Koreksi diperbaiki") &&
+      sumberPage.includes("bukan menuduh satu sumber"),
+  );
+  const cakupan = baca("src/app/admin/cakupan/page.tsx");
+  cek(
+    "O3 /admin/cakupan: count exact item 7 hari per sumber + artikel 30 hari per kategori",
+    cakupan.includes("count") &&
+      cakupan.includes("BATAS_ITEM_HARI") &&
+      cakupan.includes("BATAS_ARTIKEL_HARI") &&
+      cakupan.includes("artikelPerKategori"),
+  );
+  cek(
+    "O4 /admin/cakupan JELAS menyatakan tanpa persentase karangan + tanpa perincian negara/bahasa + tautan /peta",
+    cakupan.includes("TIDAK ADA persentase") &&
+      cakupan.includes("tidak punya kolom negara/bahasa") &&
+      cakupan.includes('href="/peta"'),
+  );
+  cek(
+    "O5 Cakupan terdaftar di NavAdmin (grup Monitoring, sesudah Analitik)",
+    baca("src/components/admin/NavAdmin.tsx").includes(
+      '{ href: "/admin/cakupan", label: "Cakupan" }',
+    ),
+  );
+}
+
+// ---------- §P: Primary Document Library (v27) ----------
+// pf_documents (v10) + /riset (publik) + /admin/riset (CRUD)
+// SUDAH ADA — v27 hanya menambah "hak penggunaan"
+// (metadata.hak_penggunaan: form admin + kolom /riset) dan seed
+// awal 4 dokumen resmi terverifikasi (BELUM diterapkan —
+// butuh otorisasi pemilik). Tanpa dummy; UU Pers + KEJ SENGAJA
+// tidak di-seed (URL resmi belum terverifikasi — lihat seed).
+console.log("\n--- §P Primary Document Library (v27) ---");
+{
+  const form = baca("src/components/riset/FormDokumen.tsx");
+  cek(
+    "P1 FormDokumen punya field Hak penggunaan -> metadata.hak_penggunaan",
+    form.includes("Hak penggunaan") &&
+      form.includes('metadata["hak_penggunaan"]'),
+  );
+  const risetPage = baca("src/app/riset/page.tsx");
+  cek(
+    "P2 /riset menampilkan kolom Hak penggunaan dari metadata",
+    risetPage.includes("Hak penggunaan") &&
+      risetPage.includes('metadata["hak_penggunaan"]'),
+  );
+  const seed = baca("hidden_files/SEED-DOKUMEN-PRIMER-V27.sql");
+  cek(
+    "P3 seed: 4 dokumen resmi (peraturan.go.id + 3× bps.go.id), idempoten WHERE NOT EXISTS, status terbit",
+    (seed.match(/insert into public\.pf_documents/g) ?? []).length === 4 &&
+      seed.includes("peraturan.go.id") &&
+      (seed.match(/bps\.go\.id/g) ?? []).length >= 3 &&
+      seed.includes("where not exists") &&
+      seed.includes("'terbit'"),
+  );
+  cek(
+    "P4 seed JUJUR: menyatakan BELUM diterapkan + alasan UU Pers/KEJ tidak di-seed",
+    seed.includes("BELUM DITERAPKAN") &&
+      seed.includes("UU 40/1999") &&
+      seed.includes("Kode Etik Jurnalistik") &&
+      seed.includes("404"),
+  );
+}
+
+// ---------- §Q: Notification Intelligence (v27) ----------
+// Broadcast v27: hormati push_notifikasi, frequency cap 5/hari
+// per endpoint (dari pf_push_deliveries), retry 1× untuk
+// 429/5xx, setiap percobaan dicatat best-effort ke
+// pf_push_deliveries; /admin/notifikasi menampilkan riwayat.
+// "Jangan kirim ke yang tidak opt-in": langganan itu sendiri
+// adalah opt-in; tamu (user_id null) tidak punya preferensi.
+console.log("\n--- §Q Notification Intelligence (v27) ---");
+{
+  const pushLib = baca("src/lib/notifikasi/push.ts");
+  cek(
+    "Q1 push.ts: BATAS_KIRIM_PER_HARI=5 + catatPengirimanPush (best-effort, tidak melempar) + hitungKirim24Jam (null bila riwayat tak terbaca)",
+    pushLib.includes("BATAS_KIRIM_PER_HARI = 5") &&
+      pushLib.includes("catatPengirimanPush") &&
+      pushLib.includes("hitungKirim24Jam") &&
+      pushLib.includes("pf_push_deliveries"),
+  );
+  const routeKirim = baca("src/app/api/admin/notifikasi/kirim/route.ts");
+  cek(
+    "Q2 broadcast membaca user_id + preferensi push_notifikasi (pf_user_preferences) + dilewati_preferensi",
+    routeKirim.includes("user_id") &&
+      routeKirim.includes("pf_user_preferences") &&
+      routeKirim.includes("push_notifikasi") &&
+      routeKirim.includes("dilewati_preferensi"),
+  );
+  cek(
+    "Q3 broadcast: frequency cap (dilewati_cap) + retry 1× 429/5xx (jeda 1 detik) + catat setiap percobaan",
+    routeKirim.includes("dilewati_cap") &&
+      routeKirim.includes("BATAS_KIRIM_PER_HARI") &&
+      routeKirim.includes("setTimeout(r, 1000)") &&
+      routeKirim.includes("catatPengirimanPush(service, catatan)"),
+  );
+  cek(
+    "Q4 kirimPushKePengguna (jalur uji) ikut mencatat ke pf_push_deliveries",
+    pushLib.includes('judul: "Uji push"'),
+  );
+  const notifPage = baca("src/app/admin/notifikasi/page.tsx");
+  cek(
+    "Q5 /admin/notifikasi menampilkan riwayat 20 terakhir + EmptyState jujur bila tabel v27 belum ada",
+    notifPage.includes("Riwayat pengiriman") &&
+      notifPage.includes("pf_push_deliveries") &&
+      notifPage.includes("migrasi v27 belum diterapkan"),
+  );
+  cek(
+    "Q6 broadcast tetap HANYA super_admin + setVapidDetails malas (§I tidak dilemahkan)",
+    routeKirim.includes("autentikasiAdmin(req, ROLES.SUPER_ADMIN)") &&
+      routeKirim.indexOf("setVapidDetails(") >
+        routeKirim.indexOf("export async function POST"),
+  );
+}
+
+// ---------- §R: PWA cache limits + mode baca (v27, P3) ----------
+// sw.js v2: batas 100 entri runtime (FIFO, precache aman) +
+// TTL navigasi 7 hari (basi -> /offline). Mode baca default
+// disamakan ke "3menit" (F.2 #4, berbasis kode).
+console.log("\n--- §R PWA cache limits + mode baca (v27) ---");
+{
+  const sw = baca("public/sw.js");
+  cek(
+    "R1 sw.js v2: BATAS_ENTRI_RUNTIME=100 + TTL_NAVIGASI_MS 7 hari + pangkasCache + apakahBasi",
+    sw.includes('CACHE_VERSION = "prata-fakta-v2"') &&
+      sw.includes("BATAS_ENTRI_RUNTIME = 100") &&
+      sw.includes("TTL_NAVIGASI_MS = 7 * 24 * 60 * 60 * 1000") &&
+      sw.includes("pangkasCache") &&
+      sw.includes("apakahBasi"),
+  );
+  cek(
+    "R2 navigasi basi TIDAK disajikan dari cache (jatuh ke /offline)",
+    sw.includes("!apakahBasi(dariCache, TTL_NAVIGASI_MS)"),
+  );
+  cek(
+    "R3 precache TIDAK pernah dihapus pangkasCache",
+    sw.includes("!PRECACHE.includes("),
+  );
+  const pembaca = baca("src/components/artikel/PembacaArtikel.tsx");
+  cek(
+    "R4 mode baca default disamakan ke 3menit (bukan mendalam)",
+    pembaca.includes('preferensiAwal?.mode_baca ?? "3menit"') &&
+      !pembaca.includes('preferensiAwal?.mode_baca ?? "mendalam"'),
+  );
+  cek(
+    "R5 dokumen keputusan terbuka v27 ada (8 keputusan + Compare Perspectives + RLS)",
+    baca("hidden_files/KEPUTUSAN-TERBUKA-V27.md").includes(
+      "Compare Perspectives",
+    ) &&
+      baca("hidden_files/KEPUTUSAN-TERBUKA-V27.md").includes(
+        "RLS two-account verification",
+      ),
+  );
+}
+
+// ---------- §S: PRATA Command Center (v27) ----------
+// /admin/command-center: 8 panel (System Health, News Radar,
+// Editorial, Source Intelligence, Scheduler, Backup, Push,
+// Analytics) — SEMUANYA memakai ulang getter/panel yang ada
+// (ops, reliability, kualitas, notifikasi, radar); TIDAK ada
+// query/duplikasi logika baru. Tautan di NavAdmin grup Kendali.
+console.log("\n--- §S PRATA Command Center (v27) ---");
+{
+  const cc = baca("src/app/admin/command-center/page.tsx");
+  const panel = [
+    "System Health",
+    "News Radar",
+    "Editorial",
+    "Source Intelligence",
+    "Scheduler",
+    "Backup",
+    "Push",
+    "Analytics",
+  ];
+  cek(
+    "S1 Command Center punya 8 panel (judul seksi lengkap)",
+    panel.every((p) => cc.includes(p)),
+  );
+  cek(
+    "S2 memakai ulang getter yang ada (getRingkasanOps + getAlertAktif + getGalatTerbaru + getChecklistPraTerbit), tanpa SELECT baru ke pf_articles/pf_raw_items",
+    cc.includes("getRingkasanOps()") &&
+      cc.includes("getAlertAktif()") &&
+      cc.includes("getGalatTerbaru()") &&
+      cc.includes("getChecklistPraTerbit()") &&
+      !cc.includes('from("pf_articles")') &&
+      !cc.includes('from("pf_raw_items")'),
+  );
+  cek(
+    "S3 tiap panel menautkan ke halaman detailnya (reliability/radar/kualitas/sumber/ops/notifikasi/analitik/cakupan)",
+    [
+      "/admin/reliability",
+      "/admin/radar",
+      "/admin/kualitas",
+      "/admin/sumber",
+      "/admin/ops",
+      "/admin/notifikasi",
+      "/admin/analitik",
+      "/admin/cakupan",
+    ].every((h) => cc.includes(h)),
+  );
+  cek(
+    "S4 guard getAdminSession + instant=false + EmptyState jujur (— bukan 0)",
+    cc.includes("getAdminSession()") &&
+      cc.includes("export const instant = false") &&
+      cc.includes("Butuh login staf"),
+  );
+  cek(
+    "S5 Command Center terdaftar di NavAdmin (grup Kendali, sesudah Kendali)",
+    baca("src/components/admin/NavAdmin.tsx").includes(
+      '{ href: "/admin/command-center", label: "Command Center" }',
+    ),
   );
 }
 

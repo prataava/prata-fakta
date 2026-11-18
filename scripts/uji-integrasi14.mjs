@@ -1092,7 +1092,10 @@ const adminF = new AdapterF(dbF);
   // memakai autentikasiAdmin (tanpaGuard tetap kosong — itu yang
   // diperiksa; angka 49 hanya tripwire bila route baru masuk
   // tanpa diperiksa).
-  cek("F12 semua 49 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 49, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
+  // v27 (18 Nov 2026): 49 -> 50 — route ke-50 adalah
+  // notifikasi/kirim (PR #16, form broadcast admin), terverifikasi
+  // memakai autentikasiAdmin(ROLES.SUPER_ADMIN) di baris 74.
+  cek("F12 semua 50 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 50, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
   // Tiap handler mutasi (POST/PATCH/DELETE/PUT) wajib punya cek
   // peran (argumen ROLES di autentikasiAdmin) — kecuali
   // terbitkan-terjadwal (otentikasi ganda: secret ATAU sesi
