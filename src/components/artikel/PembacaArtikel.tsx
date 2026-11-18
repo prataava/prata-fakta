@@ -191,8 +191,16 @@ export default function PembacaArtikel({
   bookmarkAwal: boolean;
   preferensiAwal?: PreferensiBaca;
 }) {
+  // Default mode baca = "3menit" (v27, jawaban F.2 #4 berbasis
+  // kode): sama dengan DEFAULT_PREFERENSI_BACA.mode_baca
+  // (src/lib/preferensi-baca.ts) + fallback dariBarisPreferensiBaca.
+  // Sebelumnya "mendalam" — tamu melihat semua seksi lengkap di
+  // render pertama, lalu berpindah ke "3menit" begitu preferensi
+  // termuat; login tanpa baris preferensi langsung "3menit".
+  // Perilaku lama "disengaja sementara" (P3-2); disamakan kini
+  // karena tidak ada alasan produk yang membedakannya.
   const [mode, setMode] = useState<ModeBaca>(
-    preferensiAwal?.mode_baca ?? "mendalam",
+    preferensiAwal?.mode_baca ?? "3menit",
   );
   const [ukuran, setUkuran] = useState<UkuranFont>(
     preferensiAwal?.ukuran_font ?? "M",
