@@ -53,6 +53,7 @@ export type AksiAudit =
   | "review.tolak"
   | "review.kembalikan"
   | "verifikasi.ubah"
+  | "evidence.label"
   | "koreksi.terima"
   | "koreksi.tolak"
   | "koreksi.ditinjau"

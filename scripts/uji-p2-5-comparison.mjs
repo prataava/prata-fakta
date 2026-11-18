@@ -547,8 +547,10 @@ console.log("--- §E sikap bukti perbandingan dua artikel (v28) ---");
     komponen.includes("Sikap bukti di A") && komponen.includes("Sikap bukti di B"));
   cek("E14 komponen: sel sikap jujur 'belum dibaca' bila bukti tidak terbaca",
     komponen.includes("belum dibaca") && komponen.includes("function SelSikap"));
-  cek("E15 komponen: penjelasan jujur (pipeline hanya 'mendukung'; 'menentang' dari review manusia)",
-    komponen.includes("review manusia") && komponen.includes("hanya menulis bukti"));
+  cek("E15 komponen: penjelasan jujur v29 (arah deterministik; 'menentang' hanya label manual redaksi)",
+    komponen.includes("menulis arah secara") &&
+      komponen.includes("deterministik") &&
+      komponen.includes("hanya dari label manual redaksi"));
   const halaman = bacaFile("src/app/bandingkan/page.tsx");
   cek("E16 halaman /bandingkan menyebut sikap bukti di hero",
     halaman.includes("sikap bukti"));

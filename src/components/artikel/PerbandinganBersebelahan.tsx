@@ -150,12 +150,15 @@ export default function PerbandinganBersebelahan({
                 bukti&rdquo; dihitung mesin dari bukti
                 (pf_evidence.arah: mendukung/menentang/netral) di
                 balik tiap klaim — bukan label opini. Kejujuran yang
-                perlu diketahui: pipeline hanya menulis bukti
-                &ldquo;mendukung&rdquo;; &ldquo;menentang&rdquo; hanya
-                muncul dari review manusia. Jadi bila kedua sisi
-                tertulis &ldquo;mendukung&rdquo;, artinya belum ada
-                bukti yang menentang klaim itu — bukan berarti kedua
-                artikel sepakat.
+                perlu diketahui: pipeline menulis arah secara
+                deterministik — &ldquo;mendukung&rdquo; bila kalimat
+                pendukung verbatim ditemukan di sumber,
+                &ldquo;netral&rdquo; bila tidak ditemukan (sikap
+                verbatim tidak terkonfirmasi); &ldquo;menentang&rdquo;
+                hanya dari label manual redaksi. Jadi
+                &ldquo;mendukung&rdquo; di kedua sisi berarti kedua
+                sisi punya kalimat pendukung verbatim — bukan
+                berarti kedua artikel sepakat.
               </p>
               <div style={{ overflowX: "auto" }}>
                 <table className="tabel-data">

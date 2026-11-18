@@ -1095,7 +1095,11 @@ const adminF = new AdapterF(dbF);
   // v27 (18 Nov 2026): 49 -> 50 — route ke-50 adalah
   // notifikasi/kirim (PR #16, form broadcast admin), terverifikasi
   // memakai autentikasiAdmin(ROLES.SUPER_ADMIN) di baris 74.
-  cek("F12 semua 50 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 50, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
+  // v29 (18 Nov 2026): 50 -> 51 — route ke-51 adalah
+  // evidence/[id]/label (label sikap manual Compare
+  // Perspectives), terverifikasi memakai
+  // autentikasiAdmin(ROLES.EDITOR).
+  cek("F12 semua 51 route /api/admin/* memakai autentikasiAdmin", tanpaGuard.length === 0 && berkasAdmin.length === 51, `${berkasAdmin.length} route, tanpa guard: ${tanpaGuard.map((f) => f.replace(DIR_SRC, "")).join(", ") || "tidak ada"}`);
   // Tiap handler mutasi (POST/PATCH/DELETE/PUT) wajib punya cek
   // peran (argumen ROLES di autentikasiAdmin) — kecuali
   // terbitkan-terjadwal (otentikasi ganda: secret ATAU sesi

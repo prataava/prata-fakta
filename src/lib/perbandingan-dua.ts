@@ -48,11 +48,15 @@ export type KlaimBersama = {
 
 /** Ringkasan sikap bukti (pf_evidence.arah) untuk SATU klaim:
  *  hitungan mesin dari kolom arah — bukan label opini.
- *  CATATAN JUJUR (v28): pipeline hanya menulis arah
- *  'mendukung' (pipeline.ts); 'menentang' hanya muncul dari
- *  review manusia lewat chat (verification.ts). Jadi ringkasan
- *  yang isinya hanya 'mendukung' berarti "belum ada bukti yang
- *  menentang", BUKAN "kedua artikel sepakat". */
+ *  CATATAN JUJUR (v29, menggantikan v28): pipeline menulis
+ *  arah secara DETERMINISTIK (pipeline.ts) — 'mendukung' bila
+ *  kalimat pendukung verbatim ditemukan di sumber, 'netral'
+ *  bila tidak ditemukan (sikap verbatim tidak terkonfirmasi);
+ *  'menentang' HANYA dari label manual redaksi
+ *  (/admin/label-sikap) — tidak pernah otomatis. Jadi
+ *  'mendukung' di kedua sisi berarti kedua sisi punya kalimat
+ *  pendukung verbatim, dan 'netral' berarti sikapnya belum
+ *  terkonfirmasi — bukan "kedua artikel sepakat". */
 export type SikapBukti = {
   mendukung: number;
   menentang: number;
