@@ -94,6 +94,10 @@ jobs:
           TOTAL_DIPROSES=0
           TOTAL_DRAF=0
           TOTAL_GAGAL=0
+          # v29: item yang mencapai terminal 'DITOLAK' (gagal
+          # quality_check 3x berturut-turut) — subset dari gagal,
+          # ditampilkan terpisah agar terlihat di log run.
+          TOTAL_DITOLAK_QC=0
           PANGGILAN=0
           PANGGILAN_GAGAL=0
           while [ "$PANGGILAN" -lt 5 ] && [ "$TOTAL_DIPROSES" -lt "$TARGET" ]; do
@@ -135,16 +139,18 @@ jobs:
             DIPROSES="$(jq -r '.diproses // 0' "$RESP")"
             DRAF="$(jq -r '.draf // 0' "$RESP")"
             GAGAL="$(jq -r '.gagal // 0' "$RESP")"
+            DITOLAK_QC="$(jq -r '.ditolak_qc // 0' "$RESP")"
             TOTAL_DIPROSES=$((TOTAL_DIPROSES + DIPROSES))
             TOTAL_DRAF=$((TOTAL_DRAF + DRAF))
             TOTAL_GAGAL=$((TOTAL_GAGAL + GAGAL))
+            TOTAL_DITOLAK_QC=$((TOTAL_DITOLAK_QC + DITOLAK_QC))
             rm -f "$RESP"
             if [ "$DIPROSES" -eq 0 ]; then
               echo "Antrean kosong — berhenti sesudah $PANGGILAN panggilan."
               break
             fi
           done
-          echo "Total: diproses=$TOTAL_DIPROSES draf=$TOTAL_DRAF gagal=$TOTAL_GAGAL panggilan_gagal=$PANGGILAN_GAGAL (target=$TARGET, panggilan=$PANGGILAN)"
+          echo "Total: diproses=$TOTAL_DIPROSES draf=$TOTAL_DRAF gagal=$TOTAL_GAGAL ditolak_qc=$TOTAL_DITOLAK_QC panggilan_gagal=$PANGGILAN_GAGAL (target=$TARGET, panggilan=$PANGGILAN)"
           if [ "$TOTAL_GAGAL" -gt 0 ]; then
             echo "ASSERT GAGAL: pipeline melaporkan gagal > 0"
             exit 1
