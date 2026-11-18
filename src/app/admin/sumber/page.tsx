@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import EmptyState from "@/components/EmptyState";
 import FormSumber from "@/components/admin/FormSumber";
 import TombolAksi from "@/components/admin/TombolAksi";
-import { getSumberAdmin } from "@/lib/admin/data";
+import { getKinerjaSumber, getSumberAdmin } from "@/lib/admin/data";
 import { formatWaktu } from "@/lib/admin/format";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -64,6 +64,11 @@ export default async function AdminSumber() {
     }
   }
 
+  // Kinerja editorial per sumber (v27, Source Intelligence):
+  // artikel terbit + koreksi diperbaiki. Gagal dibaca -> kolom
+  // menampilkan "—" (fail-soft); daftar sumber tetap tampil.
+  const kinerja = await getKinerjaSumber();
+
   return (
     <>
       <section className="seksi" aria-labelledby="judul-sumber-baru">
@@ -105,12 +110,15 @@ export default async function AdminSumber() {
                   <th>Item baru terakhir</th>
                   <th>Cek terakhir</th>
                   <th>Item diambil</th>
+                  <th>Artikel terbit</th>
+                  <th>Koreksi diperbaiki*</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {sumber.map((s) => {
                   const k = kesehatan?.get(s.id) ?? null;
+                  const kj = kinerja?.get(s.id) ?? null;
                   return (
                   <tr key={s.id}>
                     <td>{s.nama}</td>
@@ -134,6 +142,8 @@ export default async function AdminSumber() {
                       {s.status_terakhir ? ` · ${s.status_terakhir}` : ""}
                     </td>
                     <td>{s.jumlah_item}</td>
+                    <td>{kj ? kj.artikel_terbit : "—"}</td>
+                    <td>{kj ? kj.koreksi_diperbaiki : "—"}</td>
                     <td>
                       <span className="admin-aksi">
                         <TombolAksi
@@ -164,6 +174,14 @@ export default async function AdminSumber() {
             </table>
           </div>
         )}
+        <p className="artikel-meta-kecil">
+          * &quot;Koreksi diperbaiki&quot; menghitung koreksi pada
+          artikel yang mencantumkan sumber ini — satu artikel bisa
+          punya beberapa sumber, dan koreksinya dihitung untuk
+          semua sumbernya (bukan menuduh satu sumber). &quot;—&quot;
+          berarti kinerja editorial belum dapat dihitung (service
+          key belum diatur), bukan nol.
+        </p>
       </section>
     </>
   );
