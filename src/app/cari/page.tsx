@@ -4,7 +4,11 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import SearchBar from "@/components/SearchBar";
 import EmptyState from "@/components/EmptyState";
+import RiwayatCariPanel from "@/components/RiwayatCariPanel";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import { Reveal } from "@/components/motion";
+import { KATEGORI_UTAMA } from "@/lib/categories";
+import gaya from "./cari.module.css";
 import {
   cariKonten,
   cariArtikel,
@@ -149,14 +153,14 @@ async function HasilCari({
       </p>
 
       {hasilArtikel.artikel.length > 0 && (
-        <>
+        <Reveal>
           <h2 className="kartu-kategori" style={{ marginBottom: 10 }}>Artikel</h2>
           <div className="grid-berita" style={{ marginBottom: 24 }}>
             {hasilArtikel.artikel.map((a) => (
               <KartuArtikel key={a.id} artikel={a} />
             ))}
           </div>
-        </>
+        </Reveal>
       )}
 
       {!hasilArtikel.tersedia && (
@@ -171,7 +175,7 @@ async function HasilCari({
       )}
 
       {hasilNegara.negara.length > 0 && (
-        <>
+        <Reveal>
           <h2 className="kartu-kategori" style={{ marginBottom: 10 }}>Negara</h2>
           <div className="grid-berita" style={{ marginBottom: 24 }}>
             {hasilNegara.negara.map((n) => (
@@ -184,7 +188,7 @@ async function HasilCari({
               </Link>
             ))}
           </div>
-        </>
+        </Reveal>
       )}
 
       {!hasilNegara.tersedia && (
@@ -198,7 +202,7 @@ async function HasilCari({
       )}
 
       {hasil.kategori.length > 0 && (
-        <>
+        <Reveal>
           <h2 className="kartu-kategori" style={{ marginBottom: 10 }}>Kategori</h2>
           <div className="grid-berita" style={{ marginBottom: 24 }}>
             {hasil.kategori.map((k) => (
@@ -208,11 +212,11 @@ async function HasilCari({
               </Link>
             ))}
           </div>
-        </>
+        </Reveal>
       )}
 
       {hasil.sumber.length > 0 && (
-        <>
+        <Reveal>
           <h2 className="kartu-kategori" style={{ marginBottom: 10 }}>Sumber</h2>
           <div className="grid-berita" style={{ marginBottom: 24 }}>
             {hasil.sumber.map((s) => (
@@ -229,7 +233,7 @@ async function HasilCari({
               </a>
             ))}
           </div>
-        </>
+        </Reveal>
       )}
 
       {kosong && (
@@ -398,10 +402,37 @@ export default async function Cari({
             <HasilCari filter={filter} bahasa={bahasa} />
           </Suspense>
         ) : (
-          <EmptyState
-            judul={t(bahasa, "cari.masukkanKataKunciJudul")}
-            pesan={t(bahasa, "cari.masukkanKataKunciPesan")}
-          />
+          // Empty state BERSARAN (Fase 4, ala Raycast): saran topik
+          // dari kategori nyata + pencarian terakhir perangkat +
+          // pintasan ke arsip/kategori — bukan kotak kosong.
+          <div className={gaya.panelSaran}>
+            <Reveal>
+              <h2 className={gaya.judulPanel}>Mulai dari topik</h2>
+              <p className={gaya.subPanel}>
+                Pilih kategori untuk mencari beritanya, atau ketik kata
+                kunci di kotak atas. Pencarian terakhir Anda tersimpan
+                di perangkat ini.
+              </p>
+            </Reveal>
+            <div className={gaya.chipWrap}>
+              {KATEGORI_UTAMA.map((k) => (
+                <Link
+                  key={k.slug}
+                  className="chip"
+                  href={`/cari?q=${encodeURIComponent(k.nama)}`}
+                >
+                  {k.nama}
+                </Link>
+              ))}
+            </div>
+            <RiwayatCariPanel />
+            <div className={gaya.pintasan}>
+              <Link href="/arsip">Jelajahi arsip →</Link>
+              <Link href="/kategori">Semua kategori →</Link>
+              <Link href="/graf">Graf Pengetahuan →</Link>
+              <Link href="/brief">Daily Brief →</Link>
+            </div>
+          </div>
         )}
       </section>
 

@@ -1,18 +1,23 @@
 import Link from "next/link";
 import { Activity, BarChart3, Scale, Sunrise } from "lucide-react";
-import SearchBar from "@/components/SearchBar";
 import EmptyState from "@/components/EmptyState";
 import TanggalHariIni from "@/components/TanggalHariIni";
 import NewsletterForm from "@/components/NewsletterForm";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import HeroUtama from "@/components/artikel/HeroUtama";
+import MarqueeSumber from "@/components/MarqueeSumber";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { KATEGORI_UTAMA } from "@/lib/categories";
+import { tierDariPrioritas } from "@/lib/ai/source-analysis";
 import {
   getArtikelTerbaru,
   getArtikelPerKategori,
   getArtikelPopuler,
   getBookmarkPengguna,
+  getSumber,
 } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
+import gaya from "./beranda.module.css";
 
 // Beranda PRATA FAKTA — V3 Fase 9 (17 Nov 2026).
 // Komposisi editorial: hero ringkas → berita (bila ada) → strip
@@ -57,7 +62,7 @@ const STRIP = [
 ];
 
 export default async function Beranda() {
-  const [terbaru, indonesia, dunia, populer, pengguna] = await Promise.all([
+  const [terbaru, indonesia, dunia, populer, pengguna, sumber] = await Promise.all([
     getArtikelTerbaru(6),
     getArtikelPerKategori("indonesia", 3),
     getArtikelPerKategori("dunia", 3),
@@ -71,7 +76,15 @@ export default async function Beranda() {
         return null;
       }
     })(),
+    getSumber(),
   ]);
+  // Marquee: nama sumber tier-1 NYATA dari data (prioritas >= 90),
+  // deduplikasi nama; kosong = marquee tidak tampil (jujur).
+  const sumberTier1 = [...new Set(
+    sumber
+      .filter((s) => tierDariPrioritas(s.prioritas) === 1)
+      .map((s) => s.nama),
+  )];
   const bookmark =
     pengguna != null ? await getBookmarkPengguna(pengguna.id, 3) : [];
   const adaArtikel = terbaru.length > 0;
@@ -80,7 +93,11 @@ export default async function Beranda() {
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="hero-judul">
+      {/* Hero foto-led (Fase 4): pernyataan merek ringkas +
+          berita utama dengan gambar besarnya + marquee sumber
+          tier-1. Kotak cari hero DIHAPUS (audit: 3 kotak cari
+          → 2 — tersisa SearchBar header + Command Palette). */}
+      <section className={`hero ${gaya.heroRingkas}`} aria-labelledby="hero-judul">
         <span className="hero-label">Berita · Fakta · Data</span>
         <h1 id="hero-judul">
           Pahami dunia. Berdasarkan <em>fakta</em>.
@@ -93,9 +110,6 @@ export default async function Beranda() {
         <p style={{ fontSize: "0.9rem" }}>
           <TanggalHariIni awalan="Hari ini: " />
         </p>
-        <div style={{ marginTop: 18, display: "block" }}>
-          <SearchBar />
-        </div>
         <div className="hero-cta">
           <Link className="tombol tombol-primer" href="/brief">
             Baca Daily Brief
@@ -104,6 +118,8 @@ export default async function Beranda() {
             Jelajahi Kategori
           </Link>
         </div>
+        {adaArtikel && utama && <HeroUtama artikel={utama} />}
+        <MarqueeSumber namaSumber={sumberTier1} />
       </section>
 
       {!adaArtikel ? (
@@ -138,119 +154,132 @@ export default async function Beranda() {
         </section>
       ) : (
         <>
-          <section className="seksi" aria-labelledby="seksi-utama">
-            <div className="seksi-kepala">
-              <h2 id="seksi-utama">Berita Utama</h2>
-              <Link href="/arsip">Lihat arsip</Link>
-            </div>
-            <div className="berita-fitur" style={{ marginBottom: 16 }}>
-              <KartuArtikel artikel={utama} fitur />
-            </div>
-            {terbaruLain.length > 0 && (
-              <div className="grid-berita">
+          {/* Berita Utama sudah tampil sebagai hero foto-led di
+              atas — seksi ini menampilkan berita terbaru lainnya. */}
+          {terbaruLain.length > 0 && (
+            <section className="seksi" aria-labelledby="seksi-terbaru">
+              <Reveal>
+                <div className="seksi-kepala">
+                  <h2 id="seksi-terbaru">Berita Terbaru</h2>
+                  <Link href="/arsip">Lihat arsip</Link>
+                </div>
+              </Reveal>
+              <Stagger className="grid-berita">
                 {terbaruLain.map((a) => (
-                  <KartuArtikel key={a.id} artikel={a} />
+                  <StaggerItem key={a.id} className={gaya.butir}>
+                    <KartuArtikel artikel={a} />
+                  </StaggerItem>
                 ))}
-              </div>
-            )}
-          </section>
-
-          <section className="seksi" aria-labelledby="seksi-terbaru">
-            <div className="seksi-kepala">
-              <h2 id="seksi-terbaru">Berita Terbaru</h2>
-              <Link href="/arsip">Lihat arsip</Link>
-            </div>
-            <div className="grid-berita">
-              {terbaru.map((a) => (
-                <KartuArtikel key={a.id} artikel={a} />
-              ))}
-            </div>
-          </section>
+              </Stagger>
+            </section>
+          )}
 
           {indonesia.length > 0 && (
             <section className="seksi" aria-labelledby="seksi-indonesia">
-              <div className="seksi-kepala">
-                <h2 id="seksi-indonesia">Indonesia</h2>
-                <Link href="/kategori/indonesia">Semua berita Indonesia</Link>
-              </div>
-              <div className="grid-berita">
+              <Reveal>
+                <div className="seksi-kepala">
+                  <h2 id="seksi-indonesia">Indonesia</h2>
+                  <Link href="/kategori/indonesia">Semua berita Indonesia</Link>
+                </div>
+              </Reveal>
+              <Stagger className="grid-berita">
                 {indonesia.map((a) => (
-                  <KartuArtikel key={a.id} artikel={a} />
+                  <StaggerItem key={a.id} className={gaya.butir}>
+                    <KartuArtikel artikel={a} />
+                  </StaggerItem>
                 ))}
-              </div>
+              </Stagger>
             </section>
           )}
 
           {dunia.length > 0 && (
             <section className="seksi" aria-labelledby="seksi-dunia">
-              <div className="seksi-kepala">
-                <h2 id="seksi-dunia">Dunia</h2>
-                <Link href="/kategori/dunia">Semua berita dunia</Link>
-              </div>
-              <div className="grid-berita">
+              <Reveal>
+                <div className="seksi-kepala">
+                  <h2 id="seksi-dunia">Dunia</h2>
+                  <Link href="/kategori/dunia">Semua berita dunia</Link>
+                </div>
+              </Reveal>
+              <Stagger className="grid-berita">
                 {dunia.map((a) => (
-                  <KartuArtikel key={a.id} artikel={a} />
+                  <StaggerItem key={a.id} className={gaya.butir}>
+                    <KartuArtikel artikel={a} />
+                  </StaggerItem>
                 ))}
-              </div>
+              </Stagger>
             </section>
           )}
         </>
       )}
 
       <section className="seksi" aria-labelledby="seksi-jelajah">
-        <div className="seksi-kepala">
-          <h2 id="seksi-jelajah">Jelajahi lebih jauh</h2>
-        </div>
-        <div className="grid-strip">
+        <Reveal>
+          <div className="seksi-kepala">
+            <h2 id="seksi-jelajah">Jelajahi lebih jauh</h2>
+          </div>
+        </Reveal>
+        <Stagger className="grid-strip">
           {STRIP.map(({ href, label, deskripsi, Ikon }) => (
-            <Link key={href} className="kartu" href={href}>
-              <span className="strip-ikon" aria-hidden="true">
-                <Ikon size={20} />
-              </span>
-              <span className="kartu-kategori">{label}</span>
-              <span className="kartu-teks">{deskripsi}</span>
-            </Link>
+            <StaggerItem key={href} className={gaya.butir}>
+              <Link className="kartu" href={href}>
+                <span className="strip-ikon" aria-hidden="true">
+                  <Ikon size={20} />
+                </span>
+                <span className="kartu-kategori">{label}</span>
+                <span className="kartu-teks">{deskripsi}</span>
+              </Link>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </section>
 
       <section className="seksi" aria-labelledby="seksi-kategori">
-        <div className="seksi-kepala">
-          <h2 id="seksi-kategori">Jelajahi Kategori</h2>
-          <Link href="/kategori">Semua kategori</Link>
-        </div>
-        <div className="grid-kategori">
+        <Reveal>
+          <div className="seksi-kepala">
+            <h2 id="seksi-kategori">Jelajahi Kategori</h2>
+            <Link href="/kategori">Semua kategori</Link>
+          </div>
+        </Reveal>
+        <Stagger className="grid-kategori">
           {KATEGORI_UTAMA.map((k) => (
-            <Link key={k.slug} className="kartu" href={`/kategori/${k.slug}`}>
-              <span className="kartu-kategori">{k.nama}</span>
-              <span className="kartu-judul">{k.deskripsi}</span>
-              <span className="kartu-meta">
-                {k.sub.slice(0, 4).map((s) => s.nama).join(" · ")}
-                {k.sub.length > 4 ? " · …" : ""}
-              </span>
-            </Link>
+            <StaggerItem key={k.slug} className={gaya.butir}>
+              <Link className="kartu" href={`/kategori/${k.slug}`}>
+                <span className="kartu-kategori">{k.nama}</span>
+                <span className="kartu-judul">{k.deskripsi}</span>
+                <span className="kartu-meta">
+                  {k.sub.slice(0, 4).map((s) => s.nama).join(" · ")}
+                  {k.sub.length > 4 ? " · …" : ""}
+                </span>
+              </Link>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </section>
 
       {populer.length > 0 && (
         <section className="seksi" aria-labelledby="seksi-populer">
-          <div className="seksi-kepala">
-            <h2 id="seksi-populer">Artikel Populer</h2>
-          </div>
-          <div className="grid-berita">
+          <Reveal>
+            <div className="seksi-kepala">
+              <h2 id="seksi-populer">Artikel Populer</h2>
+            </div>
+          </Reveal>
+          <Stagger className="grid-berita">
             {populer.map((a) => (
-              <KartuArtikel key={a.id} artikel={a} />
+              <StaggerItem key={a.id} className={gaya.butir}>
+                <KartuArtikel artikel={a} />
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         </section>
       )}
 
       {adaArtikel && (
         <section className="seksi" aria-labelledby="seksi-rekomendasi">
-          <div className="seksi-kepala">
-            <h2 id="seksi-rekomendasi">Rekomendasi Personal</h2>
-          </div>
+          <Reveal>
+            <div className="seksi-kepala">
+              <h2 id="seksi-rekomendasi">Rekomendasi Personal</h2>
+            </div>
+          </Reveal>
           {pengguna == null ? (
             <EmptyState
               varian="izin"
@@ -263,11 +292,13 @@ export default async function Beranda() {
               }
             />
           ) : bookmark.length > 0 ? (
-            <div className="grid-berita">
+            <Stagger className="grid-berita">
               {bookmark.map((a) => (
-                <KartuArtikel key={a.id} artikel={a} />
+                <StaggerItem key={a.id} className={gaya.butir}>
+                  <KartuArtikel artikel={a} />
+                </StaggerItem>
               ))}
-            </div>
+            </Stagger>
           ) : (
             <EmptyState
               judul="Belum ada bookmark"
@@ -283,9 +314,11 @@ export default async function Beranda() {
       )}
 
       <section className="seksi seksi-newsletter" aria-labelledby="seksi-newsletter">
-        <div className="seksi-kepala">
-          <h2 id="seksi-newsletter">Newsletter</h2>
-        </div>
+        <Reveal>
+          <div className="seksi-kepala">
+            <h2 id="seksi-newsletter">Newsletter</h2>
+          </div>
+        </Reveal>
         <div className="kartu">
           <span className="kartu-kategori">Ringkasan pagi · Gratis</span>
           <span className="kartu-judul">

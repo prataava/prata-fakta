@@ -3,9 +3,12 @@ import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import FormFlag from "@/components/admin/FormFlag";
 import TombolAksi from "@/components/admin/TombolAksi";
+import daftar from "@/components/admin/daftar-padat.module.css";
+import { MotionCard, Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { getAdminSession, getRingkasanAdmin } from "@/lib/admin/data";
 import { getFlags } from "@/lib/admin/kendali";
 import { formatWaktu } from "@/lib/admin/format";
+import styles from "./page.module.css";
 
 export const metadata: Metadata = {
   title: "Overview Admin",
@@ -49,7 +52,7 @@ export default async function AdminOverview() {
   ];
 
   return (
-    <>
+    <Reveal>
       {/* Fase 11 — Bulk publish 1-klik + toggle auto-publish Tier-1.
           Paling atas agar super_admin langsung melihat antrean
           terbit tanpa menggulir. Hitungan draf siap berasal dari
@@ -148,14 +151,18 @@ export default async function AdminOverview() {
       </section>
 
       <section className="seksi" aria-label="Angka utama">
-        <div className="admin-stat-grid">
+        <Stagger className="admin-stat-grid">
           {kartu.map((k) => (
-            <Link key={k.label} className="kartu admin-stat" href={k.href}>
-              <span className="admin-stat-angka">{k.angka}</span>
-              <span className="kartu-teks">{k.label}</span>
-            </Link>
+            <StaggerItem key={k.label}>
+              <MotionCard className={styles.kartuStat}>
+                <Link href={k.href}>
+                  <span className={styles.angka}>{k.angka}</span>
+                  <span className={styles.label}>{k.label}</span>
+                </Link>
+              </MotionCard>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </section>
 
       <section className="seksi" aria-labelledby="seksi-sumber">
@@ -326,15 +333,16 @@ export default async function AdminOverview() {
         {ringkasan.error_logs.length === 0 ? (
           <p>Tidak ada error tercatat dari run ingestion maupun pipeline AI.</p>
         ) : (
-          <ul className="artikel-daftar">
+          <ul className={daftar.daftar}>
             {ringkasan.error_logs.map((e, i) => (
-              <li key={i}>
-                {e.pesan} · {formatWaktu(e.waktu)}
+              <li key={i} className={daftar.baris}>
+                <span className={daftar.judul}>{e.pesan}</span>
+                <span className={daftar.meta}>{formatWaktu(e.waktu)}</span>
               </li>
             ))}
           </ul>
         )}
       </section>
-    </>
+    </Reveal>
   );
 }

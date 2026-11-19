@@ -38,6 +38,55 @@ import {
 } from "@/components/SaranPencarian";
 import { t, type KunciBahasa } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
+import gaya from "./CommandPalette.module.css";
+
+/** Alias cepat (Fase 4, ala Raycast): awalan kueri yang
+ *  mengarahkan pencarian — k: kategori, s: sumber, g: graf,
+ *  t: topik. Awalan dikupas sebelum saran dicari; navigasi
+ *  keyboard dan logika pencarian lainnya TIDAK berubah. */
+const AKSI_ALIAS: Record<
+  string,
+  { href: string; label: string; deskripsi: string; ikon: LucideIcon }
+> = {
+  k: {
+    href: "/kategori",
+    label: "Kategori",
+    deskripsi: "Buka semua kategori berita",
+    ikon: LayoutGrid,
+  },
+  s: {
+    href: "/sumber",
+    label: "Sumber",
+    deskripsi: "Buka daftar sumber berita",
+    ikon: Search,
+  },
+  g: {
+    href: "/graf",
+    label: "Graf Pengetahuan",
+    deskripsi: "Buka peta relasi klaim dan sumber",
+    ikon: Compass,
+  },
+  t: {
+    href: "/jelajahi",
+    label: "Jelajahi topik",
+    deskripsi: "Buka topik, negara, dan lainnya",
+    ikon: Compass,
+  },
+};
+
+const PETUNJUK_ALIAS: Record<string, string> = {
+  k: "Alias k: — mencari kategori",
+  s: "Alias s: — mencari sumber",
+  g: "Alias g: — mencari di graf pengetahuan",
+  t: "Alias t: — mencari topik",
+};
+
+/** Kupas awalan alias (k:/s:/g:/t:) dari kueri; null bila tidak ada. */
+function kupasAlias(teks: string): { alias: string | null; sisa: string } {
+  const cocok = /^([ksgt]):\s*(.*)$/i.exec(teks.trim());
+  if (!cocok) return { alias: null, sisa: teks };
+  return { alias: cocok[1].toLowerCase(), sisa: cocok[2] ?? "" };
+}
 
 /** Perintah cepat — SEMUA rute nyata yang sudah ada. Label dari
  *  kamus (P3-3); "Data Live" sama di kedua bahasa sehingga tetap
@@ -125,7 +174,10 @@ export default function CommandPalette() {
   const [aktif, setAktif] = useState(-1);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const barisRefs = useRef<(HTMLElement | null)[]>([]);
-  const { saran, memuat } = useSaranCari(terbuka ? query : "");
+  // Alias dikupas SEBELUM saran dicari agar "k:ekonomi" mencari
+  // "ekonomi" (bukan literal "k:ekonomi").
+  const { alias, sisa: queryCari } = kupasAlias(query);
+  const { saran, memuat } = useSaranCari(terbuka ? queryCari : "");
 
   // Cermin status buka untuk listener global (dipasang sekali).
   const terbukaRef = useRef(false);
@@ -176,14 +228,14 @@ export default function CommandPalette() {
 
   // Daftar baris datar (saran + aksi + riwayat) beserta judul seksi.
   const itemRender = useMemo<ItemRender[]>(() => {
-    const q = query.trim().toLowerCase();
+    const q = queryCari.trim().toLowerCase();
     const hasil: ItemRender[] = [];
     let indeks = 0;
     const dorong = (baris: BarisPalette) => {
       hasil.push({ jenis: "baris", baris, indeks });
       indeks += 1;
     };
-    if (q.length === 0) {
+    if (q.length === 0 && !alias) {
       hasil.push({ jenis: "judul", judul: t(bahasa, "palette.aksiCepat"), kunci: "j-aksi" });
       for (const aksi of AKSI_CEPAT) {
         dorong({
@@ -206,6 +258,19 @@ export default function CommandPalette() {
         }
       }
     } else {
+      // Alias aktif: baris pintasan ke halaman tujuannya dulu.
+      if (alias && AKSI_ALIAS[alias]) {
+        const a = AKSI_ALIAS[alias];
+        hasil.push({ jenis: "judul", judul: "Pintasan", kunci: "j-alias" });
+        dorong({
+          macam: "aksi",
+          kunci: `alias:${alias}`,
+          href: a.href,
+          label: a.label,
+          deskripsi: a.deskripsi,
+          ikon: a.ikon,
+        });
+      }
       if (saran.length > 0) {
         hasil.push({ jenis: "judul", judul: t(bahasa, "palette.saran"), kunci: "j-saran" });
         for (const item of saran) {
@@ -242,7 +307,7 @@ export default function CommandPalette() {
       }
     }
     return hasil;
-  }, [query, saran, riwayat, bahasa]);
+  }, [queryCari, alias, saran, riwayat, bahasa]);
 
   const jumlahBaris = useMemo(
     () =>
@@ -268,9 +333,10 @@ export default function CommandPalette() {
     setTerbuka(false);
   }
 
-  /** Cari teks bebas: simpan riwayat, tutup, ke /cari. */
+  /** Cari teks bebas: kupas alias dulu, simpan riwayat, tutup,
+   *  ke /cari. */
   function cariTeks(teks: string) {
-    const q = teks.trim();
+    const q = kupasAlias(teks).sisa.trim();
     if (q.length === 0) return;
     setRiwayat(simpanRiwayatCari(q));
     tutup();
@@ -437,7 +503,7 @@ export default function CommandPalette() {
       <Dialog.Portal>
         <Dialog.Overlay className="palette-lapisan" />
         <Dialog.Content
-          className="palette-konten"
+          className={`palette-konten ${gaya.kontenKaca}`}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             inputRef.current?.focus();
@@ -485,6 +551,12 @@ export default function CommandPalette() {
             </Dialog.Close>
           </div>
 
+          {alias ? (
+            <div className={gaya.alias} role="status">
+              {PETUNJUK_ALIAS[alias] ?? `Alias ${alias}:`}
+            </div>
+          ) : null}
+
           <div
             id="palette-daftar"
             role="listbox"
@@ -519,8 +591,32 @@ export default function CommandPalette() {
               </div>
             ) : null}
             {!qKosong && jumlahBaris === 0 && !memuat ? (
-              <div className="palette-kosong">
-                {t(bahasa, "palette.tidakAdaHasil", { q: query.trim() })}
+              <div className={`palette-kosong ${gaya.kosongBersaran}`}>
+                <p>
+                  {t(bahasa, "palette.tidakAdaHasil", {
+                    q: queryCari.trim(),
+                  })}
+                </p>
+                <p className={gaya.kosongSub}>
+                  Coba kata kunci lain, atau mulai dari salah satu ini:
+                </p>
+                <div className={gaya.kosongAksi}>
+                  <Link href="/kategori" onClick={tutup}>
+                    Kategori
+                  </Link>
+                  <Link href="/arsip" onClick={tutup}>
+                    Arsip
+                  </Link>
+                  <Link href="/brief" onClick={tutup}>
+                    Daily Brief
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => cariTeks(queryCari)}
+                  >
+                    Cari di arsip
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>

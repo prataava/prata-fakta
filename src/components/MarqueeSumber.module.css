@@ -1,0 +1,84 @@
+/* MarqueeSumber — marquee sumber tier-1 (Fase 4).
+ * Hanya var(--token); gerak hanya transform translateX. */
+
+.marquee {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+  margin-top: 20px;
+  overflow: hidden;
+}
+
+.label {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  /* Tepi memudar agar marquee terasa berlanjut (mask, bukan
+   * warna hardcode — transparan ke warna permukaan). */
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 8%,
+    black 92%,
+    transparent
+  );
+}
+
+.jalur {
+  display: flex;
+  width: max-content;
+  animation: marqueeSumberJalan 42s linear infinite;
+}
+
+.marquee:hover .jalur {
+  animation-play-state: paused;
+}
+
+.trek {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.butir {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.butir::after {
+  content: "•";
+  margin: 0 14px;
+  color: var(--muted);
+}
+
+@keyframes marqueeSumberJalan {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jalur {
+    animation: none;
+    flex-wrap: wrap;
+    width: auto;
+  }
+}

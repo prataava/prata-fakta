@@ -1,0 +1,37 @@
+/* PRATA FAKTA — Dashboard admin (Fase 4 redesign).
+ * Hanya dipakai src/app/admin/page.tsx. Kartu metrik memakai
+ * grid global .admin-stat-grid; modul ini hanya merapikan isi
+ * kartu + daftar error padat. Semua warna var(--token). */
+
+.kartuStat {
+  display: block;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.kartuStat > a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  padding: 14px 16px;
+  text-decoration: none;
+}
+
+.kartuStat .angka {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.kartuStat .label {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}

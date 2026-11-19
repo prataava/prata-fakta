@@ -13,6 +13,7 @@ import KartuArtikel from "@/components/artikel/KartuArtikel";
 // (Fase 7) agar tidak membebani First Load halaman artikel.
 import dynamic from "next/dynamic";
 import gaya from "./PembacaArtikel.module.css";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import {
   bacaPreferensiBacaTamu,
   kirimPreferensiBaca,
@@ -443,7 +444,16 @@ export default function PembacaArtikel({
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div style={{ width: `${progress}%` }} />
+        {/* Hanya transform (scaleX) — bukan width — agar tidak
+            memicu layout ulang tiap gulir. */}
+        <div
+          style={{
+            width: "100%",
+            transform: `scaleX(${progress / 100})`,
+            transformOrigin: "left",
+            transition: "transform 0.15s ease-out",
+          }}
+        />
       </div>
 
       <div className="artikel-alat" aria-label="Alat baca">
@@ -756,15 +766,19 @@ export default function PembacaArtikel({
 
       {terkait.length > 0 && (
         <section className="seksi" aria-labelledby="seksi-terkait">
-          <div className="seksi-kepala">
-            <h2 id="seksi-terkait">Berita Terkait</h2>
-            <Link href="/arsip">Lihat arsip</Link>
-          </div>
-          <div className="grid-berita">
+          <Reveal>
+            <div className="seksi-kepala">
+              <h2 id="seksi-terkait">Berita Terkait</h2>
+              <Link href="/arsip">Lihat arsip</Link>
+            </div>
+          </Reveal>
+          <Stagger className="grid-berita">
             {terkait.map((a) => (
-              <KartuArtikel key={a.id} artikel={a} />
+              <StaggerItem key={a.id} className={gaya.butir}>
+                <KartuArtikel artikel={a} />
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         </section>
       )}
 

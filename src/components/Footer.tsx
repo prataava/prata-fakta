@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import TahunIni from "@/components/TahunIni";
 import { getBahasa, t, type Bahasa } from "@/lib/i18n";
+import gaya from "./Footer.module.css";
 
 // Footer (P3-3): label seksi + "Tentang" + tautan generik dari
 // kamus; nama kategori, nama dokumen kebijakan, dan "Daily Brief"
@@ -16,7 +17,7 @@ import { getBahasa, t, type Bahasa } from "@/lib/i18n";
 // Suspense (akan memaksa semua halaman dinamis).
 function FooterIsi({ bahasa }: { bahasa: Bahasa }) {
   return (
-    <footer className="footer">
+    <footer className={`footer ${gaya.kaki}`}>
       <div className="wadah">
         <div className="footer-dalam">
           <div>

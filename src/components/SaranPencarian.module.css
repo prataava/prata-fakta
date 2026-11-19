@@ -1,0 +1,9 @@
+/* SaranPencarian — poles visual dropdown (Fase 4).
+ * Dropdown adalah overlay: memakai kaca nyata (token Fase 3)
+ * agar menonjol dari konten di bawahnya. Hanya var(--token). */
+
+.daftar {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+}

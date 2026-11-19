@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import GlosariumInteraktif from "./GlosariumInteraktif";
+import { Reveal } from "@/components/motion";
 import { getGlosarium } from "@/lib/glosarium";
 
 export const metadata: Metadata = {
@@ -21,19 +22,23 @@ export default async function Glosarium() {
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-glosarium">
-        <span className="hero-label">Glosarium</span>
-        <h1 id="judul-glosarium">Glosarium PRATA</h1>
-        <p>
-          Istilah sulit dari dunia hukum, pemerintahan, ekonomi, dan
-          sosial-budaya — dijelaskan dengan definisi orisinal PRATA —
-          ditambah istilah kunci dari artikel pengetahuan. Tautan KBBI
-          hanya mengarah ke entri resmi KBBI; isinya tidak disalin ke
-          sini.
-        </p>
-      </section>
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-glosarium">
+          <span className="hero-label">Glosarium</span>
+          <h1 id="judul-glosarium">Glosarium PRATA</h1>
+          <p>
+            Istilah sulit dari dunia hukum, pemerintahan, ekonomi, dan
+            sosial-budaya — dijelaskan dengan definisi orisinal PRATA —
+            ditambah istilah kunci dari artikel pengetahuan. Tautan KBBI
+            hanya mengarah ke entri resmi KBBI; isinya tidak disalin ke
+            sini.
+          </p>
+        </section>
+      </Reveal>
 
-      <GlosariumInteraktif entri={entri} />
+      <Reveal>
+        <GlosariumInteraktif entri={entri} />
+      </Reveal>
     </div>
   );
 }

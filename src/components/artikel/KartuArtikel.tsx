@@ -2,6 +2,7 @@ import type { PfArtikelRingkas } from "@/lib/data";
 import { formatTanggal } from "@/lib/format";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import Kartu from "@/components/Kartu";
+import GambarArtikel from "@/components/artikel/GambarArtikel";
 
 // Kartu artikel — server-safe, dipakai beranda / arsip / kategori / cari.
 // Seluruh kartu adalah tautan ke /artikel/[slug]. Bila artikel punya
@@ -26,14 +27,12 @@ export default function KartuArtikel({
       gambar={
         artikel.gambar_url ? (
           // next/image tidak dipakai: gambar_url berasal dari host
-          // eksternal (CDN sumber berita) — <img> biasa, lazy.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            className="kartu-gambar"
+          // eksternal (CDN sumber berita) — GambarArtikel memakai
+          // <img> biasa (lazy) + skeleton sampai termuat.
+          <GambarArtikel
             src={artikel.gambar_url}
             alt={`Ilustrasi: ${artikel.judul}`}
-            loading="lazy"
-            decoding="async"
+            fitur={fitur}
           />
         ) : (
           <div className="placeholder-gambar" aria-hidden="true">

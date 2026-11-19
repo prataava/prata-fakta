@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import EmptyState from "@/components/EmptyState";
+import daftar from "@/components/admin/daftar-padat.module.css";
+import { Reveal } from "@/components/motion";
 import { createClient } from "@/lib/supabase/server";
 import { formatWaktu } from "@/lib/admin/format";
 
@@ -127,7 +129,7 @@ export default async function AdminMonitoring() {
   }
 
   return (
-    <>
+    <Reveal>
       <section className="seksi" aria-labelledby="judul-antrean">
         <div className="seksi-kepala">
           <h2 id="judul-antrean">Antrean Item Mentah</h2>
@@ -154,46 +156,37 @@ export default async function AdminMonitoring() {
             Belum ada run ingestion tercatat.
           </p>
         ) : (
-          <div className="tabel-gulir">
-            <table className="tabel-data">
-              <thead>
-                <tr>
-                  <th>Sumber</th>
-                  <th>Status</th>
-                  <th>Ditemukan</th>
-                  <th>Baru</th>
-                  <th>Duplikat</th>
-                  <th>Ditolak</th>
-                  <th>Gagal</th>
-                  <th>Dimulai</th>
-                  <th>Dipicu oleh</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.sumber_nama ?? "—"}</td>
-                    <td>{r.status}</td>
-                    <td>{r.ditemukan}</td>
-                    <td>{r.baru}</td>
-                    <td>{r.duplikat}</td>
-                    <td>{r.ditolak}</td>
-                    <td>{r.gagal}</td>
-                    <td>{formatWaktu(r.dimulai_pada)}</td>
-                    <td>{r.dipicu_oleh}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className={daftar.daftar}>
+            {runs.map((r) => (
+              <li key={r.id} className={daftar.baris}>
+                <span className={daftar.judul}>
+                  {r.sumber_nama ?? "—"}
+                </span>
+                <span className={daftar.meta}>{r.status}</span>
+                <span className={daftar.meta}>
+                  {r.baru} baru / {r.ditemukan} ditemukan
+                </span>
+                <span className={daftar.meta}>
+                  {r.duplikat} duplikat · {r.ditolak} ditolak · {r.gagal}{" "}
+                  gagal
+                </span>
+                <span className={daftar.meta}>
+                  {formatWaktu(r.dimulai_pada)}
+                </span>
+                <span className={daftar.meta}>{r.dipicu_oleh}</span>
+              </li>
+            ))}
+          </ul>
         )}
         {runs.some((r) => r.error) && (
-          <ul className="artikel-daftar">
+          <ul className={daftar.daftar}>
             {runs
               .filter((r) => r.error)
               .map((r) => (
-                <li key={r.id}>
-                  {r.sumber_nama ?? "Sumber tak dikenal"}: {r.error}
+                <li key={r.id} className={daftar.baris}>
+                  <span className={daftar.judul}>
+                    {r.sumber_nama ?? "Sumber tak dikenal"}: {r.error}
+                  </span>
                 </li>
               ))}
           </ul>
@@ -215,30 +208,19 @@ export default async function AdminMonitoring() {
             Belum ada galat aplikasi tercatat di database.
           </p>
         ) : (
-          <div className="tabel-gulir">
-            <table className="tabel-data">
-              <thead>
-                <tr>
-                  <th>Waktu</th>
-                  <th>Sumber</th>
-                  <th>Pesan</th>
-                  <th>Kode</th>
-                  <th>Rute</th>
-                </tr>
-              </thead>
-              <tbody>
-                {galat.map((g) => (
-                  <tr key={g.id}>
-                    <td>{formatWaktu(g.dibuat_pada)}</td>
-                    <td>{g.sumber}</td>
-                    <td>{g.pesan}</td>
-                    <td>{g.kode ?? "—"}</td>
-                    <td>{g.rute ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className={daftar.daftar}>
+            {galat.map((g) => (
+              <li key={g.id} className={daftar.baris}>
+                <span className={daftar.meta}>
+                  {formatWaktu(g.dibuat_pada)}
+                </span>
+                <span className={daftar.meta}>{g.sumber}</span>
+                <span className={daftar.judul}>{g.pesan}</span>
+                <span className={daftar.meta}>{g.kode ?? "—"}</span>
+                <span className={daftar.meta}>{g.rute ?? "—"}</span>
+              </li>
+            ))}
+          </ul>
         )}
         <p className="artikel-meta-kecil">
           20 galat terbaru. Baris lebih tua dari 90 hari dihapus
@@ -246,6 +228,6 @@ export default async function AdminMonitoring() {
           pengguna.
         </p>
       </section>
-    </>
+    </Reveal>
   );
 }

@@ -1,0 +1,82 @@
+/* GrafPengetahuan — mode jelajah Fase 4.
+ * Hanya var(--token); <button> warna/font eksplisit; gerak hanya
+ * transform/opacity. */
+
+/* Pil filter kategori KOSONG (jumlah 0): redup + nonaktif secara
+ * jujur — dibedakan dari pil berisi, bukan gaya yang sama. */
+.pilKosong {
+  opacity: 0.45;
+  color: var(--muted);
+  cursor: not-allowed;
+  background: var(--surface-2);
+}
+
+.pilKosong:hover {
+  border-color: var(--border);
+}
+
+/* Toolbar jelajah: zoom + tur terpandu. */
+.alatJelajah {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.alat {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.alat:hover {
+  border-color: var(--accent);
+}
+
+.alat:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.alatPrimer {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Viewport jelajah: kamera (pan/zoom) hidup di dalam; gulir
+ * vertikal halaman tetap jalan di sentuh (pan-y). */
+.viewport {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  touch-action: pan-y;
+  cursor: grab;
+  outline-offset: 2px;
+}
+
+.viewport:active {
+  cursor: grabbing;
+}
+
+.viewport:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.kamera {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.petunjuk {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}

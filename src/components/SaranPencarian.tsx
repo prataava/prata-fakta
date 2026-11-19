@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import gaya from "./SaranPencarian.module.css";
 
 export type SaranCari = {
   teks: string;
@@ -300,7 +301,7 @@ export default function SaranPencarian({
       id={idDaftar}
       role="listbox"
       aria-label="Saran pencarian"
-      className="saran-daftar"
+      className={`saran-daftar ${gaya.daftar}`}
     >
       {saran.map((item, i) => {
         const eksternal =

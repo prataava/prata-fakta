@@ -1,0 +1,358 @@
+/* ============================================================
+   PRATA FAKTA — Token gerak + kaca nyata (Fase 3 redesign,
+   19 Nov 2026 — REDESIGN_DECISION §4).
+   Berkas ini diimpor dari src/app/layout.tsx SETELAH globals.css,
+   jadi token di sini menimpa/melengkapi token globals.css bila
+   namanya sama (kaskade: impor belakangan menang pada
+   spesifisitas setara).
+
+   ATURAN:
+   - Kaca NYATA hanya untuk: BottomNav, header, Command Palette,
+     popover/overlay dashboard. JANGAN glass semua kartu —
+     .kaca/.kaca-kartu di globals.css TETAP solid.
+   - Animasi hanya transform/opacity; durasi dari token di bawah.
+   - Reduced motion: MotionConfig reducedMotion="user" (lihat
+     src/components/motion/MotionProvider.tsx) mematikan gerak
+     Motion; blok @media di bawah mematikan gerak CSS.
+   - Perangkat lemah / tanpa backdrop-filter / pengguna yang
+     meminta transparansi dikurangi: fallback SOLID (lihat bawah).
+   ============================================================ */
+
+:root {
+  /* ---- Token gerak (REDESIGN_DECISION §4) ---- */
+  --motion-cepat: 120ms;
+  --motion-dasar: 180ms;
+  --motion-halaman: 200ms;
+  --motion-penekanan: 320ms;
+  --motion-stagger: 50ms;
+  --ease-standar: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-masuk: ease-out;
+  --ease-keluar: ease-in;
+
+  /* ---- Token kaca nyata ----
+   * --glass-bg / --glass-border didefinisikan di globals.css
+   * (nilai translusen Fase 3); di sini hanya pelengkapnya.
+   * --glass-bg-padat = fallback solid bila blur tidak didukung
+   * atau transparansi diminta dikurangi. */
+  --glass-blur: blur(18px) saturate(1.4);
+  --glass-blur-dock: blur(25px) saturate(1.55);
+  --glass-bg-padat: #ffffff;
+  /* Tepi highlight terang — dipakai permukaan kaca GELAP
+   * (dock) di kedua tema; permukaan kaca terang memakai
+   * --glass-border dari globals.css. */
+  --glass-border-highlight: rgba(225, 235, 255, 0.2);
+}
+
+[data-theme="dark"] {
+  --glass-bg-padat: #171b1e;
+  --glass-border-highlight: rgba(255, 255, 255, 0.22);
+}
+
+/* ---------- Permukaan kaca (selektif!) ----------
+ * Pakai hanya untuk BottomNav, header, Command Palette,
+ * popover/overlay. Kartu artikel dkk. tetap .kaca (solid). */
+.permukaan-kaca {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+}
+
+/* ---------- Skeleton gerak (shimmer, tanpa layout shift) ----------
+ * Ukuran TETAP via props/lebar-tinggi inline di komponen —
+ * shimmer hanya menggerakkan ::after, tidak mengubah layout. */
+.skeleton-gerak {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+
+.skeleton-gerak::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(128, 128, 128, 0.16),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skeleton-geser 1.4s ease infinite;
+}
+
+@keyframes skeleton-geser {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ---------- Tombol 3-keadaan (idle → memuat → sukses) ----------
+ * <button> TIDAK mewarisi color/font secara andal (UA stylesheet)
+ * — karena itu color + font ditetapkan eksplisit di sini. */
+.tombol-gerak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    transform var(--motion-dasar) var(--ease-standar),
+    opacity var(--motion-dasar) var(--ease-standar),
+    background-color var(--motion-dasar) var(--ease-standar);
+}
+
+.tombol-gerak:hover {
+  transform: translateY(-1px);
+}
+
+.tombol-gerak:active {
+  transform: scale(0.97);
+}
+
+.tombol-gerak:disabled {
+  cursor: wait;
+  opacity: 0.75;
+  transform: none;
+}
+
+.tombol-gerak[data-varian="garis"] {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.tombol-gerak[data-keadaan="sukses"] {
+  background: var(--mint);
+  color: #ffffff;
+  cursor: default;
+}
+
+[data-theme="dark"] .tombol-gerak[data-keadaan="sukses"] {
+  color: #111315;
+}
+
+.tombol-gerak .ikon-putar {
+  animation: tombol-putar 0.9s linear infinite;
+}
+
+@keyframes tombol-putar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Modal / Drawer (Radix + Motion) ---------- */
+.modal-gerak-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(8, 10, 12, 0.55);
+}
+
+.modal-gerak-konten {
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  top: 50%;
+  width: calc(100% - 32px);
+  max-width: 520px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  background: var(--elevated);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass);
+  padding: 24px;
+}
+
+.modal-gerak-konten:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.laci-gerak-konten {
+  position: fixed;
+  z-index: 10001;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  max-height: 85dvh;
+  overflow: auto;
+  background: var(--elevated);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  box-shadow: var(--shadow-glass);
+  padding: 12px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.laci-gerak-konten:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.laci-gerak-gagang {
+  width: 40px;
+  height: 4px;
+  margin: 0 auto 12px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+/* ---------- Dropdown (Radix + Motion) ---------- */
+.dropdown-gerak-konten {
+  z-index: 10001;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--elevated);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+}
+
+.dropdown-gerak-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  line-height: 1.3;
+  cursor: pointer;
+  outline: none;
+}
+
+.dropdown-gerak-item[data-highlighted] {
+  background: var(--surface-2);
+}
+
+.dropdown-gerak-item[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- Toast ---------- */
+.toast-viewport {
+  position: fixed;
+  z-index: 10002;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.toast-item {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  box-shadow: var(--shadow-glass);
+  pointer-events: auto;
+}
+
+.toast-item[data-jenis="sukses"] {
+  background: var(--mint);
+  color: #ffffff;
+}
+
+[data-theme="dark"] .toast-item[data-jenis="sukses"] {
+  color: #111315;
+}
+
+.toast-item[data-jenis="galat"] {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+@media (min-width: 768px) {
+  .toast-viewport {
+    bottom: 24px;
+  }
+}
+
+/* ============================================================
+   FALLBACK — tanpa backdrop-filter: kaca jadi solid.
+   ============================================================ */
+@supports not (
+  (backdrop-filter: blur(18px)) or (-webkit-backdrop-filter: blur(18px))
+) {
+  .permukaan-kaca {
+    background: var(--glass-bg-padat);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ============================================================
+   FALLBACK — pengguna meminta transparansi dikurangi:
+   semua permukaan kaca kembali SOLID (nilai pra-Fase 3).
+   ============================================================ */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: #ffffff;
+    --glass-border: #e3e0d8;
+  }
+
+  [data-theme="dark"] {
+    --glass-bg: #171b1e;
+    --glass-border: rgba(255, 255, 255, 0.14);
+  }
+
+  .permukaan-kaca {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ============================================================
+   REDUCED MOTION — gerak CSS non-esensial mati total
+   (bukan diperlambat). Gerak Motion dimatikan oleh
+   MotionConfig reducedMotion="user" di MotionProvider.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-gerak::after,
+  .tombol-gerak .ikon-putar {
+    animation: none !important;
+  }
+
+  .tombol-gerak,
+  .tombol-gerak:hover,
+  .tombol-gerak:active {
+    transform: none;
+    transition: none;
+  }
+}

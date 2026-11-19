@@ -1,0 +1,11 @@
+/* HeaderNav — poles visual Fase 4 (rute, pintu, dropdown,
+ * active state TIDAK berubah). Hanya var(--token). */
+
+.nav {
+  gap: 2px;
+}
+
+.nav :global(.nav-tautan),
+.nav :global(.nav-pemicu) {
+  font-weight: 600;
+}

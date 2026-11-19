@@ -1,0 +1,25 @@
+/* Observatorium (Fase 4) — hanya var(--token).
+ * .butir: butir Stagger di dalam grid — kartu mengisi penuh
+ * tinggi baris agar kartu sebaris sama tinggi. */
+
+.butir {
+  display: flex;
+  min-width: 0;
+}
+
+.butir > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Kepala seksi boleh membungkus di layar sempit: tanpa wrap,
+ * tombol "Lihat semua indikator" terpotong di tepi pada 360px
+ * (seksi-kepala global memakai flex tanpa wrap). */
+.kepalaRapi :global(.seksi-kepala) {
+  flex-wrap: wrap;
+}
+
+.kepalaRapi :global(.seksi-kepala .tombol) {
+  flex-shrink: 1;
+  min-width: 0;
+}

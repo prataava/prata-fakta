@@ -1,0 +1,58 @@
+/* GambarArtikel — pembungkus + skeleton muat (Fase 4).
+ * Hanya var(--token); tanpa nilai warna hardcode. */
+
+.pembungkus {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.pembungkus img {
+  transition: opacity var(--motion-dasar) var(--ease-standar);
+}
+
+/* Kartu fitur: pembungkus memenuhi tinggi baris grid (gambar
+ * di kiri, isi di kanan pada >=1024px — lihat .kartu-fitur). */
+.pembungkusFitur {
+  height: 100%;
+}
+
+@media (min-width: 1024px) {
+  .pembungkusFitur {
+    min-height: 240px;
+    border-radius: 0;
+  }
+}
+
+/* Varian hero: rasio sinematik di desktop, 16:9 di HP. Tinggi
+ * dibatasi agar headline di bawah gambar tidak terdorong jauh
+ * ke bawah lipatan (max-height + object-fit cover dari
+ * .kartu-gambar memotong gambar secara rapi). */
+@media (min-width: 768px) {
+  .pembungkusHero img {
+    aspect-ratio: 21 / 9;
+    max-height: 400px;
+  }
+}
+
+/* Lapisan skeleton: menutup gambar sampai onLoad/onError.
+ * Statis (tanpa shimmer) — gambar eksternal bisa lambat dan
+ * shimmer berulang justru mengganggu. */
+.kerangka {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 16px;
+  z-index: 1;
+}

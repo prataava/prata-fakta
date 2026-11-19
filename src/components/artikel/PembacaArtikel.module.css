@@ -77,6 +77,18 @@
   cursor: pointer;
 }
 
+/* Butir Stagger di grid Berita Terkait — kartu mengisi penuh
+ * tinggi baris agar kartu sebaris sama tinggi. */
+.butir {
+  display: flex;
+  min-width: 0;
+}
+
+.butir > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* --- Mode fokus: sembunyikan chrome non-bacaan --- */
 :global(body[data-mode-fokus="aktif"] .header) {
   display: none !important;

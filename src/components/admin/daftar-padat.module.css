@@ -1,0 +1,112 @@
+/* PRATA FAKTA — Daftar padat gaya Linear (Fase 4 redesign).
+ * Dipakai bersama halaman daftar admin (review, artikel, sumber,
+ * monitoring, command-center): satu baris = judul + status + skor/
+ * sumber + tanggal; metadata redup; pagination tetap di halaman. */
+
+.daftar {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.baris {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.baris:first-child {
+  border-top: none;
+}
+
+.baris:hover {
+  background: var(--surface-2);
+}
+
+.judul {
+  flex: 1 1 280px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.judul a {
+  color: var(--ink);
+}
+
+.judul a:hover {
+  color: var(--accent);
+}
+
+.meta {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.meta a {
+  color: var(--muted);
+}
+
+.meta a:hover {
+  color: var(--accent);
+}
+
+.aksi {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Baris dua-lapis (mis. sumber): judul + meta panjang + aksi. */
+.barisKolom {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.barisAtas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.barisMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.barisAksi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.barisAksi details {
+  position: relative;
+}
+
+@media (max-width: 640px) {
+  .meta {
+    white-space: normal;
+  }
+}
