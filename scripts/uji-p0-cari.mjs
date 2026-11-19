@@ -489,7 +489,9 @@ klienPalsu.handler = {
   },
 };
 const routeSimpan = muatModul(path.join(DIR_REPO, "src/app/api/saya/pencarian-tersimpan/route.ts"));
-cek("MAX_PENCARIAN_TERSIMPAN = 10 diekspor", routeSimpan.MAX_PENCARIAN_TERSIMPAN === 10);
+// FU2: konstanta pindah dari route ke lib — nilai tetap 10.
+const libPerpustakaan = muatModul(path.join(DIR_REPO, "src/lib/perpustakaan.ts"));
+cek("MAX_PENCARIAN_TERSIMPAN = 10 diekspor dari lib/perpustakaan", libPerpustakaan.MAX_PENCARIAN_TERSIMPAN === 10);
 const reqJson = (method, body, path2 = "/api/saya/pencarian-tersimpan") =>
   new Request(`http://localhost${path2}`, {
     method,

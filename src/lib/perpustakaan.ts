@@ -8,10 +8,22 @@
 // — tidak diduplikasi di sini.
 import { createClient } from "@/lib/supabase/server";
 import { GalatBaca, catatGalatBaca, galatKolomBelumAda } from "@/lib/galat";
-import type { PencarianTersimpan } from "@/app/api/saya/pencarian-tersimpan/route";
 
-// Tipe pencarian tersimpan dipakai ulang dari route P0 (satu definisi).
-export type { PencarianTersimpan } from "@/app/api/saya/pencarian-tersimpan/route";
+// Batas usulan rencana P0 — bisa diubah di satu tempat.
+// Dipindah dari src/app/api/saya/pencarian-tersimpan/route.ts (FU2:
+// route.ts dilarang mengekspor non-handler); route + baterai
+// uji-p0-cari mengimpor dari sini.
+export const MAX_PENCARIAN_TERSIMPAN = 10;
+
+/** Satu pencarian tersimpan (dipindah dari route P0 — satu definisi). */
+export type PencarianTersimpan = {
+  q: string;
+  dari: string | null;
+  sampai: string | null;
+  sumber: string | null;
+  status: string | null;
+  disimpan_pada: string;
+};
 
 /** Satu catatan pribadi beserta targetnya (judul + slug tautan). */
 export type PfCatatan = {

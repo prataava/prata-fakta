@@ -993,6 +993,20 @@ cek(
     ruteWilayah !== null,
     ruteWilayahGalat ? String(ruteWilayahGalat.message).split("\n")[0] : "",
   );
+  // FU2: helper validasi/URL pindah dari route ke lib — impor dari
+  // "@/lib/wilayah", bukan dari route.
+  let libWilayah = null;
+  let libWilayahGalat = null;
+  try {
+    libWilayah = await import("@/lib/wilayah.ts");
+  } catch (err) {
+    libWilayahGalat = err;
+  }
+  cek(
+    "IZIN-F3b impor live @/lib/wilayah.ts (FU2: helper pindah dari route)",
+    libWilayah !== null,
+    libWilayahGalat ? String(libWilayahGalat.message).split("\n")[0] : "",
+  );
   let ruteBalik = null;
   let ruteBalikGalat = null;
   try {
@@ -1005,9 +1019,23 @@ cek(
     ruteBalik !== null,
     ruteBalikGalat ? String(ruteBalikGalat.message).split("\n")[0] : "",
   );
+  // FU2: helper validasi/URL pindah dari route ke lib — impor dari
+  // "@/lib/geocode", bukan dari route.
+  let libBalik = null;
+  let libBalikGalat = null;
+  try {
+    libBalik = await import("@/lib/geocode.ts");
+  } catch (err) {
+    libBalikGalat = err;
+  }
+  cek(
+    "IZIN-F4b impor live @/lib/geocode.ts (FU2: helper pindah dari route)",
+    libBalik !== null,
+    libBalikGalat ? String(libBalikGalat.message).split("\n")[0] : "",
+  );
 
-  if (ruteWilayah) {
-    const { validasiWilayah, urlWilayah } = ruteWilayah;
+  if (libWilayah) {
+    const { validasiWilayah, urlWilayah } = libWilayah;
     cek(
       "IZIN-F5 validasi wilayah: tingkat liar → { ok:false } (400 di GET)",
       validasiWilayah("liar", null).ok === false,
@@ -1043,8 +1071,8 @@ cek(
           "https://www.emsifa.com/api-wilayah-indonesia/api/villages/3171010001.json",
     );
   }
-  if (ruteBalik) {
-    const { validasiBalik, urlNominatimBalik } = ruteBalik;
+  if (libBalik) {
+    const { validasiBalik, urlNominatimBalik } = libBalik;
     cek(
       "IZIN-F10 validasi balik: lat liar (91 / -91 / abc / kosong) → { ok:false }",
       validasiBalik("91", "0").ok === false &&
