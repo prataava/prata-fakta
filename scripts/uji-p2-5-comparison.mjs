@@ -24,10 +24,8 @@
 //       v20; ProvenanceAI menyembunyikan seksi bila tak ada data.
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 
-const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = requirePglite("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 import {
   bandingkanAntarItem,

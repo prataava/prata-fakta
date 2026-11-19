@@ -1,5 +1,5 @@
 // Baterai Tahap C — sisa keterbatasan pasca-Gelombang B2 (PRATA FAKTA).
-// Pola uji-ultimate-b2-akademi.mjs: PGlite di /tmp/pf-sqlcheck,
+// Pola uji-ultimate-b2-akademi.mjs: PGlite via scripts/butuh-pglite.mjs,
 // migrasi v1–v15 dari berkas (dua putaran = idempotensi), seed
 // minimal, fungsi murni diekstrak dari sumber TS via transpileModule.
 //
@@ -32,11 +32,9 @@
 // jangkauan baterai ini dan harus diuji terpisah.
 // Keluar 0 bila semua lolos, 1 bila ada yang gagal.
 import { readFileSync, existsSync } from "node:fs";
-import { createRequire } from "node:module";
 import { transpileModule, ModuleKind, ScriptTarget } from "typescript";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 let lolos = 0;
 let gagal = 0;

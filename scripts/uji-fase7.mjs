@@ -13,8 +13,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 // TypeScript repo (untuk mentranspilasi fungsi murni yang diekstrak
 // dari sumber .ts sebelum diuji dengan new Function — sumber TS

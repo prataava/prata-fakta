@@ -29,10 +29,8 @@
 // - Verifikasi RLS 2 akun LIVE tetap BLOKIR (di luar mandat).
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 
-const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = requirePglite("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 import {
   adaPerkembanganTerbaru,
   batasZoom,

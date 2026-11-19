@@ -69,7 +69,6 @@
 //   /offline — bukan perilaku runtime service worker.
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 
 const DIR_REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const DIR_SRC = path.join(DIR_REPO, "src");
@@ -498,8 +497,7 @@ if (!glos) {
 }
 
 // ---------- §P3-2-A: v21 di PGlite (idempoten + CHECK + RLS) ----------
-const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = requirePglite("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 const DIR_MIGRASI = path.join(DIR_REPO, "supabase/migrations");
 const MIGRASI_P32 = [
   "20261116_pf_v1_foundation.sql",

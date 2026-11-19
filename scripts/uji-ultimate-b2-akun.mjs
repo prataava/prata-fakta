@@ -54,11 +54,9 @@
 //   (teks yang sama dilaporkan ke koordinator untuk v14),
 //   bukan dari berkas migrasi — karena v14 belum ada.
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 const DIR_MIGRASI = new URL("../supabase/migrations/", import.meta.url).pathname;
 const DIR_REPO = new URL("../", import.meta.url).pathname;

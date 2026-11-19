@@ -8,10 +8,8 @@
 //   - RPC pf_rate_limit_check (v11) tetap berfungsi sesudah v12.
 // Keluar 0 bila semua asersi lolos, 1 bila ada yang gagal.
 import fs from "node:fs";
-import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 const DIR_MIGRASI = new URL("../supabase/migrations/", import.meta.url).pathname;
 

@@ -15,7 +15,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
+const require = createRequire(new URL("../package.json", import.meta.url).pathname);
 const { PGlite } = require("@electric-sql/pglite");
 const requireRepo = createRequire(
   new URL("../package.json", import.meta.url).pathname,
