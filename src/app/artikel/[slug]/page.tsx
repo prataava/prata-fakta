@@ -27,6 +27,7 @@ import { urlSitus } from "@/lib/situs";
 import { gambarBesar } from "@/lib/gambar";
 import PembacaArtikel from "@/components/artikel/PembacaArtikel";
 import LencanaFactScore from "@/components/artikel/LencanaFactScore";
+import { Reveal } from "@/components/motion";
 import JejakFakta from "@/components/artikel/JejakFakta";
 import MetodeVerifikasi from "@/components/artikel/MetodeVerifikasi";
 import ProvenanceAI from "@/components/artikel/ProvenanceAI";
@@ -47,6 +48,7 @@ export async function generateMetadata({
   if (!artikel) return { title: "Artikel tidak ditemukan" };
   const url = `${urlSitus()}/artikel/${slug}`;
   const deskripsi = artikel.ringkasan ?? artikel.subjudul ?? undefined;
+  const penulisBersih = bersihkanPenulis(artikel.penulis_nama);
   // og:image / twitter memakai varian BESAR (≥1200px) agar kartu
   // Google Discover & Top Stories memakai gambar besar.
   const gambarOg = gambarBesar(artikel.gambar_url);
@@ -61,7 +63,7 @@ export async function generateMetadata({
       description: deskripsi,
       publishedTime: artikel.diterbitkan_pada ?? undefined,
       modifiedTime: artikel.diperbarui_pada ?? undefined,
-      authors: artikel.penulis_nama ? [artikel.penulis_nama] : undefined,
+      authors: penulisBersih ? [penulisBersih] : undefined,
       images: gambarOg ? [gambarOg] : undefined,
     },
     twitter: {
@@ -71,6 +73,14 @@ export async function generateMetadata({
       images: gambarOg ? [gambarOg] : undefined,
     },
   };
+}
+
+// Fase 5: nama penulis BERSIH untuk pembaca + mesin pencari —
+// suffix jargon internal "(draf pipeline)" tidak tampil di mana
+// pun (byline, metadata, JSON-LD). Data/DB tidak diubah.
+function bersihkanPenulis(nama: string | null | undefined): string | null {
+  const bersih = nama?.replace(/\s*\(draf pipeline\)\s*/gi, "").trim();
+  return bersih ? bersih : null;
 }
 
 function formatTanggal(iso: string | null): string {
@@ -247,7 +257,7 @@ export default async function HalamanArtikel({
           : {}),
         author: {
           "@type": "Organization",
-          name: artikel.penulis_nama ?? "Redaksi PRATA FAKTA",
+          name: bersihkanPenulis(artikel.penulis_nama) ?? "Redaksi PRATA FAKTA",
           url: urlSitus(),
         },
         publisher: {
@@ -300,6 +310,11 @@ export default async function HalamanArtikel({
   // inline ini. Halaman ini sudah membaca data per request.
   const nonce = bacaNonceDariHeaders(await headers());
 
+  // Byline BERSIH (Fase 4, level tampilan saja — data/DB tidak
+  // diubah): suffix jargon internal "(draf pipeline)" pada
+  // penulis_nama tidak ditampilkan ke pembaca.
+  const penulisTampil = bersihkanPenulis(artikel.penulis_nama);
+
   return (
     <div className="wadah">
       <script
@@ -335,14 +350,16 @@ export default async function HalamanArtikel({
           )}
           <h1>{artikel.judul}</h1>
           <div style={{ marginTop: 12 }}>
-            <LencanaFactScore
-              hasil={hasilFactScore}
-              koreksiDiketahui={koreksiTerbuka !== null}
-            />
+            <Reveal>
+              <LencanaFactScore
+                hasil={hasilFactScore}
+                koreksiDiketahui={koreksiTerbuka !== null}
+              />
+            </Reveal>
           </div>
           {artikel.subjudul && <p className="artikel-subjudul">{artikel.subjudul}</p>}
           <p className="artikel-meta">
-            {artikel.penulis_nama ? `Oleh ${artikel.penulis_nama}` : "Redaksi PRATA FAKTA"}
+            {penulisTampil ? `Oleh ${penulisTampil}` : "Redaksi PRATA FAKTA"}
             {" · "}
             Diterbitkan {formatTanggal(artikel.diterbitkan_pada)}
             {" · "}
@@ -399,16 +416,19 @@ export default async function HalamanArtikel({
           // images.remotePatterns (di luar cakupan perbaikan ini);
           // CSS .artikel-gambar (width 100%, height auto) memakai
           // rasio atribut ini tanpa pernah mendistorsi gambar.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            className="artikel-gambar"
-            src={gambarBesar(artikel.gambar_url) ?? artikel.gambar_url}
-            alt={`Ilustrasi: ${artikel.judul}`}
-            width={1200}
-            height={675}
-            loading="lazy"
-            decoding="async"
-          />
+          // Reveal Fase 4: gambar hero masuk dengan fade + naik.
+          <Reveal>
+            {/* eslint-disable-next-line @next/next/no-img-element -- gambar_url eksternal, lihat F-R5 di atas */}
+            <img
+              className="artikel-gambar"
+              src={gambarBesar(artikel.gambar_url) ?? artikel.gambar_url}
+              alt={`Ilustrasi: ${artikel.judul}`}
+              width={1200}
+              height={675}
+              loading="lazy"
+              decoding="async"
+            />
+          </Reveal>
         ) : (
           <div className="placeholder-gambar placeholder-gambar-besar" aria-hidden="true">
             <span>{artikel.kategori_nama ?? artikel.kategori_slug ?? "PRATA FAKTA"}</span>
@@ -430,27 +450,35 @@ export default async function HalamanArtikel({
           loggedIn={loggedIn}
         />
 
-        <JejakFakta jejak={jejak} peranSumber={perbandingan.sumber} />
-        <MetodeVerifikasi
-          statusVerifikasi={artikel.status_verifikasi}
-          jumlahSumber={perbandingan.sumber.length}
-          jumlahSumberIndependen={jumlahSumberIndependen}
-          tersedia={perbandingan.tersedia}
-        />
-        <ProvenanceAI
-          tersedia={jejak.tersedia && perbandingan.tersedia}
-          jumlahKlaim={jejak.klaim.length}
-          jumlahSumberIndependen={jumlahSumberIndependen}
-          keputusan={recordVerifikasiArtikel?.keputusan ?? null}
-          diverifikasiPada={recordVerifikasiArtikel?.dibuat_pada ?? null}
-          diterbitkanPada={artikel.diterbitkan_pada}
-        />
-        <SakelarPerbandingan
-          perbandingan={perbandingan}
-          perbandinganDua={perbandinganDua}
-          slug={slug}
-          slugBanding={slugBanding}
-        />
+        <Reveal>
+          <JejakFakta jejak={jejak} peranSumber={perbandingan.sumber} />
+        </Reveal>
+        <Reveal>
+          <MetodeVerifikasi
+            statusVerifikasi={artikel.status_verifikasi}
+            jumlahSumber={perbandingan.sumber.length}
+            jumlahSumberIndependen={jumlahSumberIndependen}
+            tersedia={perbandingan.tersedia}
+          />
+        </Reveal>
+        <Reveal>
+          <ProvenanceAI
+            tersedia={jejak.tersedia && perbandingan.tersedia}
+            jumlahKlaim={jejak.klaim.length}
+            jumlahSumberIndependen={jumlahSumberIndependen}
+            keputusan={recordVerifikasiArtikel?.keputusan ?? null}
+            diverifikasiPada={recordVerifikasiArtikel?.dibuat_pada ?? null}
+            diterbitkanPada={artikel.diterbitkan_pada}
+          />
+        </Reveal>
+        <Reveal>
+          <SakelarPerbandingan
+            perbandingan={perbandingan}
+            perbandinganDua={perbandinganDua}
+            slug={slug}
+            slugBanding={slugBanding}
+          />
+        </Reveal>
       </article>
     </div>
   );

@@ -1,0 +1,41 @@
+/* Halaman /cari (Fase 4) — panel saran ala Raycast.
+ * Hanya var(--token). */
+
+.panelSaran {
+  max-width: 720px;
+}
+
+.judulPanel {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0 0 6px;
+  color: var(--ink);
+}
+
+.subPanel {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.chipWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pintasan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.pintasan a {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+}

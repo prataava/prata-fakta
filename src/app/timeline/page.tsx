@@ -3,6 +3,8 @@ import { connection } from "next/server";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import GarisWaktu, { type ItemGarisWaktu } from "@/components/GarisWaktu";
+import ProgressScroll from "@/components/ProgressScroll";
+import { Reveal } from "@/components/motion";
 import {
   getSemuaEvent,
   getTimelineEvent,
@@ -237,26 +239,31 @@ export default async function Timeline({
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-timeline">
-        <span className="hero-label">Timeline</span>
-        <h1 id="judul-timeline">Kronologi Peristiwa</h1>
-        <p>
-          Peristiwa terbaru beserta perkembangan waktunya — setiap entri
-          disertai waktu, sumber, dan catatan perubahan bila ada.
-          Arsip berdasarkan tahun dan era ada di{" "}
-          <Link href="/sejarah">Arsip Sejarah</Link>.
-        </p>
-        {ceritaSlug && (
+      {/* Progress gulir (Fase 4): scroll-linked hanya di /timeline
+          + /observatorium — tipis di atas, hanya transform. */}
+      <ProgressScroll label="Progress linimasa" />
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-timeline">
+          <span className="hero-label">Timeline</span>
+          <h1 id="judul-timeline">Kronologi Peristiwa</h1>
           <p>
-            <Link className="tombol" href={`/cerita/${ceritaSlug}`}>
-              ← Kembali ke cerita
-            </Link>{" "}
-            <Link className="tombol tombol-hantu" href="/timeline">
-              Semua peristiwa
-            </Link>
+            Peristiwa terbaru beserta perkembangan waktunya — setiap entri
+            disertai waktu, sumber, dan catatan perubahan bila ada.
+            Arsip berdasarkan tahun dan era ada di{" "}
+            <Link href="/sejarah">Arsip Sejarah</Link>.
           </p>
-        )}
-      </section>
+          {ceritaSlug && (
+            <p>
+              <Link className="tombol" href={`/cerita/${ceritaSlug}`}>
+                ← Kembali ke cerita
+              </Link>{" "}
+              <Link className="tombol tombol-hantu" href="/timeline">
+                Semua peristiwa
+              </Link>
+            </p>
+          )}
+        </section>
+      </Reveal>
 
       {/* F-S4: /timeline satu-satunya permukaan kronologi — filter
           cerita / periode / diikuti di sini, bukan halaman baru. */}
@@ -423,20 +430,23 @@ export default async function Timeline({
         </section>
       ) : (
         <>
-          <GarisWaktu
-            items={itemGarisWaktu}
-            batas={batasZoom(jangkar)}
-            tanpaTanggal={tanpaTanggal}
-          />
+          <Reveal>
+            <GarisWaktu
+              items={itemGarisWaktu}
+              batas={batasZoom(jangkar)}
+              tanpaTanggal={tanpaTanggal}
+            />
+          </Reveal>
           <section className="seksi" aria-label="Daftar peristiwa">
             <div className="grid-berita">
               {events.map((e, i) => (
-                <KartuEvent
-                  key={e.id}
-                  event={e}
-                  kronologi={kronologiSemua[i] ?? []}
-                  terbaru={terbaruPerEvent[i] ?? false}
-                />
+                <Reveal key={e.id} delay={Math.min(i, 8) * 0.04}>
+                  <KartuEvent
+                    event={e}
+                    kronologi={kronologiSemua[i] ?? []}
+                    terbaru={terbaruPerEvent[i] ?? false}
+                  />
+                </Reveal>
               ))}
             </div>
           </section>

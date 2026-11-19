@@ -9,6 +9,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import EmptyState from "@/components/EmptyState";
+import { Reveal } from "@/components/motion";
+import gaya from "./klaim.module.css";
 import {
   getDaftarKlaim,
   JENIS_KLAIM,
@@ -94,34 +96,38 @@ async function DaftarKlaim({ filter }: { filter: FilterKlaim }) {
           : ""}
         . Hanya klaim dari artikel terbit yang tampil di sini.
       </p>
-      <div className="grid-berita">
+      {/* Daftar Linear (Fase 4): satu baris = judul + status +
+          artikel asal + tanggal, metadata redup. FACT SCORE per
+          klaim TIDAK ditampilkan — getDaftarKlaim tidak
+          menyediakannya, dan angka tidak boleh dikarang. Skor
+          artikel asal ada di halaman artikelnya. */}
+      <ul className={gaya.daftarLinear}>
         {hasil.klaim.map((k) => (
-          <article key={k.id} className="kartu">
-            <span className="kartu-kategori">
-              Klaim · {LABEL_JENIS_KLAIM[k.jenis as JenisKlaim] ?? k.jenis}
-            </span>
-            <span className="kartu-judul">
-              <Link href={`/klaim/${k.id}`}>{k.teks}</Link>
-            </span>
-            <span className="kartu-meta">
-              Status klaim: {LABEL_STATUS_KLAIM[k.status as StatusKlaim] ?? k.status}
-            </span>
-            <span className="kartu-meta">
-              Artikel asal:{" "}
-              <Link href={`/artikel/${k.artikel.slug}`}>{k.artikel.judul}</Link>{" "}
-              <span className={kelasLencanaStatus(k.artikel.status_verifikasi)}>
-                {labelStatusVerifikasi(k.artikel.status_verifikasi)}
+          <li key={k.id}>
+            <Link className={gaya.baris} href={`/klaim/${k.id}`}>
+              <span className={gaya.judul}>{k.teks}</span>
+              <span className={gaya.meta}>
+                <span className={gaya.status}>
+                  {LABEL_STATUS_KLAIM[k.status as StatusKlaim] ?? k.status}
+                </span>
+                <span>
+                  {LABEL_JENIS_KLAIM[k.jenis as JenisKlaim] ?? k.jenis}
+                </span>
+                <span>
+                  Artikel: {k.artikel.judul}{" "}
+                  <span className={kelasLencanaStatus(k.artikel.status_verifikasi)}>
+                    {labelStatusVerifikasi(k.artikel.status_verifikasi)}
+                  </span>
+                </span>
+                <span>Dicatat: {formatTanggal(k.dibuat_pada)}</span>
+                <span className={gaya.panah} aria-hidden="true">
+                  →
+                </span>
               </span>
-            </span>
-            <span className="kartu-meta">
-              Dicatat: {formatTanggal(k.dibuat_pada)}
-            </span>
-            <Link className="tombol tombol-hantu" href={`/klaim/${k.id}`}>
-              Lacak klaim ini
             </Link>
-          </article>
+          </li>
         ))}
-      </div>
+      </ul>
       {hasil.totalHalaman > 1 && (
         <nav
           aria-label="Paginasi klaim"
@@ -196,17 +202,19 @@ export default async function HalamanKlaim({
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-klaim">
-        <span className="hero-label">Verifikasi</span>
-        <h1 id="judul-klaim">Pelacak Klaim</h1>
-        <p>
-          Setiap pernyataan yang bisa diperiksa dalam artikel terbit
-          kami lacak statusnya di sini: dari mana klaim itu berasal,
-          bukti apa yang mendukung atau menentangnya, dan bagaimana
-          hasil pemeriksaan redaksi berkembang dari waktu ke waktu.
-          Klaim dari artikel yang belum terbit tidak tampil di sini.
-        </p>
-      </section>
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-klaim">
+          <span className="hero-label">Verifikasi</span>
+          <h1 id="judul-klaim">Pelacak Klaim</h1>
+          <p>
+            Setiap pernyataan yang bisa diperiksa dalam artikel terbit
+            kami lacak statusnya di sini: dari mana klaim itu berasal,
+            bukti apa yang mendukung atau menentangnya, dan bagaimana
+            hasil pemeriksaan redaksi berkembang dari waktu ke waktu.
+            Klaim dari artikel yang belum terbit tidak tampil di sini.
+          </p>
+        </section>
+      </Reveal>
 
       <section aria-label="Filter klaim">
         <form

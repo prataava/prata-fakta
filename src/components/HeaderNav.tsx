@@ -56,6 +56,7 @@ import {
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import { t } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
+import gaya from "./HeaderNav.module.css";
 
 type ItemMenu = {
   href: string;
@@ -199,7 +200,7 @@ export default function HeaderNav() {
   );
 
   return (
-    <nav className="nav-utama" aria-label="Navigasi utama">
+    <nav className={`nav-utama ${gaya.nav}`} aria-label="Navigasi utama">
       {tautan("/", t(bahasa, "nav.beranda"), Home)}
 
       <DropdownGrup label={t(bahasa, "nav.kategori")} ikon={LayoutGrid} aktif={aktifKategori} lebar>

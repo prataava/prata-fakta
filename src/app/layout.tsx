@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
+import "./motion.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import CommandPalette from "@/components/CommandPalette";
+import { MotionProvider } from "@/components/motion/MotionProvider";
 import PendaftaranSW from "@/components/pwa/PendaftaranSW";
 import BannerPembaruan from "@/components/pwa/BannerPembaruan";
 import PromptInstalasi from "@/components/pwa/PromptInstalasi";
@@ -69,10 +71,16 @@ export default async function RootLayout({
       </head>
       <body className={`${inter.variable} ${serif.variable}`}>
         <Header />
-        <main className="konten">{children}</main>
+        {/* Fase 3: MotionProvider membungkus <main> + BottomNav +
+          CommandPalette saja — Header/Footer tetap di luar agar
+          server component tetap prerender; children server boleh
+          dilewatkan ke client component (pola resmi Next.js). */}
+        <MotionProvider>
+          <main className="konten">{children}</main>
+          <BottomNav />
+          <CommandPalette />
+        </MotionProvider>
         <Footer />
-        <BottomNav />
-        <CommandPalette />
         <PendaftaranSW />
         <BannerPembaruan />
         <PromptInstalasi />

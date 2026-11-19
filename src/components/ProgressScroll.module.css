@@ -1,0 +1,20 @@
+/* ProgressScroll — bilah progres gulir (Fase 4).
+ * Hanya transform scaleX; tanpa animasi width/height. */
+
+.batang {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 60;
+  background: transparent;
+  pointer-events: none;
+}
+
+.isi {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform 0.15s ease-out;
+}

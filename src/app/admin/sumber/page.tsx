@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import EmptyState from "@/components/EmptyState";
 import FormSumber from "@/components/admin/FormSumber";
 import TombolAksi from "@/components/admin/TombolAksi";
+import daftar from "@/components/admin/daftar-padat.module.css";
+import { Reveal } from "@/components/motion";
 import { getKinerjaSumber, getSumberAdmin } from "@/lib/admin/data";
 import { formatWaktu } from "@/lib/admin/format";
 import { createClient } from "@/lib/supabase/server";
@@ -70,7 +72,7 @@ export default async function AdminSumber() {
   const kinerja = await getKinerjaSumber();
 
   return (
-    <>
+    <Reveal>
       <section className="seksi" aria-labelledby="judul-sumber-baru">
         <div className="seksi-kepala">
           <h2 id="judul-sumber-baru">Tambah Sumber</h2>
@@ -95,84 +97,86 @@ export default async function AdminSumber() {
             pesan="Belum ada sumber berita terdaftar. Tambah sumber pertama lewat formulir di atas."
           />
         ) : (
-          <div className="tabel-gulir">
-            <table className="tabel-data">
-              <thead>
-                <tr>
-                  <th>Nama</th>
-                  <th>Jenis</th>
-                  <th>URL</th>
-                  <th>Prioritas</th>
-                  <th>Aktif</th>
-                  <th>Kesehatan</th>
-                  <th>Sukses terakhir</th>
-                  <th>Gagal beruntun</th>
-                  <th>Item baru terakhir</th>
-                  <th>Cek terakhir</th>
-                  <th>Item diambil</th>
-                  <th>Artikel terbit</th>
-                  <th>Koreksi diperbaiki*</th>
-                  <th>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sumber.map((s) => {
-                  const k = kesehatan?.get(s.id) ?? null;
-                  const kj = kinerja?.get(s.id) ?? null;
-                  return (
-                  <tr key={s.id}>
-                    <td>{s.nama}</td>
-                    <td>{s.jenis}</td>
-                    <td>
-                      <a href={s.url} target="_blank" rel="noopener noreferrer">
-                        {s.url}
-                      </a>
-                    </td>
-                    <td>{s.prioritas}</td>
-                    <td>{s.aktif ? "Ya" : "Tidak"}</td>
-                    <td>
-                      {k ? LABEL_KESEHATAN[k.status] : "—"}
+          <ul className={daftar.daftar}>
+            {sumber.map((s) => {
+              const k = kesehatan?.get(s.id) ?? null;
+              const kj = kinerja?.get(s.id) ?? null;
+              return (
+                <li
+                  key={s.id}
+                  className={`${daftar.baris} ${daftar.barisKolom}`}
+                >
+                  <div className={daftar.barisAtas}>
+                    <span className={daftar.judul}>{s.nama}</span>
+                    <span className={daftar.meta}>{s.jenis}</span>
+                    <span className={daftar.meta}>
+                      {s.aktif ? "Aktif" : "Nonaktif"}
+                    </span>
+                    <span className={daftar.meta}>
+                      Kesehatan: {k ? LABEL_KESEHATAN[k.status] : "—"}
                       {k?.peringatan ? ` — ${k.peringatan}` : ""}
-                    </td>
-                    <td>{k ? formatWaktu(k.sukses_terakhir) : "—"}</td>
-                    <td>{k ? k.gagal_beruntun : "—"}</td>
-                    <td>{k ? formatWaktu(k.item_terakhir) : "—"}</td>
-                    <td>
-                      {formatWaktu(s.terakhir_cek)}
+                    </span>
+                    <span className={daftar.meta}>
+                      Prioritas {s.prioritas}
+                    </span>
+                  </div>
+                  <div className={daftar.barisMeta}>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {s.url}
+                    </a>
+                    <span>
+                      Sukses terakhir:{" "}
+                      {k ? formatWaktu(k.sukses_terakhir) : "—"}
+                    </span>
+                    <span>
+                      Gagal beruntun: {k ? k.gagal_beruntun : "—"}
+                    </span>
+                    <span>
+                      Item baru terakhir:{" "}
+                      {k ? formatWaktu(k.item_terakhir) : "—"}
+                    </span>
+                    <span>
+                      Cek terakhir: {formatWaktu(s.terakhir_cek)}
                       {s.status_terakhir ? ` · ${s.status_terakhir}` : ""}
-                    </td>
-                    <td>{s.jumlah_item}</td>
-                    <td>{kj ? kj.artikel_terbit : "—"}</td>
-                    <td>{kj ? kj.koreksi_diperbaiki : "—"}</td>
-                    <td>
-                      <span className="admin-aksi">
-                        <TombolAksi
-                          url={`/api/sumber/${s.id}/cek`}
-                          label="Cek"
-                          labelLoading="Memeriksa…"
-                        />
-                        <details>
-                          <summary>Ubah</summary>
-                          <div style={{ marginTop: 12, minWidth: 280 }}>
-                            <FormSumber sumber={s} />
-                          </div>
-                        </details>
-                        <TombolAksi
-                          url={`/api/sumber/${s.id}`}
-                          method="DELETE"
-                          label="Hapus"
-                          labelLoading="Menghapus…"
-                          varian="hantu"
-                          konfirmasi={`Hapus sumber "${s.nama}"? Raw item yang sudah diambil tidak ikut terhapus.`}
-                        />
-                      </span>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    </span>
+                    <span>Item diambil: {s.jumlah_item}</span>
+                    <span>
+                      Artikel terbit: {kj ? kj.artikel_terbit : "—"}
+                    </span>
+                    <span>
+                      Koreksi diperbaiki:{" "}
+                      {kj ? kj.koreksi_diperbaiki : "—"}
+                    </span>
+                  </div>
+                  <div className={daftar.barisAksi}>
+                    <TombolAksi
+                      url={`/api/sumber/${s.id}/cek`}
+                      label="Cek"
+                      labelLoading="Memeriksa…"
+                    />
+                    <details>
+                      <summary>Ubah</summary>
+                      <div style={{ marginTop: 12, minWidth: 280 }}>
+                        <FormSumber sumber={s} />
+                      </div>
+                    </details>
+                    <TombolAksi
+                      url={`/api/sumber/${s.id}`}
+                      method="DELETE"
+                      label="Hapus"
+                      labelLoading="Menghapus…"
+                      varian="hantu"
+                      konfirmasi={`Hapus sumber "${s.nama}"? Raw item yang sudah diambil tidak ikut terhapus.`}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
         <p className="artikel-meta-kecil">
           * &quot;Koreksi diperbaiki&quot; menghitung koreksi pada
@@ -183,6 +187,6 @@ export default async function AdminSumber() {
           key belum diatur), bukan nol.
         </p>
       </section>
-    </>
+    </Reveal>
   );
 }

@@ -11,6 +11,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import EmptyState from "@/components/EmptyState";
 import GrafPengetahuan from "@/components/graf/GrafPengetahuan";
+import { Reveal } from "@/components/motion";
 import { getGrafPengetahuan } from "@/lib/graf";
 
 export const metadata: Metadata = {
@@ -40,20 +41,18 @@ export default async function HalamanGraf() {
   await connection();
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-graf">
-        <span className="hero-label">Pengetahuan</span>
-        <h1 id="judul-graf">Graf Pengetahuan</h1>
-        <p>
-          Bagaimana artikel, klaim, sumber, peristiwa, cerita, negara,
-          dan kategori saling terhubung. Graf ini hanya memakai relasi
-          yang sudah tercatat di sistem — klaim didukung, ditentang,
-          atau dinetralkan oleh sumber (arah bukti tercatat), artikel
-          diliput dalam peristiwa dan menjadi bagian dari cerita,
-          serta ditautkan ke negara dan kategorinya. Tidak ada entitas
-          baru yang ditebak dari teks. Klik simpul sumber, negara,
-          cerita, atau kategori untuk membuka halaman entitasnya.
-        </p>
-      </section>
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-graf">
+          <span className="hero-label">Pengetahuan</span>
+          <h1 id="judul-graf">Graf Pengetahuan</h1>
+          <p>
+            Bagaimana artikel, klaim, sumber, peristiwa, cerita, negara,
+            dan kategori saling terhubung — hanya dari relasi yang sudah
+            tercatat di sistem. Klik simpul untuk menyorot tetangganya;
+            gunakan tur terpandu untuk menjelajah simpul demi simpul.
+          </p>
+        </section>
+      </Reveal>
 
       <section className="seksi" aria-label="Graf pengetahuan">
         <Suspense fallback={<div className="kerangka" aria-label="Memuat graf pengetahuan…" />}>

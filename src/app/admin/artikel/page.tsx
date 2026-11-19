@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
+import daftar from "@/components/admin/daftar-padat.module.css";
+import { Reveal } from "@/components/motion";
 import { getDaftarArtikelAdmin } from "@/lib/admin/data";
 import { getKategori } from "@/lib/data";
 import { formatTanggal, labelStatusArtikel } from "@/lib/admin/format";
@@ -53,6 +55,7 @@ export default async function AdminArtikel({
   const totalHalaman = Math.max(1, Math.ceil(total / 20));
 
   return (
+    <Reveal>
     <section className="seksi" aria-labelledby="judul-artikel-admin">
       <div className="seksi-kepala">
         <h2 id="judul-artikel-admin">Artikel</h2>
@@ -126,48 +129,43 @@ export default async function AdminArtikel({
             Menampilkan {artikel.length} dari {total} artikel · Halaman {page} dari{" "}
             {totalHalaman}
           </p>
-          <div className="tabel-gulir">
-            <table className="tabel-data">
-              <thead>
-                <tr>
-                  <th>Judul</th>
-                  <th>Kategori</th>
-                  <th>Status</th>
-                  <th>Verifikasi</th>
-                  <th>Dibuat</th>
-                  <th>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {artikel.map((a) => (
-                  <tr key={a.id}>
-                    <td>
-                      <Link href={`/admin/artikel/${a.id}`}>{a.judul}</Link>
-                    </td>
-                    <td>{a.kategori_slug ?? "—"}</td>
-                    <td>{labelStatusArtikel(a.status)}</td>
-                    <td>
-                      <span className={kelasLencanaStatus(a.status_verifikasi)}>
-                        {labelStatusVerifikasi(a.status_verifikasi)}
-                      </span>
-                    </td>
-                    <td>{formatTanggal(a.dibuat_pada)}</td>
-                    <td>
-                      <Link href={`/admin/artikel/${a.id}`}>Edit</Link>
-                      {a.status === "terbit" && (
-                        <>
-                          {" · "}
-                          <Link href={`/artikel/${a.slug}`} target="_blank" rel="noopener noreferrer">
-                            Lihat publik
-                          </Link>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className={daftar.daftar}>
+            {artikel.map((a) => (
+              <li key={a.id} className={daftar.baris}>
+                <span className={daftar.judul}>
+                  <Link href={`/admin/artikel/${a.id}`}>{a.judul}</Link>
+                </span>
+                <span className={daftar.meta}>
+                  {a.kategori_slug ?? "—"}
+                </span>
+                <span className={daftar.meta}>
+                  {labelStatusArtikel(a.status)}
+                </span>
+                <span className={kelasLencanaStatus(a.status_verifikasi)}>
+                  {labelStatusVerifikasi(a.status_verifikasi)}
+                </span>
+                <span className={daftar.meta}>
+                  {formatTanggal(a.dibuat_pada)}
+                </span>
+                <Link
+                  href={`/admin/artikel/${a.id}`}
+                  className={daftar.aksi}
+                >
+                  Edit
+                </Link>
+                {a.status === "terbit" && (
+                  <Link
+                    href={`/artikel/${a.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={daftar.aksi}
+                  >
+                    Lihat publik
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
           <div className="admin-aksi" style={{ marginTop: 16 }}>
             {page > 1 && (
               <Link
@@ -189,5 +187,6 @@ export default async function AdminArtikel({
         </>
       )}
     </section>
+    </Reveal>
   );
 }

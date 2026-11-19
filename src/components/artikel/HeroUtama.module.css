@@ -1,0 +1,93 @@
+/* HeroUtama — hero foto-led beranda (Fase 4).
+ * Hanya var(--token); animasi hanya transform/opacity. */
+
+.heroUtama {
+  margin-top: 20px;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 24px;
+}
+
+.tautanGambar {
+  display: block;
+  text-decoration: none;
+}
+
+.tautanGambar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.isi {
+  margin-top: 16px;
+  max-width: 860px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.metaPisah {
+  color: var(--muted);
+}
+
+.judul {
+  font-family: var(--font-serif);
+  font-size: clamp(1.7rem, 4.2vw, 2.6rem);
+  line-height: 1.18;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+}
+
+.judul a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.judul a:hover {
+  color: var(--accent);
+}
+
+/* Line reveal: tiap baris naik dari klip (transform + opacity
+ * saja). Delay per baris di-inline dari komponen. */
+.baris {
+  display: block;
+  overflow: hidden;
+}
+
+.baris > span {
+  display: block;
+  animation: heroUtamaNaik var(--motion-penekanan) var(--ease-standar)
+    both;
+}
+
+@keyframes heroUtamaNaik {
+  from {
+    opacity: 0;
+    transform: translateY(110%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ringkasan {
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.6;
+  margin: 0 0 16px;
+  max-width: 680px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .baris > span {
+    animation: none;
+  }
+}

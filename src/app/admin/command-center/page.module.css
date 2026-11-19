@@ -1,0 +1,158 @@
+/* PRATA FAKTA — Command Center (Fase 4 redesign).
+ * Hanya dipakai src/app/admin/command-center/page.tsx.
+ * Panel terminal sengaja gelap-tetap (seperti blok kode): warna
+ * terminal didefinisikan lokal di .terminal agar tidak bergantung
+ * pada tema terang/gelap halaman. Level memakai token status
+ * yang sudah ada bila tersedia, sisanya warna terminal tetap. */
+
+.chipStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.chip strong {
+  color: var(--ink);
+}
+
+.chipOk {
+  border-color: color-mix(in srgb, var(--mint, #34d399) 55%, var(--border));
+}
+
+.chipGalat {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.chipGalat strong {
+  color: var(--danger);
+}
+
+.chipPeringatan {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  color: var(--warn);
+}
+
+.chipPeringatan strong {
+  color: var(--warn);
+}
+
+/* ---------- Log pipeline gaya terminal ---------- */
+.terminal {
+  --term-bg: #101315;
+  --term-ink: #d7dde3;
+  --term-redup: #8b98a1;
+  --term-ok: #4ade80;
+  --term-galat: #f87171;
+  --term-peringatan: #fbbf24;
+  margin-bottom: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--term-bg);
+  color: var(--term-ink);
+  font-family:
+    ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+.terminalBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--term-redup);
+}
+
+.terminalBar .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--term-redup);
+  opacity: 0.55;
+}
+
+.terminalBar .dotOk {
+  background: var(--term-ok);
+  opacity: 1;
+}
+
+.terminalBar .dotGalat {
+  background: var(--term-galat);
+  opacity: 1;
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+.logBaris {
+  display: flex;
+  gap: 10px;
+  padding: 2px 14px;
+  overflow-wrap: anywhere;
+}
+
+.logBaris:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.logWaktu {
+  flex-shrink: 0;
+  color: var(--term-redup);
+}
+
+.logLevel {
+  flex-shrink: 0;
+  width: 74px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.logLevelOk {
+  color: var(--term-ok);
+}
+
+.logLevelGalat {
+  color: var(--term-galat);
+}
+
+.logLevelPeringatan {
+  color: var(--term-peringatan);
+}
+
+.logLevelInfo {
+  color: var(--term-redup);
+}
+
+.logKosong {
+  padding: 12px 14px;
+  color: var(--term-redup);
+  font-size: 0.82rem;
+}

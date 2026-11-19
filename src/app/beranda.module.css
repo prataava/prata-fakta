@@ -1,0 +1,20 @@
+/* Beranda (Fase 4) — hanya var(--token).
+ * .heroRingkas: pernyataan merek tetap ada tapi ringkas agar
+ * hero foto-led yang mendominasi pandangan pertama.
+ * .butir: butir Stagger di dalam grid — kartu mengisi penuh
+ * tinggi baris agar kartu sebaris sama tinggi. */
+
+.heroRingkas h1 {
+  font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+  max-width: 640px;
+}
+
+.butir {
+  display: flex;
+  min-width: 0;
+}
+
+.butir > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}

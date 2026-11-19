@@ -1,0 +1,22 @@
+/* Header — poles masthead Fase 4 (struktur isi TIDAK berubah).
+ * Masthead memakai kaca nyata (token Fase 3 — header ada dalam
+ * daftar permukaan kaca yang diizinkan); sub-bar diberi permukaan
+ * kedua agar hierarki baris atas vs navigasi lebih tegas.
+ * Hanya var(--token). */
+
+.masthead {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+}
+
+.masthead :global(.logo-nama) {
+  font-size: 1.55rem;
+}
+
+.masthead :global(.logo-tag) {
+  font-size: 0.78rem;
+}
+
+.subbar {
+  background: var(--surface-2);
+}

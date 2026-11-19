@@ -28,13 +28,22 @@ export default function LencanaFactScore({
   koreksiDiketahui?: boolean;
 }) {
   if (!hasil.dinilai || hasil.skor === null || hasil.label === null) {
+    // SATU pernyataan "Belum dinilai" (Fase 4 — audit: teks lama
+    // mengulang "Belum dinilai — Belum dinilai — …"). Alasan dari
+    // lib (mis. "Belum dinilai — data klaim … belum dapat dibaca")
+    // dibersihkan dari awalan yang sama, lalu ditampilkan sebagai
+    // alasan singkat setelah tanda pisah.
+    const alasanMentah =
+      hasil.alasanTidakDinilai ?? "bukti belum cukup";
+    const alasanBersih = alasanMentah
+      .replace(/^\s*belum dinilai\s*[—–-]\s*/i, "")
+      .replace(/^\s*belum dinilai\s*/i, "")
+      .trim();
     return (
       <div className="kartu" id="lencana-fact-score" role="status">
         <p style={{ margin: 0 }}>
           <strong>FACT SCORE: Belum dinilai</strong>
-          {" — "}
-          {hasil.alasanTidakDinilai ??
-            "Belum dinilai — bukti belum cukup"}
+          {alasanBersih ? ` — ${alasanBersih}` : ""}
         </p>
         <p style={{ margin: "8px 0 0" }}>
           <Link href="/kebijakan/metodologi">Lihat metodologi</Link>

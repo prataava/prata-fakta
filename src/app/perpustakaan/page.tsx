@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import EmptyState from "@/components/EmptyState";
 import { formatTanggalJam } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { Reveal } from "@/components/motion";
 import { getRiwayatBaca } from "@/lib/lanjutan";
 import {
   getBookmarkDalamFolder,
@@ -91,25 +92,28 @@ export default async function Perpustakaan({
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-perpustakaan">
-        <span className="hero-label">My Prata</span>
-        <h1 id="judul-perpustakaan">Perpustakaan</h1>
-        <p>
-          Perpustakaan pribadi Anda{email ? ` (${email})` : ""}: artikel
-          yang disimpan dalam folder, catatan pribadi, bacaan yang
-          belum selesai, dan pencarian tersimpan. Semua di sini
-          berasal dari aktivitas Anda sendiri.
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
-          <Link className="tombol" href="/saya">
-            Kembali ke Saya
-          </Link>
-          <Link className="tombol" href="/saya/topik">
-            Topik yang saya ikuti
-          </Link>
-        </div>
-      </section>
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-perpustakaan">
+          <span className="hero-label">My Prata</span>
+          <h1 id="judul-perpustakaan">Perpustakaan</h1>
+          <p>
+            Perpustakaan pribadi Anda{email ? ` (${email})` : ""}: artikel
+            yang disimpan dalam folder, catatan pribadi, bacaan yang
+            belum selesai, dan pencarian tersimpan. Semua di sini
+            berasal dari aktivitas Anda sendiri.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+            <Link className="tombol" href="/saya">
+              Kembali ke Saya
+            </Link>
+            <Link className="tombol" href="/saya/topik">
+              Topik yang saya ikuti
+            </Link>
+          </div>
+        </section>
+      </Reveal>
 
+      <Reveal>
       <section className="seksi" aria-labelledby="seksi-folder">
         <div className="seksi-kepala">
           <h2 id="seksi-folder">Folder bookmark</h2>
@@ -225,7 +229,9 @@ export default async function Perpustakaan({
           </>
         )}
       </section>
+      </Reveal>
 
+      <Reveal>
       <section className="seksi" aria-labelledby="seksi-catatan">
         <div className="seksi-kepala">
           <h2 id="seksi-catatan">Catatan saya</h2>
@@ -310,7 +316,9 @@ export default async function Perpustakaan({
           </ul>
         )}
       </section>
+      </Reveal>
 
+      <Reveal>
       <section className="seksi" aria-labelledby="seksi-lanjutkan">
         <div className="seksi-kepala">
           <h2 id="seksi-lanjutkan">Lanjutkan membaca</h2>
@@ -358,7 +366,9 @@ export default async function Perpustakaan({
           </ul>
         )}
       </section>
+      </Reveal>
 
+      <Reveal>
       <section className="seksi" aria-labelledby="seksi-pencarian">
         <div className="seksi-kepala">
           <h2 id="seksi-pencarian">Pencarian tersimpan</h2>
@@ -411,6 +421,7 @@ export default async function Perpustakaan({
           </ul>
         )}
       </section>
+      </Reveal>
     </div>
   );
 }

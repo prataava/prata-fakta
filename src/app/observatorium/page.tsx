@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import GrafikInteraktif from "@/components/data/GrafikInteraktif";
+import ProgressScroll from "@/components/ProgressScroll";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import gaya from "./observatorium.module.css";
 import {
   getHitunganArtikel,
   getIndikatorPilihan,
@@ -220,19 +223,24 @@ export default async function Observatorium() {
 
   return (
     <div className="wadah">
-      <section className="hero" aria-labelledby="judul-observatorium">
-        <span className="hero-label">Observatorium</span>
-        <h1 id="judul-observatorium">Observatorium Data</h1>
-        <p>
-          Satu hub untuk melihat isi PRATA FAKTA dari sisi data:
-          indikator pilihan, hitungan artikel terbit, dan tren
-          ingestion. Semua angka dihitung langsung dari database dan
-          disertai satuan, sumber, dan tanggal — tanpa angka karangan.
-        </p>
-      </section>
+      {/* Progress gulir (Fase 4): scroll-linked hanya di /timeline
+          + /observatorium — tipis di atas, hanya transform. */}
+      <ProgressScroll label="Progress observatorium" />
+      <Reveal>
+        <section className="hero" aria-labelledby="judul-observatorium">
+          <span className="hero-label">Observatorium</span>
+          <h1 id="judul-observatorium">Observatorium Data</h1>
+          <p>
+            Satu hub untuk melihat isi PRATA FAKTA dari sisi data:
+            indikator pilihan, hitungan artikel terbit, dan tren
+            ingestion. Semua angka dihitung langsung dari database dan
+            disertai satuan, sumber, dan tanggal — tanpa angka karangan.
+          </p>
+        </section>
+      </Reveal>
 
       {/* (a) Indikator Pilihan — merakit /data, bukan menduplikasi. */}
-      <section className="seksi" aria-labelledby="judul-indikator">
+      <section className={`seksi ${gaya.kepalaRapi}`} aria-labelledby="judul-indikator">
         <div className="seksi-kepala">
           <h2 id="judul-indikator">
             <BarChart3
@@ -264,9 +272,10 @@ export default async function Observatorium() {
             }
           />
         ) : (
-          <div className="grid-berita">
+          <Stagger className="grid-berita">
             {indikatorPilihan.indikator.map(({ indikator, poin }) => (
-              <article className="kartu" key={indikator.id}>
+              <StaggerItem key={indikator.id} className={gaya.butir}>
+              <article className="kartu">
                 <span className="kartu-kategori">
                   {indikator.kategori}
                   {` · ${indikator.sumber_nama ?? "Sumber tidak tercatat"}`}
@@ -303,13 +312,14 @@ export default async function Observatorium() {
                   {` · Diperbarui: ${formatTanggal(indikator.tanggal_pembaruan)}`}
                 </span>
               </article>
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         )}
       </section>
 
       {/* (b) Hitungan Artikel — langsung dari DB. */}
-      <section className="seksi" aria-labelledby="judul-hitungan">
+      <section className={`seksi ${gaya.kepalaRapi}`} aria-labelledby="judul-hitungan">
         <div className="seksi-kepala">
           <h2 id="judul-hitungan">
             <Newspaper
@@ -334,7 +344,8 @@ export default async function Observatorium() {
               . Hitungan di bawah ini hanya mencakup artikel berstatus
               terbit; draf tidak dihitung.
             </p>
-            <div className="grid-berita">
+            <Stagger className="grid-berita">
+              <StaggerItem className={gaya.butir}>
               <article className="kartu">
                 <span className="kartu-kategori">Per kategori</span>
                 <span className="kartu-judul">Artikel terbit per kategori</span>
@@ -367,6 +378,8 @@ export default async function Observatorium() {
                   </div>
                 )}
               </article>
+              </StaggerItem>
+              <StaggerItem className={gaya.butir}>
               <article className="kartu">
                 <span className="kartu-kategori">Per status verifikasi</span>
                 <span className="kartu-judul">
@@ -393,6 +406,8 @@ export default async function Observatorium() {
                   </table>
                 </div>
               </article>
+              </StaggerItem>
+              <StaggerItem className={gaya.butir}>
               <article className="kartu">
                 <span className="kartu-kategori">Per sumber</span>
                 <span className="kartu-judul">Artikel terbit per sumber</span>
@@ -422,13 +437,14 @@ export default async function Observatorium() {
                   </div>
                 )}
               </article>
-            </div>
+              </StaggerItem>
+            </Stagger>
           </>
         )}
       </section>
 
       {/* (c) Tren Ingestion — dari pf_raw_items + pf_ingestion_runs. */}
-      <section className="seksi" aria-labelledby="judul-ingestion">
+      <section className={`seksi ${gaya.kepalaRapi}`} aria-labelledby="judul-ingestion">
         <div className="seksi-kepala">
           <h2 id="judul-ingestion">
             <Activity
@@ -457,7 +473,8 @@ export default async function Observatorium() {
               <strong>{formatHitungan(tren.totalItem, "item")}</strong>
               {` · ${formatHitungan(totalItemTren, "item")} item dalam ${tren.perHari.length} hari terakhir.`}
             </p>
-            <div className="grid-berita">
+            <Stagger className="grid-berita">
+              <StaggerItem className={gaya.butir}>
               <article className="kartu">
                 <span className="kartu-kategori">Per hari</span>
                 <span className="kartu-judul">
@@ -465,6 +482,8 @@ export default async function Observatorium() {
                 </span>
                 <GrafikBatangTren perHari={tren.perHari} />
               </article>
+              </StaggerItem>
+              <StaggerItem className={gaya.butir}>
               <article className="kartu">
                 <span className="kartu-kategori">Run terakhir</span>
                 <span className="kartu-judul">
@@ -506,13 +525,14 @@ export default async function Observatorium() {
                   </div>
                 )}
               </article>
-            </div>
+              </StaggerItem>
+            </Stagger>
           </>
         )}
       </section>
 
       {/* (d) Pintu ke Live / Riset / Peta — tautan saja. */}
-      <section className="seksi" aria-labelledby="judul-pintu">
+      <section className={`seksi ${gaya.kepalaRapi}`} aria-labelledby="judul-pintu">
         <div className="seksi-kepala">
           <h2 id="judul-pintu">
             <Database
@@ -523,7 +543,8 @@ export default async function Observatorium() {
             Jelajahi Lebih Dalam
           </h2>
         </div>
-        <div className="grid-berita">
+        <Stagger className="grid-berita">
+          <StaggerItem className={gaya.butir}>
           <Link className="kartu kartu-artikel" href="/data/live">
             <span className="kartu-kategori">Data Live</span>
             <span className="kartu-judul">Data Live</span>
@@ -533,6 +554,8 @@ export default async function Observatorium() {
             </span>
             <span className="kartu-meta">Buka Data Live →</span>
           </Link>
+          </StaggerItem>
+          <StaggerItem className={gaya.butir}>
           <Link className="kartu kartu-artikel" href="/riset">
             <span className="kartu-kategori">Riset</span>
             <span className="kartu-judul">Riset</span>
@@ -549,6 +572,8 @@ export default async function Observatorium() {
               Buka Riset →
             </span>
           </Link>
+          </StaggerItem>
+          <StaggerItem className={gaya.butir}>
           <Link className="kartu kartu-artikel" href="/peta">
             <span className="kartu-kategori">Peta</span>
             <span className="kartu-judul">Peta Peristiwa</span>
@@ -564,6 +589,8 @@ export default async function Observatorium() {
               Buka Peta →
             </span>
           </Link>
+          </StaggerItem>
+          <StaggerItem className={gaya.butir}>
           <Link className="kartu kartu-artikel" href="/data">
             <span className="kartu-kategori">Pusat Data</span>
             <span className="kartu-judul">Semua Indikator</span>
@@ -580,7 +607,8 @@ export default async function Observatorium() {
               Buka Pusat Data →
             </span>
           </Link>
-        </div>
+          </StaggerItem>
+        </Stagger>
       </section>
     </div>
   );

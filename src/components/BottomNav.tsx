@@ -3,6 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import {
+  Archive,
+  Grip,
+  Home,
+  LayoutGrid,
+  Newspaper,
+  User,
+  type LucideIcon,
+} from "lucide-react";
 import { t, type KunciBahasa } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
 
@@ -27,80 +36,17 @@ import { useBahasa } from "@/lib/useBahasa";
 //   item aktif dan indikator disembunyikan (opacity 0), BUKAN
 //   dipaksa ke Beranda. Posisi terakhir disimpan di ref agar
 //   kapsul tidak melompat ke 0 saat kembali.
-// - Ikon: SVG proyek (lucide-react TIDAK terinstal).
+// - Ikon: lucide-react (Fase 3 redesign — ganti SVG gambar tangan;
+//   satu stroke weight, satu bahasa visual).
 // - "Saya" = /saya (permukaan akun tunggal F-T2); /masuk dan
 //   /daftar juga memetakan ke "Saya". "Lainnya" = /jelajahi.
-const ITEMS = [
-  {
-    id: "beranda",
-    href: "/",
-    kunci: "nav.beranda" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M3 10.5 12 3l9 7.5V21h-6v-6h-6v6H3z" />
-      </svg>
-    ),
-  },
-  {
-    id: "kategori",
-    href: "/kategori",
-    kunci: "nav.kategori" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 11h7v9h-7zM4 14h7v6H4z" />
-      </svg>
-    ),
-  },
-  {
-    id: "arsip",
-    href: "/arsip",
-    kunci: "nav.arsip" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <rect x="3" y="4" width="18" height="5" rx="1" />
-        <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
-      </svg>
-    ),
-  },
-  {
-    id: "brief",
-    href: "/brief",
-    kunci: "nav.brief" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14l-4-3-4 3-4-3-4 3z" />
-      </svg>
-    ),
-  },
-  {
-    id: "saya",
-    href: "/saya",
-    kunci: "auth.saya" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 21a8 8 0 0 1 16 0" />
-      </svg>
-    ),
-  },
-  {
-    id: "lainnya",
-    href: "/jelajahi",
-    kunci: "nav.lainnya" as KunciBahasa,
-    ikon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <circle cx="5" cy="5" r="1.6" />
-        <circle cx="12" cy="5" r="1.6" />
-        <circle cx="19" cy="5" r="1.6" />
-        <circle cx="5" cy="12" r="1.6" />
-        <circle cx="12" cy="12" r="1.6" />
-        <circle cx="19" cy="12" r="1.6" />
-        <circle cx="5" cy="19" r="1.6" />
-        <circle cx="12" cy="19" r="1.6" />
-        <circle cx="19" cy="19" r="1.6" />
-      </svg>
-    ),
-  },
+const ITEMS: { id: string; href: string; kunci: KunciBahasa; ikon: LucideIcon }[] = [
+  { id: "beranda", href: "/", kunci: "nav.beranda", ikon: Home },
+  { id: "kategori", href: "/kategori", kunci: "nav.kategori", ikon: LayoutGrid },
+  { id: "arsip", href: "/arsip", kunci: "nav.arsip", ikon: Archive },
+  { id: "brief", href: "/brief", kunci: "nav.brief", ikon: Newspaper },
+  { id: "saya", href: "/saya", kunci: "auth.saya", ikon: User },
+  { id: "lainnya", href: "/jelajahi", kunci: "nav.lainnya", ikon: Grip },
 ];
 
 function indeksDariPath(pathname: string): number | null {
@@ -149,6 +95,7 @@ export default function BottomNav() {
         />
         {ITEMS.map((item, index) => {
           const isActive = aktif === index;
+          const Ikon = item.ikon;
           return (
             <Link
               key={item.id}
@@ -157,7 +104,7 @@ export default function BottomNav() {
               aria-current={isActive ? "page" : undefined}
             >
               <span className="prata-glass-icon" aria-hidden="true">
-                {item.ikon}
+                <Ikon size={22} strokeWidth={2} aria-hidden="true" />
               </span>
               <span className="prata-glass-label">{t(bahasa, item.kunci)}</span>
             </Link>

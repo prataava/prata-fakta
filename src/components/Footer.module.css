@@ -1,0 +1,15 @@
+/* Footer — poles visual Fase 4 (struktur isi TIDAK berubah).
+ * Garis aksen di atas footer + judul kolom huruf besar dengan
+ * tracking agar hierarki lebih tegas. Footer SELALU gelap di
+ * kedua mode — aksen memakai token tema yang terbaca di gelap.
+ * Hanya var(--token). */
+
+.kaki {
+  border-top: 3px solid var(--accent);
+}
+
+.kaki :global(h4) {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
+}

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
+import daftar from "@/components/admin/daftar-padat.module.css";
+import { Reveal } from "@/components/motion";
 import {
   getAdminSession,
   getChecklistPraTerbit,
@@ -11,6 +13,7 @@ import { getAlertAktif } from "@/lib/admin/alerts";
 import { formatWaktu } from "@/lib/admin/format";
 import { createClient } from "@/lib/supabase/server";
 import { cobaServiceClient } from "@/lib/supabase/service";
+import styles from "./page.module.css";
 
 export const metadata: Metadata = {
   title: "Command Center — Admin",
@@ -26,6 +29,17 @@ export const instant = false;
 function batas24Jam(): string {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
+
+// Level log terminal → kelas warna (token status yang sudah ada
+// dipetakan di CSS modul; "peringatan" belum dipakai halaman ini
+// tapi disediakan untuk baris mendatang dari data yang sama).
+type LevelTerminal = "ok" | "galat" | "peringatan" | "info";
+const KELAS_LEVEL_TERMINAL: Record<LevelTerminal, string> = {
+  ok: styles.logLevelOk,
+  galat: styles.logLevelGalat,
+  peringatan: styles.logLevelPeringatan,
+  info: styles.logLevelInfo,
+};
 
 export default async function AdminCommandCenter() {
   const sesi = await getAdminSession();
@@ -113,14 +127,87 @@ export default async function AdminCommandCenter() {
   const agenGagal = ops.kinerja.per_agen.reduce((a, p) => a + p.gagal, 0);
   const ingestionTerakhir = ops.ingestion_terakhir[0] ?? null;
 
+  // Log pipeline gaya terminal (Fase 4, visual saja): baris-baris
+  // diturunkan dari data yang SUDAH diambil halaman ini (jobs,
+  // galat terbaru, ingestion terakhir) — tanpa query baru, tanpa
+  // ubah logika pemicu/penjadwalan apa pun.
+  type BarisTerminal = {
+    waktu: string | null;
+    level: LevelTerminal;
+    teks: string;
+  };
+  const barisTerminal: BarisTerminal[] = [
+    ...semuaJob.map(
+      (j): BarisTerminal => ({
+        waktu: j.terakhir_jalan,
+        level:
+          j.status_terakhir === "gagal"
+            ? "galat"
+            : j.status_terakhir === "berhasil"
+              ? "ok"
+              : "info",
+        teks: `job ${j.nama} — ${j.status_terakhir}${j.error_terakhir ? ` — ${j.error_terakhir}` : ""}`,
+      }),
+    ),
+    ...(galat ?? []).map(
+      (g): BarisTerminal => ({
+        waktu: g.dibuat_pada,
+        level: "galat",
+        teks: `${g.sumber ?? "sistem"}: ${g.pesan ?? "galat tanpa pesan"}${g.rute ? ` (${g.rute})` : ""}`,
+      }),
+    ),
+    ...ops.ingestion_terakhir.slice(0, 3).map(
+      (r): BarisTerminal => ({
+        waktu: r.dimulai_pada,
+        level: r.status === "gagal" ? "galat" : "ok",
+        teks: `ingestion ${r.sumber_nama ?? "—"} — ${r.baru} baru / ${r.ditemukan} ditemukan / ${r.gagal} gagal`,
+      }),
+    ),
+  ];
+  const adaGalatTerminal = barisTerminal.some((b) => b.level === "galat");
+
   return (
-    <>
+    <Reveal>
       <p className="artikel-meta-kecil">
         Satu layar operasi — semua angka di sini berasal dari bukti
         eksekusi aktual (bukan badge hijau dari keberadaan
         workflow). Tiap panel menautkan ke halaman detailnya.
         &quot;—&quot; berarti data tidak dapat dibaca, bukan nol.
       </p>
+
+      {/* Log pipeline gaya terminal (Cerebrium): job + galat +
+          ingestion terbaru, satu baris per peristiwa. */}
+      <section className={styles.terminal} aria-label="Log pipeline">
+        <div className={styles.terminalBar}>
+          <span
+            className={`${styles.dot} ${adaGalatTerminal ? styles.dotGalat : styles.dotOk}`}
+            aria-hidden="true"
+          />
+          <span>pipeline — log langsung</span>
+          <span>{barisTerminal.length} baris</span>
+        </div>
+        {barisTerminal.length === 0 ? (
+          <p className={styles.logKosong}>
+            Belum ada baris log — job, galat, dan ingestion belum tercatat.
+          </p>
+        ) : (
+          <ol className={styles.log}>
+            {barisTerminal.map((b, i) => (
+              <li key={i} className={styles.logBaris}>
+                <span className={styles.logWaktu}>
+                  {formatWaktu(b.waktu)}
+                </span>
+                <span
+                  className={`${styles.logLevel} ${KELAS_LEVEL_TERMINAL[b.level]}`}
+                >
+                  {b.level}
+                </span>
+                <span>{b.teks}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
 
       {/* 1. System Health */}
       <section className="seksi" aria-labelledby="judul-sehat">
@@ -134,13 +221,46 @@ export default async function AdminCommandCenter() {
             pesan="Ringkasan ops tidak tersedia — periksa koneksi atau izin baca staf."
           />
         ) : (
-          <p className="artikel-meta-kecil">
-            Database: {ops.db_ms !== null ? `${ops.db_ms} ms` : "—"} ·
-            Job gagal: {jobGagal.length} dari {semuaJob.length} (
-            {jobGagal.map((j) => j.nama).join(", ") || "tidak ada"}) ·
-            Alert aktif: {alert.length} · Galat terbaru:{" "}
-            {galat === null ? "—" : galat.length}
-          </p>
+          <>
+            <ul className={styles.chipStrip}>
+              <li className={styles.chip}>
+                Database{" "}
+                <strong>
+                  {ops.db_ms !== null ? `${ops.db_ms} ms` : "—"}
+                </strong>
+              </li>
+              <li
+                className={
+                  jobGagal.length > 0
+                    ? `${styles.chip} ${styles.chipGalat}`
+                    : `${styles.chip} ${styles.chipOk}`
+                }
+              >
+                Job gagal{" "}
+                <strong>
+                  {jobGagal.length} dari {semuaJob.length}
+                </strong>
+              </li>
+              <li
+                className={
+                  alert.length > 0
+                    ? `${styles.chip} ${styles.chipPeringatan}`
+                    : styles.chip
+                }
+              >
+                Alert aktif <strong>{alert.length}</strong>
+              </li>
+              <li className={styles.chip}>
+                Galat terbaru{" "}
+                <strong>{galat === null ? "—" : galat.length}</strong>
+              </li>
+            </ul>
+            {jobGagal.length > 0 && (
+              <p className="artikel-meta-kecil">
+                Job gagal: {jobGagal.map((j) => j.nama).join(", ")}
+              </p>
+            )}
+          </>
         )}
       </section>
 
@@ -201,26 +321,17 @@ export default async function AdminCommandCenter() {
             pesan="Daftar job tidak tersedia."
           />
         ) : (
-          <div className="tabel-gulir">
-            <table className="tabel-data">
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th>Terakhir jalan</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {semuaJob.map((j) => (
-                  <tr key={j.nama}>
-                    <td>{j.nama}</td>
-                    <td>{formatWaktu(j.terakhir_jalan)}</td>
-                    <td>{j.status_terakhir}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className={daftar.daftar}>
+            {semuaJob.map((j) => (
+              <li key={j.nama} className={daftar.baris}>
+                <span className={daftar.judul}>{j.nama}</span>
+                <span className={daftar.meta}>
+                  {formatWaktu(j.terakhir_jalan)}
+                </span>
+                <span className={daftar.meta}>{j.status_terakhir}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -266,6 +377,6 @@ export default async function AdminCommandCenter() {
             : "—"}
         </p>
       </section>
-    </>
+    </Reveal>
   );
 }

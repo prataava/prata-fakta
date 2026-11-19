@@ -11,8 +11,12 @@
    Mode: DUA — terang kertas arsip (default identitas) + gelap
    karbon slate kontras tinggi.
    Permukaan SOLID tajam, tanpa glassmorphism: tidak ada
-   backdrop-filter / gradien warna di luar blok BottomNav
-   (dock mobile dibekukan 16 Nov 2026 — JANGAN disentuh).
+   backdrop-filter / gradien warna di luar blok BottomNav.
+   FASE 3 (19 Nov 2026, mandat redesign + REDESIGN_DECISION §3.6):
+   kaca NYATA diizinkan HANYA untuk BottomNav/header/palette/
+   popover lewat token --glass-* (nilai translusen + blur di
+   motion.css) — .kaca/.kaca-kartu TETAP solid; struktur dan
+   mekanisme dock (SATU indikator bergerak) TIDAK berubah.
    ============================================================ */
 
 :root {
@@ -36,9 +40,11 @@
   --ink: #111315;
   --ink-2: #33383d;
   --muted: #565d64; /* ≥4.5:1 di atas --surface dan --bg */
-  --glass-bg: #ffffff; /* Swiss: solid (nama dipertahankan agar
-    17 pemakai tidak berubah; bukan lagi kaca transparan) */
-  --glass-border: #e3e0d8; /* Swiss: garis solid 1px */
+  --glass-bg: rgba(255, 255, 255, 0.82); /* Fase 3: kaca NYATA
+    translusen (bukan lagi solid) — permukaan kaca wajib pakai
+    backdrop-filter var(--glass-blur) dari motion.css; fallback
+    solid di prefers-reduced-transparency / tanpa backdrop-filter */
+  --glass-border: rgba(255, 255, 255, 0.65); /* tepi highlight kaca */
   --accent: #b91c1c; /* crimson editorial */
   --accent-ink: #ffffff;
   --danger: #b3261e;
@@ -70,8 +76,8 @@
   --ink-2: #c9cdd2;
   --muted: #a9b1b8; /* ≥4.5:1 di atas --surface dan --bg */
   --border: rgba(255, 255, 255, 0.14);
-  --glass-bg: #171b1e; /* Swiss: solid */
-  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-bg: rgba(23, 27, 30, 0.78); /* Fase 3: kaca NYATA gelap */
+  --glass-border: rgba(255, 255, 255, 0.22); /* tepi highlight kaca */
   --accent: #f87171; /* crimson terang — teks aman di karbon */
   --accent-ink: #111315;
   --danger: #fca5a5;
@@ -1304,7 +1310,7 @@ a.kartu:hover {
   height: 68px;
   overflow: visible;
   isolation: isolate;
-  border: 1px solid rgba(225, 235, 255, 0.2);
+  border: 1px solid var(--glass-border-highlight);
   border-radius: 34px;
   background:
     linear-gradient(
@@ -1313,8 +1319,11 @@ a.kartu:hover {
       rgba(255, 255, 255, 0.015)
     ),
     rgba(9, 13, 23, 0.76);
-  backdrop-filter: blur(25px) saturate(155%);
-  -webkit-backdrop-filter: blur(25px) saturate(155%);
+  /* Kaca NYATA Fase 3 — nilai blur kini dari token
+   * --glass-blur-dock (motion.css); nilai visual sama
+   * (blur 25px saturate 1.55), struktur dock tidak berubah. */
+  backdrop-filter: var(--glass-blur-dock);
+  -webkit-backdrop-filter: var(--glass-blur-dock);
   box-shadow:
     0 12px 35px rgba(0, 0, 0, 0.38),
     inset 0 1px 1px rgba(255, 255, 255, 0.18),
@@ -1474,7 +1483,8 @@ a.kartu:hover {
   text-overflow: ellipsis;
   transition:
     color 240ms ease,
-    font-weight 240ms ease;
+    font-weight 240ms ease,
+    transform 240ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 /* Active: ikon + label putih terang (sesuai referensi) */
@@ -1490,6 +1500,8 @@ a.kartu:hover {
 .prata-glass-item.is-active .prata-glass-label {
   color: #ffffff;
   font-weight: 700;
+  /* Animasi label aktif Fase 3: naik halus 1px bersama ikon. */
+  transform: translateY(-1px);
 }
 
 /* Touch feedback */

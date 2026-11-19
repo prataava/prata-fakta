@@ -9,6 +9,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import TombolCari from "@/components/TombolCari";
 import { TombolPalette } from "@/components/CommandPalette";
 import { bacaPemeliharaan } from "@/lib/scheduler/flags";
+import gaya from "./Header.module.css";
 
 // Banner pemeliharaan (Tahap 13C): membaca flag mode_pemeliharaan
 // dari Supabase — akses data runtime yang TIDAK BOLEH menghalangi
@@ -49,7 +50,7 @@ export default function Header() {
       <Suspense fallback={null}>
         <BannerPemeliharaan />
       </Suspense>
-      <header className="header">
+      <header className={`header ${gaya.masthead}`}>
       <PelacakKunjungan />
       <div className="wadah">
         <div className="header-atas">
@@ -71,7 +72,7 @@ export default function Header() {
           </div>
         </div>
       </div>
-      <div className="header-subbar">
+      <div className={`header-subbar ${gaya.subbar}`}>
         <div className="wadah">
           <HeaderNav />
         </div>

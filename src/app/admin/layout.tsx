@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAdminSession } from "@/lib/admin/data";
 import NavAdmin from "@/components/admin/NavAdmin";
-import AdminJudul from "@/components/admin/AdminJudul";
+import AdminTopbar from "@/components/admin/AdminTopbar";
+import styles from "./layout.module.css";
 
 export const metadata: Metadata = {
   title: "Dashboard Admin",
@@ -32,27 +33,19 @@ export default async function AdminLayout({
     redirect("/");
   }
 
+  // Shell Linear (Fase 4 redesign): sidebar + command bar di atas
+  // kolom utama. Judul dinamis tetap lewat AdminJudul (F-R1) di
+  // dalam AdminTopbar — satu <h1> per halaman.
   return (
-    <div className="wadah">
-      <section className="hero" aria-labelledby="judul-admin">
-        <span className="hero-label">Redaksi</span>
-        {/* F-R1: satu <h1> per halaman — judul dinamis dari halaman
-            yang sedang dibuka (AdminJudul), bukan "Dashboard Admin"
-            yang sama untuk semua halaman. */}
-        <AdminJudul />
-        <p>
-          Kelola artikel, antrean review, laporan koreksi, pengguna, dan
-          sistem PRATA FAKTA.
-        </p>
-        <p className="artikel-meta-kecil">
-          Masuk sebagai {sesi.email ?? "pengguna staf"} · Role:{" "}
-          {sesi.roles.join(", ")}
-        </p>
-      </section>
-
+    <div className={styles.shell}>
       <NavAdmin />
-
-      {children}
+      <div className={styles.kolom}>
+        <AdminTopbar
+          email={sesi.email ?? "pengguna staf"}
+          roles={sesi.roles}
+        />
+        <div className="wadah">{children}</div>
+      </div>
     </div>
   );
 }

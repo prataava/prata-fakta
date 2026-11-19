@@ -1,0 +1,156 @@
+/* PRATA FAKTA — Sidebar admin gaya Linear (Fase 4 redesign).
+ * Hanya dipakai NavAdmin. Semua warna lewat var(--token);
+ * sidebar menempel penuh tinggi viewport di desktop, disembunyikan
+ * di mobile (navigasi pindah ke Drawer lewat TombolMenuAdmin). */
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  width: 264px;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 18px 12px 24px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.merek {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.merekNama {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.merekSub {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.grup {
+  margin-bottom: 18px;
+}
+
+.labelGrup {
+  display: block;
+  padding: 0 10px 6px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.daftar {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tautan {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition:
+    background-color var(--motion-cepat, 120ms) ease,
+    color var(--motion-cepat, 120ms) ease;
+}
+
+.tautan:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.tautan svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.tautanAktif {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.tautanAktif svg {
+  color: var(--accent);
+}
+
+.kembali {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.kembali:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+/* Tombol hamburger — hanya tampil di mobile (di dalam topbar). */
+.tombolMenu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.tombolMenu:hover {
+  background: var(--surface-2);
+}
+
+/* Isi drawer mobile: daftar nav yang sama, tanpa bingkai sidebar. */
+.isiDrawer {
+  padding-bottom: 8px;
+}
+
+@media (max-width: 899px) {
+  .sidebar {
+    display: none;
+  }
+
+  .tombolMenu {
+    display: inline-flex;
+  }
+}
