@@ -21,7 +21,7 @@ const MAKS_TREN = 5;
 const MAKS_ARTIKEL = 5;
 const MAKS_LAINNYA = 5;
 
-export type SaranCari = {
+type SaranCari = {
   teks: string;
   jenis: "tren" | "artikel" | "kategori" | "negara" | "sumber";
   url: string;

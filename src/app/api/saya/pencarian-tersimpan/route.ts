@@ -7,6 +7,10 @@ import {
   tolakAkunNonaktif,
 } from "@/lib/ai/route-auth";
 import { catatGalatRoute } from "@/lib/analytics/galat";
+import {
+  MAX_PENCARIAN_TERSIMPAN,
+  type PencarianTersimpan,
+} from "@/lib/perpustakaan";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // GET /api/saya/pencarian-tersimpan → pencarian tersimpan milik sendiri.
@@ -21,18 +25,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // (401 bila tidak). Rate limit 30/menit. 503 jujur bila tabel/kolom
 // belum ada (migrasi v18 belum dijalankan).
 const batasi = buatRateLimiter(30);
-
-// Batas usulan rencana P0 — bisa diubah di satu tempat.
-export const MAX_PENCARIAN_TERSIMPAN = 10;
-
-export type PencarianTersimpan = {
-  q: string;
-  dari: string | null;
-  sampai: string | null;
-  sumber: string | null;
-  status: string | null;
-  disimpan_pada: string;
-};
 
 const STATUS_VALID = new Set([
   "VERIFIED",
