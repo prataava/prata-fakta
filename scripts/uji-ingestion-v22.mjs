@@ -10,10 +10,8 @@
 // Jalankan:
 //   node --experimental-strip-types --import /tmp/pf-register.mjs scripts/uji-ingestion-v22.mjs
 import fs from "node:fs";
-import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 import { jalankanIngestion } from "../src/lib/ingestion/engine.ts";
 import {

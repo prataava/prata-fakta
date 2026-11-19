@@ -39,7 +39,6 @@
 //   preferensi default, pencocokan topik via SQL setara) +
 //   asersi sumber bahwa hook terpanggil di jalur kejadian.
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import {
   createPrivateKey,
   createPublicKey,
@@ -48,8 +47,7 @@ import {
   verify,
 } from "node:crypto";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 const DIR_MIGRASI = new URL("../supabase/migrations/", import.meta.url).pathname;
 const DIR_REPO = new URL("../", import.meta.url).pathname;

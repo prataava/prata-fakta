@@ -6,10 +6,8 @@
 // Keluar 0 bila semua asersi lolos, 1 bila ada yang gagal.
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 
-const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = requirePglite("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 import { tentukanKeputusanVerifikasi } from "../src/lib/ai/verification.ts";
 import { hitungFactScore } from "../src/lib/fact-score.ts";
 

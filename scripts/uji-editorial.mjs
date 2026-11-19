@@ -18,10 +18,8 @@
 // Keluar 0 bila semua asersi lolos, 1 bila ada yang gagal.
 import fs from "node:fs";
 import { execFile } from "node:child_process";
-import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 
 import { jalankanIngestion } from "../src/lib/ingestion/engine.ts";
 import { polaPencarianInti } from "../src/lib/ai/research.ts";

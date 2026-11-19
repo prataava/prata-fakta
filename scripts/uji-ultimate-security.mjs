@@ -50,8 +50,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = require("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 const requireRepo = createRequire(new URL("../package.json", import.meta.url).pathname);
 const ts = requireRepo("typescript");
 const ssr = requireRepo("@supabase/ssr");

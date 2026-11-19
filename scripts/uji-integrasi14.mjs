@@ -11,8 +11,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 // §F (Tahap F): PGlite + fungsi murni + gate editorial asli.
-const requirePglite = createRequire("/tmp/pf-sqlcheck/package.json");
-const { PGlite } = requirePglite("@electric-sql/pglite");
+import { PGlite } from "./butuh-pglite.mjs";
 const requireRepo = createRequire(
   new URL("../package.json", import.meta.url).pathname,
 );

@@ -38,7 +38,7 @@ import http from "node:http";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/pf-sqlcheck/package.json");
+const require = createRequire(new URL("../package.json", import.meta.url).pathname);
 const { PGlite } = require("@electric-sql/pglite");
 const requireRepo = createRequire(
   new URL("../package.json", import.meta.url).pathname,
