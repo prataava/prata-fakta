@@ -1,12 +1,22 @@
-/* Beranda (Fase 4) — hanya var(--token).
- * .heroRingkas: pernyataan merek tetap ada tapi ringkas agar
- * hero foto-led yang mendominasi pandangan pertama.
+/* Beranda — hanya var(--token).
+ * .heroRingkas: pernyataan merek ringkas — sejak muka baru
+ * (20 Nov 2026) hanya tampil bila belum ada artikel sama
+ * sekali (layar pertama normal = bilah TERKINI + hero
+ * sinematik).
+ * .sorotan: 2 kartu fitur besar bertumpuk tepat di bawah
+ * hero sinematik.
  * .butir: butir Stagger di dalam grid — kartu mengisi penuh
  * tinggi baris agar kartu sebaris sama tinggi. */
 
 .heroRingkas h1 {
   font-size: clamp(1.5rem, 3.2vw, 2.1rem);
   max-width: 640px;
+}
+
+.sorotan {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
 }
 
 .butir {
