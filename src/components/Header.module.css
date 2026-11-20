@@ -1,7 +1,10 @@
-/* Header — poles masthead Fase 4 (struktur isi TIDAK berubah).
- * Masthead memakai kaca nyata (token Fase 3 — header ada dalam
- * daftar permukaan kaca yang diizinkan); sub-bar diberi permukaan
- * kedua agar hierarki baris atas vs navigasi lebih tegas.
+/* Header — masthead KORAN (muka baru, 20 Nov 2026).
+ * Struktur isi TIDAK berubah (SearchBar, aksi, nav sama);
+ * yang berubah: strip meta tanggal+tagline, wordmark jauh
+ * lebih besar, dan susunan baris — bertumpuk di bawah
+ * 1200px, sebaris (cari | wordmark | aksi) di ≥1200px.
+ * Masthead memakai kaca nyata (token Fase 3 — header ada
+ * dalam daftar permukaan kaca yang diizinkan).
  * Hanya var(--token). */
 
 .masthead {
@@ -9,12 +12,115 @@
   backdrop-filter: var(--glass-blur);
 }
 
-.masthead :global(.logo-nama) {
-  font-size: 1.55rem;
+/* Strip meta: tanggal (kiri) + tagline (kanan) — hanya
+ * tampil bila ada ruang (≥1024px). */
+.stripMeta {
+  display: none;
 }
 
-.masthead :global(.logo-tag) {
-  font-size: 0.78rem;
+@media (min-width: 1024px) {
+  .stripMeta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
+
+.stripTagline {
+  font-weight: 600;
+}
+
+/* Wordmark raksasa ala koran/majalah (dulu 1.55rem). */
+.masthead :global(.logo-nama) {
+  font-size: clamp(2.05rem, 4.6vw, 3.3rem);
+  line-height: 1.02;
+  letter-spacing: 0.01em;
+}
+
+/* Susunan bertumpuk (<1200px): wordmark sebaris penuh di
+ * tengah; aksi sebaris penuh di bawahnya. Di HP kotak cari
+ * tetap tersembunyi sampai dibuka (aturan .cari-terbuka di
+ * globals.css berlaku, order 3). */
+.masthead :global(.header-atas) {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 8px;
+  padding: 12px 0;
+}
+
+.masthead :global(.logo) {
+  flex: 1 1 100%;
+  align-items: center;
+  text-align: center;
+}
+
+.masthead :global(.header-aksi) {
+  flex: 1 1 100%;
+  margin-left: 0;
+  justify-content: center;
+}
+
+/* ≥768px: urutan baris wordmark → aksi → cari; kotak cari
+ * sebaris penuh (maks 560px) di tengah. */
+@media (min-width: 768px) {
+  .masthead :global(.logo) {
+    order: 1;
+  }
+
+  .masthead :global(.header-aksi) {
+    order: 2;
+  }
+
+  .masthead :global(.header-cari) {
+    order: 3;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+}
+
+/* ≥1200px: sebaris koran — cari kiri, wordmark tengah,
+ * aksi kanan (grid 3 kolom, kolom tepi seimbang agar
+ * wordmark benar-benar di tengah). */
+@media (min-width: 1200px) {
+  .masthead :global(.header-atas) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .masthead :global(.header-cari) {
+    grid-column: 1;
+    order: 0;
+    flex: none;
+    justify-self: start;
+    width: min(300px, 100%);
+    max-width: none;
+    margin: 0;
+  }
+
+  .masthead :global(.logo) {
+    grid-column: 2;
+    order: 0;
+    flex: none;
+    justify-self: center;
+  }
+
+  .masthead :global(.header-aksi) {
+    grid-column: 3;
+    order: 0;
+    flex: none;
+    justify-self: end;
+    margin-left: 0;
+  }
 }
 
 .subbar {

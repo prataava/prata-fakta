@@ -37,6 +37,33 @@
   }
 }
 
+/* Varian sinema (muka baru): pembungkus absolut memenuhi
+ * induk hero; gambar menutup seluruh area (cover, tanpa rasio
+ * tetap, tanpa radius/border kartu). Latar midnight selama
+ * memuat agar hero tidak pernah putih kosong. */
+.pembungkusSinema {
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+  background: var(--midnight);
+}
+
+.pembungkusSinema img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border: none;
+  border-radius: 0;
+}
+
+/* Skeleton di dalam hero sinematik ikut gelap (bukan kotak
+ * terang di atas panggung gelap). */
+.pembungkusSinema .kerangka {
+  background: var(--midnight);
+  color: var(--teks-di-gelap-redup);
+}
+
 /* Lapisan skeleton: menutup gambar sampai onLoad/onError.
  * Statis (tanpa shimmer) — gambar eksternal bisa lambat dan
  * shimmer berulang justru mengganggu. */

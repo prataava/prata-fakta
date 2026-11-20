@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import TanggalHariIni from "@/components/TanggalHariIni";
 import SearchBar from "@/components/SearchBar";
 import AuthArea from "@/components/AuthArea";
 import HeaderNav from "@/components/HeaderNav";
@@ -36,14 +37,19 @@ async function BannerPemeliharaan() {
   );
 }
 
-// Header (server component) — masthead Swiss (17 Nov 2026):
-// baris atas (logo + cari + aksi) + sub-bar navigasi berbatas
-// 1px (.header-subbar, lebar penuh, isi dalam .wadah).
-// Struktur isi TIDAK berubah: SearchBar, ThemeToggle,
+// Header (server component) — masthead KORAN (muka baru,
+// 20 Nov 2026): strip meta tipis (tanggal kiri + tagline
+// kanan, desktop) + wordmark RAKSASA di tengah + sub-bar
+// navigasi berbatas 1px (.header-subbar, lebar penuh, isi
+// dalam .wadah). Susunan baris diatur Header.module.css:
+// bertumpuk (wordmark / cari / aksi) di bawah 1200px,
+// sebaris (cari | wordmark | aksi) di ≥1200px.
+// Fungsi TIDAK berubah: SearchBar, ThemeToggle,
 // NotifikasiBadge, AuthArea, PelacakKunjungan, HeaderNav
 // semuanya client component atau statis, sehingga shell-nya
 // bisa di-prerender. Satu-satunya akses data runtime (banner)
-// sudah di dalam Suspense.
+// sudah di dalam Suspense. Tagline pindah dari bawah wordmark
+// ke strip meta (teksnya sama persis).
 export default function Header() {
   return (
     <>
@@ -53,12 +59,17 @@ export default function Header() {
       <header className={`header ${gaya.masthead}`}>
       <PelacakKunjungan />
       <div className="wadah">
+        <div className={gaya.stripMeta}>
+          <TanggalHariIni />
+          <span className={gaya.stripTagline}>
+            Pahami dunia. Berdasarkan fakta.
+          </span>
+        </div>
         <div className="header-atas">
           <Link href="/" className="logo" aria-label="PRATA FAKTA — Beranda">
             <span className="logo-nama">
               PRATA <em>FAKTA</em>
             </span>
-            <span className="logo-tag">Pahami dunia. Berdasarkan fakta.</span>
           </Link>
           <div className="header-cari">
             <SearchBar />

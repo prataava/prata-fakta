@@ -1,0 +1,101 @@
+/* BilahTerkini — strip gelap TERKINI (muka baru).
+ * Full-bleed keluar dari .wadah (pola sama dengan hero
+ * sinematik). Hanya var(--token); gerak hanya transform. */
+
+.bilah {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  display: flex;
+  align-items: stretch;
+  background: var(--strip-gelap);
+  color: var(--teks-di-gelap);
+  overflow: hidden;
+}
+
+.label {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+}
+
+.viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 4%,
+    black 96%,
+    transparent
+  );
+}
+
+.jalur {
+  display: flex;
+  width: max-content;
+  animation: bilahTerkiniJalan 55s linear infinite;
+}
+
+.bilah:hover .jalur {
+  animation-play-state: paused;
+}
+
+.trek {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.butir {
+  color: var(--teks-di-gelap);
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  padding: 10px 0;
+}
+
+.butir:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.butir::after {
+  content: "•";
+  margin: 0 16px;
+  color: var(--accent);
+}
+
+@keyframes bilahTerkiniJalan {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jalur {
+    animation: none;
+  }
+
+  .trekDuplikat {
+    display: none;
+  }
+
+  .viewport {
+    overflow-x: auto;
+    mask-image: none;
+  }
+}

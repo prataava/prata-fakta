@@ -16,20 +16,26 @@ export default function GambarArtikel({
   fitur,
   varian,
   prioritas,
+  onGagal,
 }: {
   src: string;
   alt: string;
   /** Kartu fitur (Beranda): gambar memenuhi tinggi kartu. */
   fitur?: boolean;
-  /** "hero": rasio lebar 21:9 di desktop (hero beranda). */
-  varian?: "kartu" | "hero";
+  /** "hero": rasio lebar 21:9 di desktop (hero beranda lama).
+   * "sinema": pembungkus absolut memenuhi induk (hero sinematik
+   * muka baru — foto layar penuh di belakang gradasi + judul). */
+  varian?: "kartu" | "hero" | "sinema";
   /** Gambar utama halaman (LCP): muat segera, bukan lazy. */
   prioritas?: boolean;
+  /** Dipanggil bila gambar GAGAL dimuat (mis. hero sinematik
+   * beralih ke fallback blok gelap). Opsional. */
+  onGagal?: () => void;
 }) {
   const [muat, setMuat] = useState(false);
   return (
     <span
-      className={`${gaya.pembungkus}${fitur ? ` ${gaya.pembungkusFitur}` : ""}${varian === "hero" ? ` ${gaya.pembungkusHero}` : ""}`}
+      className={`${gaya.pembungkus}${fitur ? ` ${gaya.pembungkusFitur}` : ""}${varian === "hero" ? ` ${gaya.pembungkusHero}` : ""}${varian === "sinema" ? ` ${gaya.pembungkusSinema}` : ""}`}
     >
       {!muat && (
         <span className={gaya.kerangka} aria-hidden="true">
@@ -46,7 +52,10 @@ export default function GambarArtikel({
         loading={prioritas ? "eager" : "lazy"}
         decoding="async"
         onLoad={() => setMuat(true)}
-        onError={() => setMuat(true)}
+        onError={() => {
+          setMuat(true);
+          onGagal?.();
+        }}
         style={{ opacity: muat ? 1 : 0 }}
       />
     </span>

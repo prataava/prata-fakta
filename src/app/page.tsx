@@ -4,7 +4,9 @@ import EmptyState from "@/components/EmptyState";
 import TanggalHariIni from "@/components/TanggalHariIni";
 import NewsletterForm from "@/components/NewsletterForm";
 import KartuArtikel from "@/components/artikel/KartuArtikel";
+import DaftarTerbaca from "@/components/artikel/DaftarTerbaca";
 import HeroUtama from "@/components/artikel/HeroUtama";
+import BilahTerkini from "@/components/BilahTerkini";
 import MarqueeSumber from "@/components/MarqueeSumber";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { KATEGORI_UTAMA } from "@/lib/categories";
@@ -19,16 +21,19 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import gaya from "./beranda.module.css";
 
-// Beranda PRATA FAKTA — V3 Fase 9 (17 Nov 2026).
-// Komposisi editorial: hero ringkas → berita (bila ada) → strip
-// jelajah → kategori → populer → rekomendasi → newsletter.
-// ATURAN KOSONG: bila belum ada artikel SAMA SEKALI, seluruh seksi
-// berita disembunyikan dan diganti SATU empty state ringkas yang
-// elegan (bukan 5–7 empty state raksasa). Seksi tanpa data tidak
-// pernah menampilkan angka/artikel karangan. Strip "Jelajahi lebih
-// jauh" berisi tautan navigasi ke fitur yang benar-benar ada
-// (bukan klaim data): Daily Brief, Fakta & Mitos, Data & Statistik,
-// Data Live (API publik langsung — berfungsi hari ini).
+// Beranda PRATA FAKTA — MUKA BARU (20 Nov 2026).
+// Komposisi layar pertama dirombak total dari Fase 4 (pengguna
+// menilai redesign sebelumnya "sama aja"): bilah TERKINI gelap
+// tepat di bawah masthead → hero SINEMATIK layar penuh (foto
+// berita utama + judul serif raksasa menimpa foto) → marquee
+// sumber tier-1 → Sorotan (2 kartu fitur besar) → Berita
+// Terbaru → Indonesia → Dunia → strip jelajah → kategori →
+// Paling Banyak Dibaca (daftar bernomor dari data baca nyata)
+// → rekomendasi → newsletter. Pernyataan merek lama pindah ke
+// masthead (tanggal + tagline di Header); blok teks hero lama
+// hanya tampil bila BELUM ada artikel sama sekali.
+// ATURAN KOSONG tetap: seksi tanpa data tidak tampil; tidak
+// ada angka/artikel karangan di mana pun.
 
 // Beranda membaca sesi pengguna (untuk Rekomendasi Personal) — rute
 // diblokir di server per request (pola resmi cacheComponents).
@@ -90,73 +95,100 @@ export default async function Beranda() {
   const adaArtikel = terbaru.length > 0;
   const utama = terbaru[0];
   const terbaruLain = terbaru.slice(1);
+  // Sorotan: 2 berita berikutnya sebagai kartu fitur BESAR tepat
+  // di bawah hero; sisanya masuk grid Berita Terbaru.
+  const sorotan = terbaruLain.slice(0, 2);
+  const terbaruSisa = terbaruLain.slice(2);
 
   return (
     <div className="wadah">
-      {/* Hero foto-led (Fase 4): pernyataan merek ringkas +
-          berita utama dengan gambar besarnya + marquee sumber
-          tier-1. Kotak cari hero DIHAPUS (audit: 3 kotak cari
-          → 2 — tersisa SearchBar header + Command Palette). */}
-      <section className={`hero ${gaya.heroRingkas}`} aria-labelledby="hero-judul">
-        <span className="hero-label">Berita · Fakta · Data</span>
-        <h1 id="hero-judul">
-          Pahami dunia. Berdasarkan <em>fakta</em>.
-        </h1>
-        <p>
-          Berita terkini Indonesia dan dunia dengan sumber yang jelas,
-          pemeriksaan fakta yang ketat, serta data dan kronologi yang dapat
-          diperiksa. Tanpa clickbait, tanpa kabar karangan.
-        </p>
-        <p style={{ fontSize: "0.9rem" }}>
-          <TanggalHariIni awalan="Hari ini: " />
-        </p>
-        <div className="hero-cta">
-          <Link className="tombol tombol-primer" href="/brief">
-            Baca Daily Brief
-          </Link>
-          <Link className="tombol tombol-hantu" href="/kategori">
-            Jelajahi Kategori
-          </Link>
-        </div>
-        {adaArtikel && utama && <HeroUtama artikel={utama} />}
-        <MarqueeSumber namaSumber={sumberTier1} />
-      </section>
-
-      {!adaArtikel ? (
-        <section className="seksi" aria-label="Belum ada artikel">
-          <EmptyState
-            judul="Belum ada artikel yang diterbitkan"
-            pesan="Redaksi sedang menyiapkan artikel pertama. Setiap artikel melewati pemeriksaan sumber dan verifikasi editorial sebelum tampil di sini — tidak ada berita yang diterbitkan tanpa bukti."
-            aksi={
-              <span
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  justifyContent: "center",
-                  marginTop: 14,
-                }}
-              >
-                <Link className="tombol tombol-primer" href="/kategori">
-                  Jelajahi Kategori
-                </Link>
-                <Link className="tombol tombol-hantu" href="/data/live">
-                  Lihat Data Live
-                </Link>
-                {pengguna == null && (
-                  <Link className="tombol tombol-hantu" href="/daftar">
-                    Buat akun gratis
-                  </Link>
-                )}
-              </span>
-            }
-          />
-        </section>
+      {adaArtikel && utama ? (
+        <>
+          {/* Layar pertama muka baru: strip TERKINI + hero
+              sinematik layar penuh + marquee sumber tier-1. */}
+          <BilahTerkini items={terbaru} />
+          <HeroUtama artikel={utama} />
+          <MarqueeSumber namaSumber={sumberTier1} />
+        </>
       ) : (
         <>
-          {/* Berita Utama sudah tampil sebagai hero foto-led di
-              atas — seksi ini menampilkan berita terbaru lainnya. */}
-          {terbaruLain.length > 0 && (
+          {/* Belum ada artikel: pernyataan merek ringkas +
+              SATU empty state (aturan kosong lama). */}
+          <section className={`hero ${gaya.heroRingkas}`} aria-labelledby="hero-judul">
+            <span className="hero-label">Berita · Fakta · Data</span>
+            <h1 id="hero-judul">
+              Pahami dunia. Berdasarkan <em>fakta</em>.
+            </h1>
+            <p>
+              Berita terkini Indonesia dan dunia dengan sumber yang jelas,
+              pemeriksaan fakta yang ketat, serta data dan kronologi yang dapat
+              diperiksa. Tanpa clickbait, tanpa kabar karangan.
+            </p>
+            <p style={{ fontSize: "0.9rem" }}>
+              <TanggalHariIni awalan="Hari ini: " />
+            </p>
+            <div className="hero-cta">
+              <Link className="tombol tombol-primer" href="/brief">
+                Baca Daily Brief
+              </Link>
+              <Link className="tombol tombol-hantu" href="/kategori">
+                Jelajahi Kategori
+              </Link>
+            </div>
+          </section>
+          <section className="seksi" aria-label="Belum ada artikel">
+            <EmptyState
+              judul="Belum ada artikel yang diterbitkan"
+              pesan="Redaksi sedang menyiapkan artikel pertama. Setiap artikel melewati pemeriksaan sumber dan verifikasi editorial sebelum tampil di sini — tidak ada berita yang diterbitkan tanpa bukti."
+              aksi={
+                <span
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                    marginTop: 14,
+                  }}
+                >
+                  <Link className="tombol tombol-primer" href="/kategori">
+                    Jelajahi Kategori
+                  </Link>
+                  <Link className="tombol tombol-hantu" href="/data/live">
+                    Lihat Data Live
+                  </Link>
+                  {pengguna == null && (
+                    <Link className="tombol tombol-hantu" href="/daftar">
+                      Buat akun gratis
+                    </Link>
+                  )}
+                </span>
+              }
+            />
+          </section>
+        </>
+      )}
+
+      {adaArtikel && (
+        <>
+          {sorotan.length > 0 && (
+            <section className="seksi" aria-labelledby="seksi-sorotan">
+              <Reveal>
+                <div className="seksi-kepala">
+                  <h2 id="seksi-sorotan">Sorotan</h2>
+                  <Link href="/arsip">Lihat arsip</Link>
+                </div>
+              </Reveal>
+              <div className={gaya.sorotan}>
+                {sorotan.map((a) => (
+                  <Reveal key={a.id}>
+                    <KartuArtikel artikel={a} fitur />
+                  </Reveal>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {terbaruSisa.length > 0 && (
             <section className="seksi" aria-labelledby="seksi-terbaru">
               <Reveal>
                 <div className="seksi-kepala">
@@ -165,7 +197,7 @@ export default async function Beranda() {
                 </div>
               </Reveal>
               <Stagger className="grid-berita">
-                {terbaruLain.map((a) => (
+                {terbaruSisa.map((a) => (
                   <StaggerItem key={a.id} className={gaya.butir}>
                     <KartuArtikel artikel={a} />
                   </StaggerItem>
@@ -260,16 +292,10 @@ export default async function Beranda() {
         <section className="seksi" aria-labelledby="seksi-populer">
           <Reveal>
             <div className="seksi-kepala">
-              <h2 id="seksi-populer">Artikel Populer</h2>
+              <h2 id="seksi-populer">Paling Banyak Dibaca</h2>
             </div>
           </Reveal>
-          <Stagger className="grid-berita">
-            {populer.map((a) => (
-              <StaggerItem key={a.id} className={gaya.butir}>
-                <KartuArtikel artikel={a} />
-              </StaggerItem>
-            ))}
-          </Stagger>
+          <DaftarTerbaca items={populer} />
         </section>
       )}
 
