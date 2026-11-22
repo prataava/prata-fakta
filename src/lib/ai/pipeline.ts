@@ -137,6 +137,13 @@ export interface HasilPipeline {
   /** Item yang mencapai terminal 'DITOLAK' karena gagal
    *  quality_check 3x berturut-turut (v29) — subset dari `gagal`. */
   ditolak_qc: number;
+  /** Rincian per item yang dihitung `gagal` (22 Nov 2026, akar
+   *  run #43): id + judul + tahap + pesan galat, agar respons
+   *  pipeline — yang dicetak utuh di log GitHub Actions —
+   *  MENAMAI item yang gagal, bukan hanya agregat `gagal=N`.
+   *  Dibatasi 20 entri pertama; teks dipotong agar respons
+   *  tetap kecil. */
+  gagal_detail?: GagalDetailItem[];
   rekonsiliasi?: HasilRekonsiliasi;
   /** Mode antrean run ini ("terbaru" bawaan, "terlama" bila mode
    *  kejar aktif — P2-8). */
@@ -353,6 +360,44 @@ export function tentukanArahBukti(
   return kutipan && kutipan.trim().length > 0 ? "mendukung" : "netral";
 }
 
+/** Satu entri rincian kegagalan per item (lihat HasilPipeline). */
+export interface GagalDetailItem {
+  item_id: string;
+  judul: string;
+  tahap: string;
+  error: string;
+}
+
+const BATAS_GAGAL_DETAIL = 20;
+
+// ---------- Pencatatan kegagalan per item ----------
+// SATU-SATUNYA tempat `hasil.gagal` bertambah: setiap item yang
+// gagal SELALU dicatat di sini (id, judul, tahap, pesan galat)
+// agar respons pipeline — yang dicetak utuh di log GitHub Actions
+// (`echo "Respons pipeline panggilan $PANGGILAN: ..."`) —
+// MENAMAI item yang gagal, bukan hanya agregat `gagal=N`
+// (akar run #43: 2 item gagal di panggilan 3 tanpa satu pun
+// jejak identitasnya di log). Dibatasi 20 entri pertama;
+// judul dipotong 120 karakter, pesan galat 300 karakter.
+function catatGagal(
+  hasil: HasilPipeline,
+  item: RawItemAntrean,
+  tahap: string,
+  error?: unknown,
+): void {
+  hasil.gagal += 1;
+  hasil.gagal_detail ??= [];
+  if (hasil.gagal_detail.length >= BATAS_GAGAL_DETAIL) return;
+  const pesan =
+    error instanceof Error ? error.message : String(error ?? "");
+  hasil.gagal_detail.push({
+    item_id: item.id,
+    judul: item.judul.slice(0, 120),
+    tahap,
+    error: pesan.slice(0, 300),
+  });
+}
+
 // ---------- Fase 1: riset satu item ----------
 // Research + simpan klaim + source-analysis. Mengembalikan null bila
 // research gagal total (item tetap UNCONFIRMED di antrean, dicoba lagi
@@ -397,10 +442,10 @@ async function risetSatuItem(
         },
       };
     });
-  } catch {
+  } catch (err) {
     // Research gagal total: item tetap UNCONFIRMED di antrean dan
     // dicoba lagi pada run berikutnya.
-    hasil.gagal += 1;
+    catatGagal(hasil, item, "research", err);
     return null;
   }
 
@@ -878,8 +923,8 @@ async function verifikasiSatuItem(
   if (keputusanAkhir !== "VERIFIED" && keputusanAkhir !== "CROSS-CHECKED") {
     try {
       await adapter.perbaruiStatusItem(item.id, keputusanAkhir);
-    } catch {
-      hasil.gagal += 1;
+    } catch (err) {
+      catatGagal(hasil, item, "perbarui_status", err);
       return;
     }
     if (keputusanAkhir === "DEVELOPING") hasil.developing += 1;
@@ -917,8 +962,8 @@ async function verifikasiSatuItem(
       },
     );
     ringkasan = r.ringkasan;
-  } catch {
-    hasil.gagal += 1;
+  } catch (err) {
+    catatGagal(hasil, item, "summarization", err);
     return;
   }
 
@@ -1057,11 +1102,11 @@ async function verifikasiSatuItem(
       keputusan: keputusanAkhir,
       sumber: sumberDraf,
     });
-  } catch {
+  } catch (err) {
     // P1-2: draf GAGAL dibuat -> status item TIDAK diubah (tetap
     // UNCONFIRMED di antrean, dicoba lagi run berikutnya) — item
     // tidak hilang diam-diam.
-    hasil.gagal += 1;
+    catatGagal(hasil, item, "writing", err);
     return;
   }
 
@@ -1159,7 +1204,7 @@ async function verifikasiSatuItem(
         };
       },
     );
-  } catch {
+  } catch (err) {
     // Fail-closed (lihat komentar di atas): draf tidak disimpan,
     // status item tetap UNCONFIRMED, dicoba lagi run berikut.
     // v29: catat kegagalan QC untuk batas ulang — item yang gagal
@@ -1179,7 +1224,7 @@ async function verifikasiSatuItem(
     } catch {
       // Abaikan — batas ulang best-effort.
     }
-    hasil.gagal += 1;
+    catatGagal(hasil, item, "quality_check", err);
     return;
   }
 
@@ -1242,11 +1287,11 @@ async function verifikasiSatuItem(
       },
     );
     hasil.draf += 1;
-  } catch {
+  } catch (err) {
     // P1-2: draf GAGAL dibuat -> status item TIDAK diubah (tetap
     // UNCONFIRMED di antrean, dicoba lagi run berikutnya) — item
     // tidak hilang diam-diam.
-    hasil.gagal += 1;
+    catatGagal(hasil, item, "article_writing", err);
     return;
   }
 
@@ -1297,8 +1342,8 @@ async function verifikasiSatuItem(
   // 8. Ubah status item — HANYA sesudah draf tersimpan (P1-2).
   try {
     await adapter.perbaruiStatusItem(item.id, keputusanAkhir);
-  } catch {
-    hasil.gagal += 1;
+  } catch (err) {
+    catatGagal(hasil, item, "perbarui_status", err);
     return;
   }
   // v29: item berhasil diproses — nol-kan hitungan gagal QC
@@ -1776,6 +1821,7 @@ export async function jalankanPipelineEditorial(
     dilewati: 0,
     gagal: 0,
     ditolak_qc: 0,
+    gagal_detail: [],
   };
 
   // P2-8 (integrasi B1): mode kejar — bila item UNCONFIRMED
@@ -1841,10 +1887,10 @@ export async function jalankanPipelineEditorial(
     try {
       const ctx = await risetSatuItem(adapter, item, opsi, hasil);
       if (ctx) konteks.push(ctx);
-    } catch {
+    } catch (err) {
       // Satu item gagal total (di luar langkah yang sudah dicatat):
       // hitung gagal, lanjut ke item berikutnya.
-      hasil.gagal += 1;
+      catatGagal(hasil, item, "research", err);
     }
   }
 
@@ -1901,8 +1947,8 @@ export async function jalankanPipelineEditorial(
   for (const ctx of konteks) {
     try {
       await verifikasiSatuItem(adapter, ctx, opsi, hasil);
-    } catch {
-      hasil.gagal += 1;
+    } catch (err) {
+      catatGagal(hasil, ctx.item, "verifikasi", err);
     }
   }
 
