@@ -359,17 +359,26 @@ export function periksaKualitasKlaimDraf(
   // K4 — tanggal diubah/tanpa sumber: tiap tanggal di fakta draf
   // harus ada di tanggal yang DIKETAHUI. "Diketahui" = tanggal yang
   // divouch pemanggil (tanggalDiketahui — mis. waktu_terbit_asli
-  // item) + tanggal dari klaim jenis 'tanggal' YANG PUNYA evidence
-  // (klaim tanggal tanpa evidence TIDAK memvouch tanggalnya
-  // sendiri — bila tidak, tanggal karangan di dalam klaim akan
-  // "mengesahkan" dirinya sendiri).
+  // item) + tanggal dari klaim YANG PUNYA evidence, JENIS APA PUN
+  // ('tanggal', 'angka', 'fakta', 'kutipan'). Klaim tanpa evidence
+  // TIDAK memvouch tanggalnya sendiri — bila tidak, tanggal
+  // karangan di dalam klaim akan "mengesahkan" dirinya sendiri
+  // (anti-self-vouching dipertahankan).
+  // SENGAJA (akar run #45, 22 Nov 2026): sebelumnya filter
+  // `k.jenis !== "tanggal"` membuat tanggal peristiwa di dalam
+  // klaim 'angka'/'fakta' TIDAK PERNAH tervouch — mis. "Sebanyak
+  // 50 karyawan masih dicari hingga 20 November 2026" masuk draf
+  // lewat klaim 'angka' tapi tanggalnya ditolak K4 (3 item gagal
+  // dengan `tanggal_tidak_diketahui`). Tanggal yang sama, dari
+  // klaim yang sama-sama ber-evidence, kini divouch apa pun
+  // jenis klaimnya; yang berubah hanya jenisnya, bukan standar
+  // buktinya.
   const diketahui = new Set<string>();
   for (const t of input.tanggalDiketahui ?? []) {
     const iso = normalisasiTanggal(t) ?? t.trim();
     if (iso) diketahui.add(iso);
   }
   for (const k of klaim) {
-    if (k.jenis !== "tanggal") continue;
     const punyaEvidence = evidence.some(
       (e) => normalisasi(e.klaim_teks) === normalisasi(k.teks),
     );
@@ -384,8 +393,8 @@ export function periksaKualitasKlaimDraf(
         kode: "tanggal_tidak_diketahui",
         pesan:
           `Tanggal ${tanggal} di draf tidak ada di tanggal yang ` +
-          `diketahui dari sumber (waktu terbit asli / klaim tanggal) ` +
-          `— tanggal diubah atau dikarang.`,
+          `diketahui dari sumber (waktu terbit asli / klaim ` +
+          `ber-evidence) — tanggal diubah atau dikarang.`,
         rincian: potong(teksFakta),
       });
     }

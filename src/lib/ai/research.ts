@@ -322,17 +322,24 @@ export function ekstrakKlaim(
   for (const kalimat of bagiKalimat(sumberTeks)) {
     if (klaim.length >= BATAS_KLAIM) break;
     // (b) Angka + satuan -> jenis 'angka' (kalimat utuh sebagai klaim).
+    // (d) Tanggal eksplisit -> jenis 'tanggal'.
+    // SENGAJA (akar run #45, 22 Nov 2026): (b)/(d) TIDAK `continue`
+    // — loop ekstraksi kutipan (c) di bawah WAJIB jalan untuk
+    // SETIAP kalimat, termasuk yang dikonsumsi sebagai
+    // 'angka'/'tanggal'. Sebelumnya `continue` membuat kutipan di
+    // dalam kalimat berangka/tanggal tidak pernah diekstrak jadi
+    // klaim 'kutipan', padahal kalimat utuhnya (termasuk tanda
+    // petiknya) dirender di draf — sehingga K3 loop kedua
+    // (segmen berpetik wajib tertelusur ke klaim 'kutipan'
+    // terverifikasi) mustahil terpenuhi dan item selalu gagal.
     if (POLA_ANGKA.test(kalimat)) {
       POLA_ANGKA.lastIndex = 0;
       tambah(kalimat, "angka");
-      continue;
     }
     POLA_ANGKA.lastIndex = 0;
-    // (d) Tanggal eksplisit -> jenis 'tanggal'.
     if (POLA_TANGGAL.test(kalimat)) {
       POLA_TANGGAL.lastIndex = 0;
       tambah(kalimat, "tanggal");
-      continue;
     }
     POLA_TANGGAL.lastIndex = 0;
     // (c) Teks dalam tanda kutip -> jenis 'kutipan' (isi kutipannya).

@@ -366,6 +366,17 @@ export interface GagalDetailItem {
   judul: string;
   tahap: string;
   error: string;
+  /**
+   * Hitungan gagal quality_check berturut-turut item ini (katup
+   * v29 tolak-setelah-3) — hanya diisi untuk tahap
+   * "quality_check". `null` = adapter menghitung tetapi counter
+   * TIDAK tersedia (kolom `qc_gagal_berturut_turut` migrasi v29
+   * belum diterapkan di produksi → katup fail-open); field
+   * ABSEN = adapter tidak punya method pencatatan. Fail-open:
+   * nilai ini tidak pernah mengubah hasil run — hanya membuat
+   * status katup TERAMATI di log run berikutnya.
+   */
+  qc_gagal_berturut_turut?: number | null;
 }
 
 const BATAS_GAGAL_DETAIL = 20;
@@ -384,18 +395,28 @@ function catatGagal(
   item: RawItemAntrean,
   tahap: string,
   error?: unknown,
+  qcGagalBerturutTurut?: number | null,
 ): void {
   hasil.gagal += 1;
   hasil.gagal_detail ??= [];
   if (hasil.gagal_detail.length >= BATAS_GAGAL_DETAIL) return;
   const pesan =
     error instanceof Error ? error.message : String(error ?? "");
-  hasil.gagal_detail.push({
+  const entri: GagalDetailItem = {
     item_id: item.id,
     judul: item.judul.slice(0, 120),
     tahap,
     error: pesan.slice(0, 300),
-  });
+  };
+  // v29 teramati (run #45): untuk kegagalan quality_check, catat
+  // hitungan qc_gagal_berturut_turut dari adapter — `null` berarti
+  // counter tidak tersedia (migrasi v29 belum diterapkan di
+  // produksi), `undefined` (field absen) berarti adapter tidak
+  // punya method pencatatan. Fail-open: tidak mengubah hasil run.
+  if (qcGagalBerturutTurut !== undefined) {
+    entri.qc_gagal_berturut_turut = qcGagalBerturutTurut;
+  }
+  hasil.gagal_detail.push(entri);
 }
 
 // ---------- Fase 1: riset satu item ----------
@@ -1210,7 +1231,12 @@ async function verifikasiSatuItem(
     // v29: catat kegagalan QC untuk batas ulang — item yang gagal
     // quality_check 3x berturut-turut ditandai terminal 'DITOLAK'
     // (tidak lagi diklaim antrean). Best-effort: kegagalan
-    // pencatatan TIDAK PERNAH mengubah hasil run.
+    // pencatatan TIDAK PERNAH mengubah hasil run. Hitungan
+    // diteruskan ke gagal_detail agar status katup TERAMATI di
+    // log (run #45): `null` = counter tidak tersedia (migrasi
+    // v29 belum diterapkan di produksi), field absen = adapter
+    // tidak punya method pencatatan.
+    let qcGagalBerturutTurut: number | null | undefined;
     try {
       const adapterLuas = adapter as AiAdapter & {
         catatGagalQualityCheck?: (
@@ -1219,12 +1245,13 @@ async function verifikasiSatuItem(
       };
       if (typeof adapterLuas.catatGagalQualityCheck === "function") {
         const catat = await adapterLuas.catatGagalQualityCheck(item.id);
+        qcGagalBerturutTurut = catat.hitungan;
         if (catat.terminal) hasil.ditolak_qc += 1;
       }
     } catch {
       // Abaikan — batas ulang best-effort.
     }
-    catatGagal(hasil, item, "quality_check", err);
+    catatGagal(hasil, item, "quality_check", err, qcGagalBerturutTurut);
     return;
   }
 

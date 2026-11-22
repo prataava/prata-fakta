@@ -99,6 +99,17 @@ export function klaimKutipanMelebihiBatas(
 //     in-memory untuk draf ini. Daftar yang diturunkan
 //     dikembalikan agar pipeline mencatatnya di detail run
 //     (transparansi).
+//   - Klaim BUKAN 'kutipan' (mis. 'angka'/'tanggal'/'fakta') yang
+//     mengandung tanda petik ganda: tanda petiknya DILEPAS
+//     (in-memory saja) — tambahan v29 lanjutan, akar run #45
+//     22 Nov 2026. Kalimat berangka yang memuat frasa berpetik
+//     dirender draf dengan petiknya, tetapi frasa itu bukan klaim
+//     'kutipan' (ekstraksi kutipan dulu dilewati untuk kalimat
+//     berangka) sehingga K3 loop kedua mustahil tertelusur.
+//     Sejak run #45 kutipan dari kalimat berangka JUGA diekstrak
+//     (research.ts), dan pelepasan petik di sini menutup sisa
+//     kasus kutipan tanpa evidence: draf tidak pernah menampilkan
+//     segmen berpetik yang tak terverifikasi.
 // Murni (tanpa I/O) seperti potongKutipanPanjang di atas.
 export interface BuktiKutipanMinimal {
   klaim_teks: string;
@@ -118,23 +129,40 @@ export function turunkanKutipanTanpaBukti(
 ): HasilTurunKutipan {
   const diturunkan: KlaimTerekstrak[] = [];
   const hasil = klaim.map((k) => {
-    if (k.jenis !== "kutipan") return k;
-    const inti = normalisasiTeks(k.teks);
-    const berbukti = evidence.some(
-      (e) =>
-        normalisasiTeks(e.klaim_teks) === inti &&
-        typeof e.kutipan === "string" &&
-        e.kutipan.trim().length > 0,
-    );
-    if (berbukti) return k;
-    // Turunkan + lepas tanda kutip (lihat komentar di atas).
-    const teksParafrasa = k.teks
-      .replace(/["""]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    const turun: KlaimTerekstrak = { ...k, jenis: "fakta", teks: teksParafrasa };
-    diturunkan.push(k);
-    return turun;
+    if (k.jenis === "kutipan") {
+      const inti = normalisasiTeks(k.teks);
+      const berbukti = evidence.some(
+        (e) =>
+          normalisasiTeks(e.klaim_teks) === inti &&
+          typeof e.kutipan === "string" &&
+          e.kutipan.trim().length > 0,
+      );
+      if (berbukti) return k;
+      // Turunkan + lepas tanda kutip (lihat komentar di atas).
+      const teksParafrasa = k.teks
+        .replace(/["""]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const turun: KlaimTerekstrak = { ...k, jenis: "fakta", teks: teksParafrasa };
+      diturunkan.push(k);
+      return turun;
+    }
+    // SENGAJA (akar run #45, 22 Nov 2026, K3 loop kedua): klaim
+    // BUKAN 'kutipan' yang mengandung tanda petik ganda (mis.
+    // klaim 'angka' yang kalimatnya memuat frasa berpetik)
+    // dilepas tanda petiknya di sini — in-memory saja, klaim
+    // tersimpan TIDAK diubah. Tanpa ini, draf menampilkan segmen
+    // berpetik yang tidak tertelusur ke klaim 'kutipan' mana pun
+    // dan quality_check menolaknya selamanya. Aman: pencocokan
+    // evidence/K5/K6 memakai normalisasi yang mengabaikan tanda
+    // baca (termasuk petik), jadi pelepasan ini tidak memutus
+    // ketertelusuran klaim; dan daftar yang SAMA dipakai untuk
+    // membangun draf DAN quality_check, jadi konsistensi terjaga.
+    if (!/["""]/.test(k.teks)) return k;
+    return {
+      ...k,
+      teks: k.teks.replace(/["""]/g, "").replace(/\s+/g, " ").trim(),
+    };
   });
   return { klaim: hasil, diturunkan };
 }
