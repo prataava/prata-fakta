@@ -80,13 +80,24 @@ jobs:
               '{dipicu_oleh:"github_actions", sumber_id:$s}')
           fi
           RESP="$(mktemp)"
+          # Tangkap exit code curl agar body respons TETAP tercatat
+          # di log walau endpoint menjawab 4xx/5xx: bash -e
+          # sebelumnya mematikan step sebelum echo berjalan
+          # (kasus 409 jam 08:00, 23 Nov 2026 — body hilang).
+          set +e
           curl --fail-with-body -sS -X POST \
             "${{ secrets.PF_SITE_URL }}/api/ingestion/jalankan" \
             -H "x-pf-ingestion-secret: ${{ secrets.PF_INGESTION_SECRET }}" \
             -H "Content-Type: application/json" \
             -d "$BODY" \
             -o "$RESP"
+          CURL_EXIT=$?
+          set -e
           echo "Respons ingestion: $(cat "$RESP")"
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "curl gagal (exit $CURL_EXIT) — lihat body respons di atas."
+            exit "$CURL_EXIT"
+          fi
           # Ringkasan per sumber (kelas + jumlah) — kegagalan TIDAK
           # disembunyikan: kelas sementara pun tampil di log run.
           jq -r '.per_sumber[]? | "\(.sumber_nama): kelas=\(.kelas // "-") baru=\(.baru // 0) duplikat=\(.duplikat // 0) gagal=\(.gagal // 0)"' "$RESP"
