@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Source_Serif_4 } from "next/font/google";
+import { Outfit } from "next/font/google";
 import "./globals.css";
 import "./motion.css";
 import Header from "@/components/Header";
@@ -11,15 +11,13 @@ import PendaftaranSW from "@/components/pwa/PendaftaranSW";
 import BannerPembaruan from "@/components/pwa/BannerPembaruan";
 import PromptInstalasi from "@/components/pwa/PromptInstalasi";
 
-const inter = Inter({
+// Amicro (24 Nov 2026): satu-satunya font situs adalah Outfit
+// 300–700 (diukur dari repo resmi Amicro — font-sans dan
+// font-display keduanya Outfit).
+const outfit = Outfit({
   variable: "--font-sans",
   subsets: ["latin"],
-  display: "swap",
-});
-
-const serif = Source_Serif_4({
-  variable: "--font-serif",
-  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
   display: "swap",
 });
 
@@ -41,9 +39,9 @@ export const metadata: Metadata = {
 };
 
 // PWA (P3-1): warna tema bilah browser/sistem — sama dengan
-// theme_color manifest dan latar midnight situs.
+// theme_color manifest dan latar Amicro (#08080a).
 export const viewport: Viewport = {
-  themeColor: "#080D18",
+  themeColor: "#08080a",
 };
 
 /** Skrip tema anti-kedip: dipasang sebelum render agar tema tersimpan
@@ -57,7 +55,7 @@ export const viewport: Viewport = {
  *  bila tidak, CSP memblokir skrip ini dan halaman membuka dengan
  *  tema salah (kedip). */
 function TemaInit() {
-  const kode = `(function(){try{var t=localStorage.getItem('pf-tema');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`;
+  const kode = `(function(){try{var t=localStorage.getItem('pf-tema');if(!t){t='dark';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
   return <script dangerouslySetInnerHTML={{ __html: kode }} />;
 }
 
@@ -69,7 +67,7 @@ export default async function RootLayout({
       <head>
         <TemaInit />
       </head>
-      <body className={`${inter.variable} ${serif.variable}`}>
+      <body className={`${outfit.variable}`}>
         <Header />
         {/* Fase 3: MotionProvider membungkus <main> + BottomNav +
           CommandPalette saja — Header/Footer tetap di luar agar

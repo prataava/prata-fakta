@@ -60,7 +60,7 @@ export function buatNonce(): string {
  * lihat komentar berkas ini. Diuji di uji-tahap13b §J.
  */
 export const HASH_SKRIP_TEMA =
-  "'sha256-kbdpuUr7+zlKwp6cjPtYWBBvdrWG3dqbGKfss460j9I='";
+  "'sha256-FClVb9OoZu4B9H1lrlBDuGcHVEf8Bjg48Eus7XRNUKE='";
 
 /**
  * Hash sha256 (base64) skrip runtime shell Next.js ($RT).

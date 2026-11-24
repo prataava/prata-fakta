@@ -9,14 +9,17 @@
  * tinggi baris agar kartu sebaris sama tinggi. */
 
 .heroRingkas h1 {
-  font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+  font-size: clamp(1.4rem, 2.2vw + 0.2rem, 2.5rem);
+  line-height: 1.18;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   max-width: 640px;
 }
 
 .sorotan {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 32px;
 }
 
 .butir {

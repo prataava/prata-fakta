@@ -1,37 +1,38 @@
 /* ============================================================
-   PRATA FAKTA — Token gerak + kaca nyata (Fase 3 redesign,
-   19 Nov 2026 — REDESIGN_DECISION §4).
+   PRATA FAKTA — Token gerak Amicro (24 Nov 2026 — menggantikan
+   token gerak Fase 3; nilai diukur dari repo resmi Amicro).
    Berkas ini diimpor dari src/app/layout.tsx SETELAH globals.css,
    jadi token di sini menimpa/melengkapi token globals.css bila
    namanya sama (kaskade: impor belakangan menang pada
    spesifisitas setara).
 
-   ATURAN:
-   - Kaca NYATA hanya untuk: BottomNav, header, Command Palette,
-     popover/overlay dashboard. JANGAN glass semua kartu —
-     .kaca/.kaca-kartu di globals.css TETAP solid.
+   ATURAN (spec Amicro §6):
+   - Budget keras: setiap animasi one-shot < 300 ms
+     (hover/tekan 0.15–0.2 dtk, masuk 0.25 dtk, keluar ~0.14 dtk).
+   - Easing: cubic-bezier(0.16, 1, 0.3, 1); JANGAN easeIn.
+   - Permukaan SOLID (tanpa glassmorphism): --glass-* di
+     globals.css kini bernilai solid; .permukaan-kaca tetap
+     ada untuk kompatibilitas, tapi latarnya sudah solid.
    - Animasi hanya transform/opacity; durasi dari token di bawah.
    - Reduced motion: MotionConfig reducedMotion="user" (lihat
      src/components/motion/MotionProvider.tsx) mematikan gerak
      Motion; blok @media di bawah mematikan gerak CSS.
-   - Perangkat lemah / tanpa backdrop-filter / pengguna yang
-     meminta transparansi dikurangi: fallback SOLID (lihat bawah).
    ============================================================ */
 
 :root {
-  /* ---- Token gerak (REDESIGN_DECISION §4) ---- */
+  /* ---- Token gerak (Amicro) ---- */
   --motion-cepat: 120ms;
   --motion-dasar: 180ms;
   --motion-halaman: 200ms;
-  --motion-penekanan: 320ms;
+  --motion-penekanan: 250ms;
   --motion-stagger: 50ms;
   --ease-standar: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-masuk: ease-out;
-  --ease-keluar: ease-in;
+  --ease-keluar: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 
-  /* ---- Token kaca nyata ----
+  /* ---- Token kaca (kini SOLID — Amicro tanpa glass) ----
    * --glass-bg / --glass-border didefinisikan di globals.css
-   * (nilai translusen Fase 3); di sini hanya pelengkapnya.
+   * (nilai solid); di sini hanya pelengkapnya.
    * --glass-bg-padat = fallback solid bila blur tidak didukung
    * atau transparansi diminta dikurangi. */
   --glass-blur: blur(18px) saturate(1.4);
@@ -44,13 +45,15 @@
 }
 
 [data-theme="dark"] {
-  --glass-bg-padat: #171b1e;
+  --glass-bg-padat: #121214;
   --glass-border-highlight: rgba(255, 255, 255, 0.22);
 }
 
-/* ---------- Permukaan kaca (selektif!) ----------
- * Pakai hanya untuk BottomNav, header, Command Palette,
- * popover/overlay. Kartu artikel dkk. tetap .kaca (solid). */
+/* ---------- Permukaan kaca (kini SOLID — Amicro) ----------
+ * Dulu: permukaan translusen + blur (Fase 3). Amicro tanpa
+ * glassmorphism — latar kini solid dari --glass-bg di
+ * globals.css; backdrop-filter di sini tidak lagi mengubah
+ * tampilan dan dipertahankan hanya sebagai fallback. */
 .permukaan-kaca {
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -328,8 +331,8 @@
   }
 
   [data-theme="dark"] {
-    --glass-bg: #171b1e;
-    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-bg: #121214;
+    --glass-border: rgba(255, 255, 255, 0.08);
   }
 
   .permukaan-kaca {

@@ -15,11 +15,12 @@ import {
 import { t, type KunciBahasa } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
 
-// V2 — Liquid Glass: SATU indikator kaca bergerak (bukan kapsul
-// per item). Komponen ini dirender SEKALI di root layout
+// Amicro (24 Nov 2026): SATU pil solid bergerak (bukan kapsul
+// per item, bukan lagi lensa kaca + rainbow). Komponen ini
+// dirender SEKALI di root layout
 // (src/app/layout.tsx) sehingga instance-nya HIDUP selama
 // perpindahan antarrute (App Router tidak me-remount layout) —
-// posisi kapsul tidak pernah hilang dan animasi benar-benar
+// posisi pil tidak pernah hilang dan animasi benar-benar
 // terlihat berpindah dari menu sebelumnya ke menu berikutnya.
 //
 // Mekanisme:
@@ -27,10 +28,11 @@ import { useBahasa } from "@/lib/useBahasa";
 //   URL: klik Link di halaman mana pun, back/forward browser,
 //   maupun klik menu — tanpa listener popstate manual).
 // - Indikator: satu <div> absolut, digeser dengan
-//   translate3d(indeks * 100%, 0, 0) + transisi spring 560ms
-//   (cubic-bezier overshoot) — lihat .prata-glass-indicator.
+//   translate3d(indeks * 100%, 0, 0) + transisi 250ms
+//   (cubic-bezier Amicro [0.16,1,0.3,1], tanpa overshoot) —
+//   lihat .prata-glass-indicator.
 // - Navigasi TIDAK ditunda: Link Next bekerja normal (SPA,
-//   tanpa preventDefault / setTimeout 560ms). Kapsul meluncur
+//   tanpa preventDefault / setTimeout 250ms). Pil meluncur
 //   BERSAMAAN dengan pergantian halaman, bukan sebelumnya.
 // - Rute tak dikenal (mis. /kuis, /artikel/...) → tidak ada
 //   item aktif dan indikator disembunyikan (opacity 0), BUKAN
@@ -84,7 +86,7 @@ export default function BottomNav() {
   return (
     <nav className="prata-glass-dock" aria-label="Navigasi utama">
       <div className="prata-glass-track">
-        {/* SATU lensa kaca bergerak — satu-satunya indikator. */}
+        {/* SATU pil solid bergerak — satu-satunya indikator. */}
         <div
           className="prata-glass-indicator"
           aria-hidden="true"

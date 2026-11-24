@@ -5,7 +5,7 @@
  * Hanya var(--token). */
 
 .kaki {
-  border-top: 3px solid var(--accent);
+  border-top: 1px solid var(--border);
 }
 
 .kaki :global(h4) {

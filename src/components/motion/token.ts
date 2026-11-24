@@ -14,7 +14,7 @@ export const MOTION_EASE: [number, number, number, number] = [
 export const DURASI_CEPAT = 0.12;
 export const DURASI_DASAR = 0.18;
 export const DURASI_HALAMAN = 0.2;
-export const DURASI_PENEKANAN = 0.32;
+export const DURASI_PENEKANAN = 0.25;
 
 /** Jeda antar kartu saat stagger (40–60 ms, REDESIGN_DECISION §4). */
 export const STAGGER_KARTU = 0.05;
