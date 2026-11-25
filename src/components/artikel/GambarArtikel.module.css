@@ -5,7 +5,8 @@
   position: relative;
   display: block;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 16px; /* plate (spec §3) */
+  border: 1px solid var(--glass-border);
   background: var(--surface-2);
 }
 

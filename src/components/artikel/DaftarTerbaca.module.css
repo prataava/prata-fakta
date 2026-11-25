@@ -21,11 +21,24 @@
 
 .angka {
   font-family: var(--font-serif);
-  font-weight: 800;
+  font-weight: 700;
   font-size: clamp(2.6rem, 6vw, 3.8rem);
   line-height: 0.9;
+  /* Angka raksasa bergradasi aurora (cyan→violet→magenta,
+   * warna panel contoh spec §4); fallback solid --accent bila
+   * background-clip:text tidak didukung. */
   color: var(--accent);
   min-width: 2ch;
+}
+
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .angka {
+    background: linear-gradient(135deg, #5fd4ff, #b04bd6, #ff2d95);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
 .isi {

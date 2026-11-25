@@ -1,26 +1,30 @@
 /* ============================================================
-   PRATA FAKTA — Token gerak Amicro (24 Nov 2026 — menggantikan
-   token gerak Fase 3; nilai diukur dari repo resmi Amicro).
+   PRATA FAKTA — Token gerak Plasma (25 Nov 2026 — menggantikan
+   token gerak Amicro; nilai diukur dari repo resmi
+   CruxGarden/plasma-ui — lihat ~/workspace/plasma-ui-design-spec.md).
    Berkas ini diimpor dari src/app/layout.tsx SETELAH globals.css,
    jadi token di sini menimpa/melengkapi token globals.css bila
    namanya sama (kaskade: impor belakangan menang pada
    spesifisitas setara).
 
-   ATURAN (spec Amicro §6):
+   ATURAN (spec Plasma §4/§8):
    - Budget keras: setiap animasi one-shot < 300 ms
      (hover/tekan 0.15–0.2 dtk, masuk 0.25 dtk, keluar ~0.14 dtk).
-   - Easing: cubic-bezier(0.16, 1, 0.3, 1); JANGAN easeIn.
-   - Permukaan SOLID (tanpa glassmorphism): --glass-* di
-     globals.css kini bernilai solid; .permukaan-kaca tetap
-     ada untuk kompatibilitas, tapi latarnya sudah solid.
+   - Easing: cubic-bezier(0.16, 1, 0.3, 1) — pendekatan CSS dari
+     spring aurora (stiffness 120 / damping 11, spec §2); spring
+     fisis WebGL tidak bisa ditiru CSS.
+   - Permukaan KACA (plate + blur): --glass-* di globals.css
+     kini bernilai kaca; .permukaan-kaca di bawah memakai blur.
    - Animasi hanya transform/opacity; durasi dari token di bawah.
+   - Latar aurora hanyut 90/120 dtk (globals.css) — di HP statis,
+     di reduced motion mati total.
    - Reduced motion: MotionConfig reducedMotion="user" (lihat
      src/components/motion/MotionProvider.tsx) mematikan gerak
      Motion; blok @media di bawah mematikan gerak CSS.
    ============================================================ */
 
 :root {
-  /* ---- Token gerak (Amicro) ---- */
+  /* ---- Token gerak (Plasma) ---- */
   --motion-cepat: 120ms;
   --motion-dasar: 180ms;
   --motion-halaman: 200ms;
@@ -30,9 +34,9 @@
   --ease-masuk: ease-out;
   --ease-keluar: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 
-  /* ---- Token kaca (kini SOLID — Amicro tanpa glass) ----
+  /* ---- Token kaca (Plasma — KACA, bukan solid) ----
    * --glass-bg / --glass-border didefinisikan di globals.css
-   * (nilai solid); di sini hanya pelengkapnya.
+   * (nilai plate kaca); di sini hanya pelengkapnya.
    * --glass-bg-padat = fallback solid bila blur tidak didukung
    * atau transparansi diminta dikurangi. */
   --glass-blur: blur(18px) saturate(1.4);
@@ -45,15 +49,14 @@
 }
 
 [data-theme="dark"] {
-  --glass-bg-padat: #121214;
+  --glass-bg-padat: #06121a; /* aurora solid (on-text, spec §3) */
   --glass-border-highlight: rgba(255, 255, 255, 0.22);
 }
 
-/* ---------- Permukaan kaca (kini SOLID — Amicro) ----------
- * Dulu: permukaan translusen + blur (Fase 3). Amicro tanpa
- * glassmorphism — latar kini solid dari --glass-bg di
- * globals.css; backdrop-filter di sini tidak lagi mengubah
- * tampilan dan dipertahankan hanya sebagai fallback. */
+/* ---------- Permukaan kaca (Plasma) ----------
+ * Plate kaca (spec §3): latar var(--glass-bg) =
+ * rgb(6 16 22 / .52) + blur + border faint. Fallback tanpa
+ * backdrop-filter ada di bawah (@supports). */
 .permukaan-kaca {
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -322,7 +325,7 @@
 
 /* ============================================================
    FALLBACK — pengguna meminta transparansi dikurangi:
-   semua permukaan kaca kembali SOLID (nilai pra-Fase 3).
+   semua permukaan kaca kembali SOLID (aurora #06121a gelap).
    ============================================================ */
 @media (prefers-reduced-transparency: reduce) {
   :root {
@@ -331,8 +334,8 @@
   }
 
   [data-theme="dark"] {
-    --glass-bg: #121214;
-    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-bg: #06121a; /* aurora solid */
+    --glass-border: rgb(238 244 246 / 0.14);
   }
 
   .permukaan-kaca {

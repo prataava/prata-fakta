@@ -1,61 +1,81 @@
 /* ============================================================
-   PRATA FAKTA — Design System "Amicro"
-   (24 Nov 2026 — menggantikan sistem "Swiss Archival Editorial":
-   re-skin token + header + dock, BUKAN tulis ulang halaman.
-   Nilai diukur dari repo resmi Amicro
-   (Subhan-code/Amicro--Micro-transitions-, MIT) — lihat
-   ~/workspace/amicro-design-spec.md. JANGAN mengarang hex.
+   PRATA FAKTA — Design System "Plasma UI"
+   (25 Nov 2026 — menggantikan sistem "Amicro": re-skin token
+   + kaca + tipografi, BUKAN tulis ulang halaman.
+   Nilai diukur dari repo resmi CruxGarden/plasma-ui
+   (MIT, paket @cruxgarden/plasma-ui v0.8.0) — lihat
+   ~/workspace/plasma-ui-design-spec.md. JANGAN mengarang hex.
+   Mood acuan: AURORA (spec §2: #050b12, #0f5e46, #b04bd6)
+   + token situs demo (spec §3: plate rgb(6 16 22 / .52),
+   faint rgb(238 244 246 / .14), focus #9ff3e4, on
+   rgb(238 244 246 / .92), on-text #06121a).
    Nama token LAMA dipertahankan agar semua class pemakai
-   tidak berubah; nilainya dipetakan ulang ke palet Amicro
-   (hitam pekat, kartu abu gelap, teks putih, aksen putih).
+   tidak berubah; nilainya dipetakan ulang ke palet Plasma.
    JANGAN hardcode warna di komponen: selalu pakai var(--token).
    Aturan AGENTS: jangan pernah membuat definisi token menunjuk
    dirinya sendiri (self-ref).
-   Mode: DUA — gelap Amicro (default identitas) + terang Amicro
+   Mode: DUA — gelap aurora (default identitas) + terang Plasma
    (via toggle tema, token terang spec §3).
-   Permukaan SOLID, tanpa glassmorphism: tidak ada
-   backdrop-filter / gradien warna — token --glass-* kini
-   bernilai SOLID; struktur dan mekanisme dock (SATU indikator
-   bergerak) TIDAK berubah.
+   Permukaan KACA (plate + backdrop-filter + border faint),
+   BUKAN solid; rim iridescent cyan→magenta hanya sebagai
+   aksen (gradien border pada kartu fitur + hover) — fusi
+   metaball + refraksi WebGL TIDAK bisa ditiru CSS (spec §8).
+   Latar aurora = gradien CSS animasi LAMBAT (bukan WebGL —
+   situs berita harus tetap ringan; spec §7.1: WebGL penuh
+   tidak jalan baik di HP). Di HP gradien STATIS, di
+   prefers-reduced-motion animasi mati.
    ============================================================ */
 
 :root {
   /* Token merek (identik di kedua mode) — sinyal fungsional
-   * (dipertahankan dari sistem lama, bukan bagian spek Amicro):
+   * (dipertahankan dari sistem lama, bukan bagian spek Plasma):
    * --mint/--cyan/--purple dipakai ulang secara semantik:
    * mint = sinyal terverifikasi (emerald), cyan = info (biru),
    * purple = izin/violet. Nilai terang = versi gelap yang
    * lolos WCAG AA di atas permukaan putih (≥4.5:1); nilai
    * gelap = versi terang. */
-  --midnight: #111315;
+  --midnight: #050b12; /* aurora base (spec §2) */
   --mint: #065f46;
   --cyan: #1d4ed8;
   --purple: #6d28d9;
-  --border: #e4e4e7;
+  --border: rgba(13, 26, 34, 0.12);
 
-  /* Mode terang — token terang Amicro (spec §3). Default situs
+  /* Mode terang — token terang Plasma (spec §3). Default situs
    * adalah GELAP; terang hanya via toggle tema. */
-  --bg: #f8f9fa;
-  --surface: #ffffff;
-  --surface-2: #f0f1f4;
+  --bg: #dfe6ea;
+  --surface: rgb(255 255 255 / 0.62); /* plate terang (spec §3) */
+  --surface-2: rgb(255 255 255 / 0.45);
   --elevated: #ffffff;
-  --ink: #09090b;
-  --ink-2: #18181b;
-  --muted: #64748b; /* ≥4.5:1 di atas --surface dan --bg */
-  --glass-bg: #ffffff; /* Amicro: permukaan SOLID (tanpa glass) */
-  --glass-border: #e4e4e7;
-  --accent: #09090b; /* Amicro terang: primary = ink gelap */
-  --accent-ink: #ffffff;
+  --ink: #0d1a22;
+  --ink-2: #33414d;
+  --muted: #4b5a66; /* ≥4.5:1 di atas --bg dan --surface */
+  --glass-bg: rgb(255 255 255 / 0.62); /* Plasma: permukaan KACA */
+  --glass-border: rgba(13, 26, 34, 0.12);
+  --accent: #0d1a22; /* terang: primary = ink gelap */
+  --accent-ink: #eef4f6;
+  --focus: #0b6f66; /* focus ring terang (spec §3) */
+  --on: rgb(13 26 34 / 0.92);
+  --on-text: #eef4f6;
+  --plate: rgb(255 255 255 / 0.62);
+  --faint: rgba(13, 26, 34, 0.12);
+  --code: rgb(13 26 34 / 0.08); /* latar seg/preset & blok kode */
   --danger: #ef4444;
   --warn: #92400e; /* amber — sinyal peringatan (teks aman) */
-  --shadow: 0 1px 2px rgba(17, 19, 21, 0.06), 0 4px 16px rgba(17, 19, 21, 0.06);
-  --shadow-glass: 0 1px 2px rgba(17, 19, 21, 0.08), 0 8px 24px rgba(17, 19, 21, 0.1);
+  --shadow: 0 1px 2px rgba(13, 26, 34, 0.06), 0 4px 16px rgba(13, 26, 34, 0.06);
+  --shadow-glass: 0 1px 2px rgba(13, 26, 34, 0.08), 0 8px 24px rgba(13, 26, 34, 0.1);
+  /* Rim iridescent (aproksimasi CSS dari rim shader Plasma,
+   * spec §8): gradien cyan→magenta; dipakai sebagai border
+   * gradien pada kartu fitur + hover, BUKAN di semua permukaan. */
+  --rim: linear-gradient(135deg, #5fd4ff, #b04bd6, #ff2d95);
+  --aurora-teal: #0f5e46; /* aurora mid (spec §2) */
+  --aurora-violet: #b04bd6; /* aurora accent (spec §2) */
 
-  --font-serif: "Outfit", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-sans: "Outfit", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --radius: 12px;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Onest", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --radius: 16px; /* plate (spec §3) */
   --radius-lg: 16px;
-  --radius-xl: 24px;
+  --radius-xl: 26px; /* radius default provider (spec §3) */
   --maxw: 1200px;
 
   /* Muka baru (20 Nov 2026): permukaan gelap editorial + teks di
@@ -65,41 +85,48 @@
    * --hero-gradasi: gradasi bawah hero sinematik — cukup gelap
    * agar teks putih lulus kontras di atas foto apa pun (ujung
    * bawah 0.92). --chip-di-foto: latar chip di atas foto. */
-  --strip-gelap: #101214;
-  --teks-di-gelap: #f5f4f0;
-  --teks-di-gelap-redup: rgba(245, 244, 240, 0.78);
+  --strip-gelap: #04111c; /* strip TERKINI — tidal base (spec §3 --bg) */
+  --teks-di-gelap: #eef4f6;
+  --teks-di-gelap-redup: rgb(238 244 246 / 0.78);
   --hero-teks: #ffffff;
   --hero-teks-redup: rgba(255, 255, 255, 0.88);
   --hero-gradasi: linear-gradient(
     to top,
-    rgba(8, 9, 11, 0.92) 0%,
-    rgba(8, 9, 11, 0.64) 42%,
-    rgba(8, 9, 11, 0.16) 68%,
-    rgba(8, 9, 11, 0.3) 100%
+    rgba(5, 11, 18, 0.92) 0%,
+    rgba(5, 11, 18, 0.64) 42%,
+    rgba(5, 11, 18, 0.16) 68%,
+    rgba(5, 11, 18, 0.3) 100%
   );
-  --chip-di-foto: rgba(10, 11, 13, 0.55);
+  --chip-di-foto: rgba(5, 11, 18, 0.55);
 }
 
 [data-theme="dark"] {
-  /* Mode GELAP (default situs) — token gelap Amicro (spec §2,
-   * diukur dari src/index.css (.dark) repo resmi Amicro).
-   * Ditulis eksplisit agar tiap mode terbaca mandiri. */
-  --midnight: #08080a;
+  /* Mode GELAP (default situs) — token gelap Plasma (spec §2–§3,
+   * mood aurora + token situs demo). Ditulis eksplisit agar tiap
+   * mode terbaca mandiri. */
+  --midnight: #050b12; /* aurora base */
   --mint: #34d399; /* emerald terang — lencana + GarisWaktu */
   --cyan: #7dd3fc; /* info terang */
   --purple: #c4b5fd; /* violet terang */
-  --bg: #08080a;
-  --surface: #0d0d0f;
-  --surface-2: #161616;
-  --elevated: #121214;
-  --ink: #ededed;
-  --ink-2: #a3a3a3; /* neutral-400 — teks sekunder galeri (spec §2) */
-  --muted: #8e8e96; /* muted-foreground — kontras ~4,6:1 di #08080a (lolos AA tipis) */
-  --border: rgba(255, 255, 255, 0.08);
-  --glass-bg: #121214; /* Amicro: permukaan SOLID (tanpa glass) */
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --accent: #ffffff; /* Amicro: aksen utama = putih (pill putih) */
-  --accent-ink: #08080a;
+  --bg: #050b12;
+  --surface: rgb(6 16 22 / 0.62); /* plate, sedikit lebih pekat
+    dari --plate agar teks di atas aurora tetap terbaca */
+  --surface-2: rgb(10 22 30 / 0.6);
+  --elevated: rgb(10 22 30 / 0.78);
+  --ink: #eef4f6;
+  --ink-2: rgb(238 244 246 / 0.82); /* teks sekunder/prosa */
+  --muted: rgb(238 244 246 / 0.66); /* muted (spec §3) */
+  --border: rgb(238 244 246 / 0.14); /* faint (spec §3) */
+  --glass-bg: rgb(6 16 22 / 0.52); /* plate (spec §3) */
+  --glass-border: rgb(238 244 246 / 0.14);
+  --accent: #eef4f6; /* on — pill aktif hampir putih (spec §3) */
+  --accent-ink: #06121a; /* on-text (spec §3) */
+  --focus: #9ff3e4; /* focus ring mint terang (spec §3) */
+  --on: rgb(238 244 246 / 0.92);
+  --on-text: #06121a;
+  --plate: rgb(6 16 22 / 0.52);
+  --faint: rgb(238 244 246 / 0.14);
+  --code: rgb(0 0 0 / 0.22);
   --danger: #fca5a5;
   --warn: #fbbf24; /* amber terang */
   --shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
@@ -162,16 +189,90 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Amicro: tanpa ambient gradient — kedua mode berlatar solid
- * tajam (var(--bg)) agar teks tidak pernah kabur. */
+/* ---------- Latar aurora Plasma (spec §2/§8) ----------
+ * BUKAN WebGL: dua lapisan gradien radial CSS (teal aurora
+ * #0f5e46 + violet #b04bd6 + magenta) di body::before/::after,
+ * fixed di belakang konten (z-index -1), hanyut SANGAT lambat
+ * (90 dtk/120 dtk, alternate) agar situs berita tetap ringan.
+ * Di HP (≤767px) animasi MATI — gradien statis (spec §7.1:
+ * WebGL/efek penuh tidak jalan baik di mobile). Di
+ * prefers-reduced-motion animasi juga mati (lihat blok di
+ * bawah). Lapisan memakai warna aurora penuh hanya di mode
+ * gelap; di mode terang blob-nya pastel tipis di atas #dfe6ea. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+body::before {
+  background:
+    radial-gradient(42% 34% at 78% 8%, rgba(15, 94, 70, 0.55) 0%, transparent 70%),
+    radial-gradient(46% 38% at 12% 88%, rgba(176, 75, 214, 0.42) 0%, transparent 70%),
+    radial-gradient(30% 26% at 55% 45%, rgba(95, 212, 255, 0.12) 0%, transparent 70%);
+  animation: aurora-hanyut 90s ease-in-out infinite alternate;
+}
+
+body::after {
+  background:
+    radial-gradient(34% 30% at 18% 18%, rgba(255, 45, 149, 0.16) 0%, transparent 70%),
+    radial-gradient(38% 32% at 85% 78%, rgba(15, 94, 70, 0.35) 0%, transparent 70%);
+  animation: aurora-hanyut 120s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes aurora-hanyut {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.06);
+  }
+}
+
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(42% 34% at 78% 8%, rgba(15, 94, 70, 0.16) 0%, transparent 70%),
+    radial-gradient(46% 38% at 12% 88%, rgba(176, 75, 214, 0.12) 0%, transparent 70%),
+    radial-gradient(30% 26% at 55% 45%, rgba(95, 212, 255, 0.1) 0%, transparent 70%);
+}
+
+[data-theme="light"] body::after {
+  background:
+    radial-gradient(34% 30% at 18% 18%, rgba(255, 45, 149, 0.06) 0%, transparent 70%),
+    radial-gradient(38% 32% at 85% 78%, rgba(15, 94, 70, 0.1) 0%, transparent 70%);
+}
+
+/* HP: gradien aurora STATIS (tanpa animasi) + tanpa transform
+ * — hemat baterai/GPU (spec §7.1). */
+@media (max-width: 767px) {
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
 
 a {
   color: inherit;
   text-decoration: none;
 }
 
-/* Fokus keyboard terlihat (Fase 11 aksesibilitas): cincin aksen
- * pada semua elemen interaktif, di kedua mode. */
+/* Fokus keyboard terlihat (Fase 11 aksesibilitas): cincin
+ * focus Plasma (spec §3: outline 2px solid var(--focus),
+ * offset 4px) pada semua elemen interaktif, di kedua mode. */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -179,8 +280,30 @@ select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+/* Nilai/kode — JetBrains Mono (spec §3: .86em). */
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
+}
+
+code,
+kbd,
+samp {
+  font-size: 0.86em;
+}
+
+pre {
+  background: var(--code);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  overflow-x: auto;
 }
 
 button {
@@ -207,7 +330,7 @@ img {
   color: var(--accent-ink);
 }
 
-/* Scrollbar Amicro (spec §5): track gelap, thumb putih. */
+/* Scrollbar Plasma: track gelap aurora, thumb terang. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -246,16 +369,19 @@ html[data-theme="light"] {
   scrollbar-color: #18181b #f1f1f4;
 }
 
-/* ---------- Swiss — permukaan solid reusable ----------
- * Nama class .kaca* DIPERTAHANKAN agar markup pemakai tidak
- * berubah, tapi isinya kini SOLID (bukan kaca): latar
- * var(--surface), garis 1px var(--border), bayangan datar.
- * TIDAK ADA backdrop-filter / gradien di sini — blur berat
- * bertumpuk di HP menyebabkan frame drop + teks kabur.
+/* ---------- Plasma — permukaan kaca reusable ----------
+ * Plate kaca (spec §3): latar var(--plate) =
+ * rgb(6 16 22 / .52) + border 1px var(--faint) + radius 16px
+ * + backdrop-filter blur. Nama class .kaca* DIPERTAHANKAN
+ * agar markup pemakai tidak berubah; isinya kini KACA
+ * (dulu solid Amicro). Fallback tanpa backdrop-filter ada
+ * di motion.css (@supports + prefers-reduced-transparency).
  * Pakai sebagai pembungkus class, mis. class="kaca kaca-kartu". */
 .kaca {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
 }
@@ -366,8 +492,9 @@ main.konten {
 }
 
 /* ---------- Header ---------- */
-/* Swiss 17 Nov 2026: masthead sticky — bar solid penuh lebar
- * (tanpa pil mengambang, tanpa blur), menempel di top: 0.
+/* Plasma: masthead sticky — panel kaca dengan fallback nav
+ * situs demo (spec §3): linear-gradient(160deg,
+ * rgb(20 40 52 / .72), rgb(10 22 30 / .6)) + backdrop blur.
  * Struktur tidak berubah: logo + cari + aksi di baris atas,
  * nav di sub-bar berbatas 1px (.header-subbar, di Header.tsx).
  * overflow-x: clip pada html/body DIPERTAHANKAN (bukan hidden)
@@ -376,9 +503,15 @@ main.konten {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(17, 19, 21, 0.05);
+  background: linear-gradient(160deg, rgb(20 40 52 / 0.72), rgb(10 22 30 / 0.6));
+  -webkit-backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 1px 2px rgba(5, 11, 18, 0.05);
+}
+
+[data-theme="light"] .header {
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.72), rgb(223 230 234 / 0.6));
 }
 
 /* Sub-bar navigasi: garis batas 1px di atas sebagai pemisah
@@ -850,10 +983,12 @@ main.konten {
 
 .hero h1 {
   font-family: var(--font-serif);
-  font-size: clamp(1.85rem, 3.2vw + 0.25rem, 3.5rem);
-  line-height: 1.12;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  /* Skala judul Plasma (spec §3): h1 clamp(3.4rem, 10vw, 6.4rem),
+   * line-height .95, weight 500, letter-spacing .01em. */
+  font-size: clamp(3.4rem, 10vw, 6.4rem);
+  line-height: 0.95;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   max-width: 720px;
 }
 
@@ -892,10 +1027,12 @@ main.konten {
 
 .seksi-kepala h2 {
   font-family: var(--font-serif);
-  font-size: clamp(1.4rem, 2.2vw + 0.2rem, 2.5rem);
-  font-weight: 600;
-  line-height: 1.18;
-  letter-spacing: -0.025em;
+  /* Skala judul Plasma (spec §3): h2 clamp(2.2rem, 4.6vw, 3.1rem),
+   * line-height 1.08, weight 500, letter-spacing .01em. */
+  font-size: clamp(2.2rem, 4.6vw, 3.1rem);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: 0.01em;
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -986,13 +1123,17 @@ main.konten {
 }
 
 /* ---------- Kartu ---------- */
-/* Swiss: kartu menjadi permukaan solid (latar --surface,
- * garis 1px, radius besar, bayangan datar). Berlaku untuk
- * semua kartu daftar di situs — satu sistem, bukan gaya
- * per halaman. */
+/* Plasma: kartu = panel kaca (plate + border faint + radius
+ * 16px, spec §3). Hover: rim iridescent cyan→magenta sebagai
+ * border gradien (aproksimasi rim shader, spec §8) + glow
+ * lembut. Berlaku untuk semua kartu daftar di situs — satu
+ * sistem, bukan gaya per halaman. */
 .kartu {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: 18px;
   box-shadow: var(--shadow);
@@ -1004,11 +1145,44 @@ main.konten {
 
 a.kartu:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: transparent;
+  box-shadow:
+    var(--shadow),
+    0 0 24px -6px rgba(176, 75, 214, 0.45),
+    0 0 24px -12px rgba(95, 212, 255, 0.5);
 }
 
 .grid-kategori .kartu:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: transparent;
+}
+
+/* Cincin rim iridescent 1px (spec §8) — hanya cincin border
+ * (mask memotong gradien ke tepi), radius mengikuti kartu, isi
+ * kartu tetap kaca. Dipakai kartu fitur (permanen) + hover.
+ * BUKAN background berlapis: plate kaca translusen akan
+ * menembuskan gradien rim ke seluruh isi kartu bila rim
+ * diletakkan sebagai layer background di bawahnya. */
+.kartu-fitur::before,
+a.kartu:hover::before,
+.grid-kategori .kartu:hover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--rim);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Kartu fitur (Berita Utama): rim iridescent PERMANEN (bukan
+ * hanya hover) — satu-satunya kartu dengan rim tetap, agar
+ * sorotan utama terbaca sebagai permukaan hero Plasma. */
+.kartu-fitur {
+  border-color: transparent;
 }
 
 /* Kartu fitur asimetris (Berita Utama): di ≥1024px gambar di kiri
@@ -1352,12 +1526,12 @@ a.kartu:hover {
   justify-content: space-between;
 }
 
-/* ---------- Bottom nav (mobile) — Amicro solid pill (24 Nov 2026) ----------
- * Dulu V2 Liquid Glass: SATU lensa kaca bergerak dengan spring
- * 560ms + pantulan rainbow. Amicro MELARANG glassmorphism dan
- * gradient warna-warni — dock kini SOLID #161616, indikator
- * SATU pil solid #2a2a2a yang bergeser translate3d(indeks*100%)
- * dengan transisi 250ms (budget Amicro). Struktur dan mekanisme
+/* ---------- Bottom nav (mobile) — Plasma glass pill (25 Nov 2026) ----------
+ * Plasma mengembalikan kaca: dock = panel kaca (plate + border
+ * faint + blur, fallback nav spec §3) di atas aurora; indikator
+ * SATU pil bergerak tetap pola .seg Plasma (spec §3): pil aktif
+ * var(--on) + teks var(--on-text) — di sini pil #2a2a2a diganti
+ * var(--on) agar kontras dengan dock kaca. Struktur dan mekanisme
  * (satu indikator, 6 item, posisi terakhir di-ref) TIDAK berubah
  * (BottomNav.tsx). Dock GELAP di kedua tema; item aktif PUTIH.
  * Desktop tetap memakai nav desktop: dock disembunyikan >= 768px. */
@@ -1372,9 +1546,11 @@ a.kartu:hover {
   height: 68px;
   overflow: visible;
   isolation: isolate;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--faint);
   border-radius: 34px;
-  background: #161616;
+  background: linear-gradient(160deg, rgb(20 40 52 / 0.72), rgb(10 22 30 / 0.6));
+  -webkit-backdrop-filter: var(--glass-blur-dock, blur(25px) saturate(1.55));
+  backdrop-filter: var(--glass-blur-dock, blur(25px) saturate(1.55));
   box-shadow:
     0 4px 24px -4px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
@@ -1392,7 +1568,10 @@ a.kartu:hover {
   box-sizing: border-box;
 }
 
-/* ===== SATU PIL SOLID BERGERAK (Amicro) ===== */
+/* ===== SATU PIL BERGERAK (Plasma .seg, spec §3) =====
+ * Pil aktif = var(--on) (hampir putih) — pola .seg situs demo;
+ * teks/ikon aktif memakai var(--on-text) (gelap) agar terbaca
+ * di atas pil terang. */
 .prata-glass-indicator {
   position: absolute;
   z-index: 0;
@@ -1402,9 +1581,11 @@ a.kartu:hover {
   bottom: -8px;
   width: calc((100% - 12px) / 6);
   border-radius: 30px;
-  background: #2a2a2a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  /* Amicro: masuk 250ms, tanpa overshoot — dulu 560ms spring. */
+  background: var(--on);
+  border: 1px solid var(--faint);
+  /* Plasma: masuk 250ms, tanpa overshoot (spring aurora
+   * 120/11 didekati cubic-bezier — fisis spring WebGL tidak
+   * bisa ditiru CSS, spec §8). */
   transition:
     transform 250ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -1469,18 +1650,19 @@ a.kartu:hover {
     transform 200ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
-/* Active: ikon + label putih terang (sesuai referensi) */
+/* Active: ikon + label gelap di atas pil terang (Plasma .seg:
+ * pill aktif --on, teks --on-text) */
 .prata-glass-item.is-active {
-  color: #ffffff;
+  color: var(--on-text);
 }
 
 .prata-glass-item.is-active .prata-glass-icon {
   transform: translateY(-1px) scale(1.04);
-  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.28));
+  filter: drop-shadow(0 0 5px rgba(6, 18, 26, 0.28));
 }
 
 .prata-glass-item.is-active .prata-glass-label {
-  color: #ffffff;
+  color: var(--on-text);
   font-weight: 700;
   /* Animasi label aktif Fase 3: naik halus 1px bersama ikon. */
   transform: translateY(-1px);
@@ -1541,6 +1723,8 @@ a.kartu:hover {
   font-family: var(--font-serif);
   font-size: 2rem;
   line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   margin-bottom: 8px;
 }
 
@@ -1553,6 +1737,8 @@ a.kartu:hover {
 .prosa h2 {
   font-family: var(--font-serif);
   font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   margin: 28px 0 8px;
   display: flex;
   align-items: center;
@@ -1715,8 +1901,8 @@ a.kartu:hover {
   font-family: var(--font-serif);
   font-size: clamp(1.85rem, 3.2vw + 0.25rem, 3.5rem);
   line-height: 1.12;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   margin: 14px 0 10px;
 }
 

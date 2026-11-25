@@ -8,8 +8,15 @@
  * Hanya var(--token). */
 
 .masthead {
-  background: var(--glass-bg);
+  /* Plasma (25 Nov 2026): kaca aurora — gradien fallback nav
+   * (spec §3) + blur; sama dengan .header di globals.css agar
+   * keduanya sepakat apa pun urutan kaskade modul. */
+  background: linear-gradient(160deg, rgb(20 40 52 / 0.72), rgb(10 22 30 / 0.6));
   backdrop-filter: var(--glass-blur);
+}
+
+[data-theme="light"] .masthead {
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.72), rgb(223 230 234 / 0.6));
 }
 
 /* Strip meta: tanggal (kiri) + tagline (kanan) — hanya

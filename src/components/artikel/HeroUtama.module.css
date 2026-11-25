@@ -27,10 +27,12 @@
   }
 }
 
-/* Fallback tanpa foto: blok gelap berani + garis aksen atas. */
+/* Fallback tanpa foto: blok gelap berani + garis rim iridescent
+ * atas (cyan→magenta, spec §8) sebagai pengganti garis aksen. */
 .tanpaFoto {
   background: var(--strip-gelap);
-  border-top: 6px solid var(--accent);
+  border-top: 6px solid transparent;
+  border-image: linear-gradient(90deg, #5fd4ff, #b04bd6, #ff2d95) 1;
 }
 
 /* Kata kategori raksasa samar di belakang isi (fallback). */
@@ -115,8 +117,9 @@
   font-family: var(--font-serif);
   font-size: clamp(1.85rem, 3.2vw + 0.25rem, 3.5rem);
   line-height: 1.12;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  /* Judul Plasma (spec §3): weight 500, letter-spacing .01em. */
+  font-weight: 500;
+  letter-spacing: 0.01em;
   margin: 0 0 16px;
   max-width: 1000px;
 }

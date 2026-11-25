@@ -7,7 +7,12 @@
   margin-left: calc(50% - 50vw);
   display: flex;
   align-items: stretch;
-  background: var(--strip-gelap);
+  /* Plasma (25 Nov 2026): strip gelap dengan semburat aurora
+   * (teal→violet, alfa rendah) di atas strip-gelap — marquee
+   * TERKINI tetap gelap dan terbaca, tapi bernapas aurora. */
+  background:
+    linear-gradient(90deg, rgba(15, 94, 70, 0.4), rgba(176, 75, 214, 0.3)),
+    var(--strip-gelap);
   color: var(--teks-di-gelap);
   overflow: hidden;
 }

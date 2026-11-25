@@ -4,6 +4,9 @@
 // Satu easing, empat durasi; hanya transform/opacity yang
 // dianimasikan. Reduced motion ditangani MotionConfig
 // reducedMotion="user" di MotionProvider.
+// Plasma (25 Nov 2026): easing ini pendekatan CSS dari spring
+// aurora (stiffness 120 / damping 11, spec §2); durasi tetap
+// < 300 ms (budget one-shot Plasma).
 
 /** Easing standar: cubic-bezier(0.16, 1, 0.3, 1). */
 export const MOTION_EASE: [number, number, number, number] = [

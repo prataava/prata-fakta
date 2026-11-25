@@ -2,10 +2,25 @@
  * Garis aksen di atas footer + judul kolom huruf besar dengan
  * tracking agar hierarki lebih tegas. Footer SELALU gelap di
  * kedua mode — aksen memakai token tema yang terbaca di gelap.
+ * Plasma (25 Nov 2026): garis atas = rim iridescent tipis
+ * (cyan→magenta, spec §8) di atas border faint.
  * Hanya var(--token). */
 
 .kaki {
+  position: relative;
   border-top: 1px solid var(--border);
+}
+
+.kaki::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rim);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .kaki :global(h4) {

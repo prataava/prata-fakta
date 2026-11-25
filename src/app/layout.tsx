@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Outfit } from "next/font/google";
+import { Cormorant_Garamond, JetBrains_Mono, Onest } from "next/font/google";
 import "./globals.css";
 import "./motion.css";
 import Header from "@/components/Header";
@@ -11,13 +11,29 @@ import PendaftaranSW from "@/components/pwa/PendaftaranSW";
 import BannerPembaruan from "@/components/pwa/BannerPembaruan";
 import PromptInstalasi from "@/components/pwa/PromptInstalasi";
 
-// Amicro (24 Nov 2026): satu-satunya font situs adalah Outfit
-// 300–700 (diukur dari repo resmi Amicro — font-sans dan
-// font-display keduanya Outfit).
-const outfit = Outfit({
+// Plasma UI (25 Nov 2026): tiga font dari spek terukur
+// ~/workspace/plasma-ui-design-spec.md §3 (CruxGarden/plasma-ui):
+// judul serif Cormorant Garamond 500/600, body Onest 400/500,
+// nilai/kode JetBrains Mono. Dimuat via next/font (self-hosted,
+// tanpa request eksternal — CSP tidak perlu diubah).
+const serif = Cormorant_Garamond({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
+const sans = Onest({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
@@ -39,9 +55,9 @@ export const metadata: Metadata = {
 };
 
 // PWA (P3-1): warna tema bilah browser/sistem — sama dengan
-// theme_color manifest dan latar Amicro (#08080a).
+// theme_color manifest dan latar aurora Plasma (#050b12, spek §2).
 export const viewport: Viewport = {
-  themeColor: "#08080a",
+  themeColor: "#050b12",
 };
 
 /** Skrip tema anti-kedip: dipasang sebelum render agar tema tersimpan
@@ -67,7 +83,7 @@ export default async function RootLayout({
       <head>
         <TemaInit />
       </head>
-      <body className={`${outfit.variable}`}>
+      <body className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
         <Header />
         {/* Fase 3: MotionProvider membungkus <main> + BottomNav +
           CommandPalette saja — Header/Footer tetap di luar agar
