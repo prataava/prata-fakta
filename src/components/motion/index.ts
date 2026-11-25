@@ -9,10 +9,12 @@ export {
   DURASI_HALAMAN,
   DURASI_PENEKANAN,
   MOTION_EASE,
+  SPRING_AURORA,
   STAGGER_KARTU,
 } from "./token";
 export { Reveal, Stagger, StaggerItem } from "./Reveal";
 export { MotionCard } from "./MotionCard";
+export { AreaPulse } from "./AreaPulse";
 export { Skeleton } from "./Skeleton";
 export { TombolGerak } from "./TombolGerak";
 export { Drawer, Modal } from "./Modal";

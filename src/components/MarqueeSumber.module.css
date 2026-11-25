@@ -41,6 +41,8 @@
   display: flex;
   width: max-content;
   animation: marqueeSumberJalan 42s linear infinite;
+  /* Plasma motion: alur halus tanpa tersendat (will-change). */
+  will-change: transform;
 }
 
 .marquee:hover .jalur {

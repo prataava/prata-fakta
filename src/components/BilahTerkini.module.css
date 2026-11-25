@@ -49,6 +49,9 @@
   display: flex;
   width: max-content;
   animation: bilahTerkiniJalan 55s linear infinite;
+  /* Plasma motion: alur halus tanpa tersendat — kompositor
+   * memegang layer trek (hanya transform translateX). */
+  will-change: transform;
 }
 
 .bilah:hover .jalur {

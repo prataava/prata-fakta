@@ -64,6 +64,27 @@
   border: 1px solid var(--glass-border);
 }
 
+/* ---------- Gelombang pulse Plasma (AreaPulse) ----------
+ * Cincin 120px di titik klik (position fixed, koordinat dari
+ * clientX/clientY, margin -60px agar terpusat). Gerak ditangani
+ * Motion (scale spring aurora 120/11 + opacity 0.55 dtk);
+ * CSS di sini hanya bentuk + warna (mint focus + glow
+ * violet/cyan Entropy). pointer-events none — tidak pernah
+ * menghalangi klik. */
+.denyut-plasma {
+  position: fixed;
+  z-index: 9998;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 999px;
+  border: 2px solid rgba(159, 243, 228, 0.85);
+  box-shadow:
+    0 0 24px -4px rgba(176, 75, 214, 0.6),
+    inset 0 0 24px -8px rgba(95, 212, 255, 0.5);
+  pointer-events: none;
+}
+
 /* ---------- Skeleton gerak (shimmer, tanpa layout shift) ----------
  * Ukuran TETAP via props/lebar-tinggi inline di komponen —
  * shimmer hanya menggerakkan ::after, tidak mengubah layout. */
@@ -360,5 +381,10 @@
   .tombol-gerak:active {
     transform: none;
     transition: none;
+  }
+
+  /* Plasma motion: rim shimmer + pulse mati total. */
+  .denyut-plasma {
+    display: none !important;
   }
 }

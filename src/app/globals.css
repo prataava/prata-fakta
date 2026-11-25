@@ -187,6 +187,11 @@ body {
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  /* Plasma (25 Nov 2026): transisi tema 250ms — ganti
+   * gelap/terang meluncur, bukan berkedip. Hanya warna. */
+  transition:
+    background-color 250ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1)),
+    color 250ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 /* ---------- Latar aurora Plasma (spec §2/§8) ----------
@@ -219,8 +224,24 @@ body::before {
 body::after {
   background:
     radial-gradient(34% 30% at 18% 18%, rgba(255, 45, 149, 0.16) 0%, transparent 70%),
-    radial-gradient(38% 32% at 85% 78%, rgba(15, 94, 70, 0.35) 0%, transparent 70%);
-  animation: aurora-hanyut 120s ease-in-out infinite alternate-reverse;
+    radial-gradient(38% 32% at 85% 78%, rgba(15, 94, 70, 0.35) 0%, transparent 70%),
+    radial-gradient(26% 22% at 52% 32%, rgba(95, 212, 255, 0.1) 0%, transparent 70%);
+  /* Plasma motion (25 Nov 2026): lapisan kedua + blob cyan
+   * ketiga + kilau napas 36 dtk (opacity 0.7→1) di atas hanyut
+   * 120 dtk — aurora terasa mengalir, tetap lambat & ringan.
+   * Mati ≤767px + reduced-motion (blok @media di bawah). */
+  animation:
+    aurora-hanyut 120s ease-in-out infinite alternate-reverse,
+    aurora-kilau 36s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-kilau {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes aurora-hanyut {
@@ -508,6 +529,10 @@ main.konten {
   backdrop-filter: var(--glass-blur, blur(18px) saturate(1.4));
   border-bottom: 1px solid var(--glass-border);
   box-shadow: 0 1px 2px rgba(5, 11, 18, 0.05);
+  /* Plasma (25 Nov 2026): masthead ikut transisi tema 250ms. */
+  transition:
+    border-color 250ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1)),
+    box-shadow 250ms var(--ease-standar, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 [data-theme="light"] .header {
@@ -1161,7 +1186,11 @@ a.kartu:hover {
  * kartu tetap kaca. Dipakai kartu fitur (permanen) + hover.
  * BUKAN background berlapis: plate kaca translusen akan
  * menembuskan gradien rim ke seluruh isi kartu bila rim
- * diletakkan sebagai layer background di bawahnya. */
+ * diletakkan sebagai layer background di bawahnya.
+ * Plasma motion (25 Nov 2026): rim BERGERAK lembut — gradien
+ * cyan→magenta→pink menggeser posisi (background 200%) dalam
+ * 2.8 dtk, shimmer 1.6 ala preset Entropy. Mati di
+ * prefers-reduced-motion (blok global * di bawah). */
 .kartu-fitur::before,
 a.kartu:hover::before,
 .grid-kategori .kartu:hover::before {
@@ -1171,11 +1200,22 @@ a.kartu:hover::before,
   border-radius: inherit;
   padding: 1px;
   background: var(--rim);
+  background-size: 200% 200%;
+  animation: rimGeser 2.8s linear infinite;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   pointer-events: none;
+}
+
+@keyframes rimGeser {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
 }
 
 /* Kartu fitur (Berita Utama): rim iridescent PERMANEN (bukan
@@ -1583,13 +1623,10 @@ a.kartu:hover::before,
   border-radius: 30px;
   background: var(--on);
   border: 1px solid var(--faint);
-  /* Plasma: masuk 250ms, tanpa overshoot (spring aurora
-   * 120/11 didekati cubic-bezier — fisis spring WebGL tidak
-   * bisa ditiru CSS, spec §8). */
-  transition:
-    transform 250ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Plasma motion (25 Nov 2026): pil digerakkan Motion
+   * (spring aurora 120/11) di BottomNav.tsx — TIDAK ADA lagi
+   * transisi CSS transform di sini (akan berkonflik/berganda
+   * dengan spring Motion). Reduced motion: MotionConfig. */
   will-change: transform;
 }
 
@@ -2220,6 +2257,15 @@ a.kartu:hover::before,
 /* ---------- Kartu artikel ---------- */
 .kartu-artikel {
   overflow: hidden;
+}
+
+/* Plasma motion (25 Nov 2026): lift kartu artikel ditangani
+ * MotionCard (spring aurora 120/11, naik 4px) — matikan lift
+ * CSS di sini agar tidak menumpuk (2px CSS + 4px Motion).
+ * Aturan ini SETELAH a.kartu:hover (spesifisitas sama) jadi
+ * menang; bayangan + rim hover tetap dari a.kartu:hover. */
+a.kartu-artikel:hover {
+  transform: none;
 }
 
 /* ============================================================

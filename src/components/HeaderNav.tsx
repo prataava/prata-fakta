@@ -22,6 +22,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Activity,
@@ -56,7 +57,12 @@ import {
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import { t } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
+import { SPRING_AURORA } from "@/components/motion";
 import gaya from "./HeaderNav.module.css";
+
+// Tautan nav sebagai motion component — hover naik 1px + tap
+// mengecil, spring aurora (120/11). DOM/struktur tidak berubah.
+const MotionTautan = motion.create(Link);
 
 type ItemMenu = {
   href: string;
@@ -141,15 +147,17 @@ function DropdownGrup({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button
+        <motion.button
           type="button"
           className={`nav-pemicu${aktif ? " aktif" : ""}`}
           aria-label={`${label} — ${t(bahasa, "nav.submenu")}`}
+          whileTap={{ scale: 0.97 }}
+          transition={SPRING_AURORA}
         >
           <Ikon size={17} aria-hidden="true" />
           <span>{label}</span>
           <ChevronDown size={15} className="nav-chevron" aria-hidden="true" />
-        </button>
+        </motion.button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
@@ -189,14 +197,17 @@ export default function HeaderNav() {
   const aktifBelajar = aktifGrup(["/akademi", "/kuis", "/tanya", "/podcast"]);
 
   const tautan = (href: string, label: string, Ikon: LucideIcon) => (
-    <Link
+    <MotionTautan
       href={href}
       className={`nav-tautan${aktif(href) ? " aktif" : ""}`}
       aria-current={aktif(href) ? "page" : undefined}
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: 0.97 }}
+      transition={SPRING_AURORA}
     >
       <Ikon size={17} aria-hidden="true" />
       <span>{label}</span>
-    </Link>
+    </MotionTautan>
   );
 
   return (

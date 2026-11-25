@@ -150,7 +150,8 @@
 }
 
 /* Line reveal: tiap baris naik dari klip (transform + opacity
- * saja). Delay per baris di-inline dari komponen. */
+ * saja). Gerak ditangani Motion (spring aurora 120/11) di
+ * HeroUtama.tsx — CSS di sini hanya menahan klip + display. */
 .baris {
   display: block;
   overflow: hidden;
@@ -158,19 +159,6 @@
 
 .baris > span {
   display: block;
-  animation: heroSinemaNaik var(--motion-penekanan) var(--ease-standar)
-    both;
-}
-
-@keyframes heroSinemaNaik {
-  from {
-    opacity: 0;
-    transform: translateY(110%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .ringkasan {

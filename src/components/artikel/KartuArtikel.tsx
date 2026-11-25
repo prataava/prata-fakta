@@ -2,6 +2,7 @@ import type { PfArtikelRingkas } from "@/lib/data";
 import { formatTanggal } from "@/lib/format";
 import { kelasLencanaStatus, labelStatusVerifikasi } from "@/lib/verifikasi";
 import Kartu from "@/components/Kartu";
+import { MotionCard } from "@/components/motion";
 import GambarArtikel from "@/components/artikel/GambarArtikel";
 
 // Kartu artikel — server-safe, dipakai beranda / arsip / kategori / cari.
@@ -9,6 +10,10 @@ import GambarArtikel from "@/components/artikel/GambarArtikel";
 // gambar_url (foto sumber), kartu menampilkan thumbnail foto itu;
 // bila tidak ada, placeholder editorial (blok warna solid + label
 // kategori) — kartu TIDAK PERNAH kosong.
+// Plasma (25 Nov 2026): hover lift spring aurora (MotionCard,
+// stiffness 120 / damping 11, naik 4px); lift CSS lama di
+// a.kartu-artikel:hover dimatikan agar tidak menumpuk —
+// rim/shimmer hover ditangani ::before di globals.css.
 export default function KartuArtikel({
   artikel,
   kategoriNama,
@@ -21,7 +26,8 @@ export default function KartuArtikel({
 }) {
   const kategori = kategoriNama ?? artikel.kategori_slug ?? "Umum";
   return (
-    <Kartu
+    <MotionCard>
+      <Kartu
       href={`/artikel/${artikel.slug}`}
       fitur={fitur}
       gambar={
@@ -51,6 +57,7 @@ export default function KartuArtikel({
       judul={artikel.judul}
       teks={artikel.ringkasan ?? undefined}
       meta={formatTanggal(artikel.diterbitkan_pada, "Tanggal belum tersedia")}
-    />
+      />
+    </MotionCard>
   );
 }

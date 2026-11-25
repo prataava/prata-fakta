@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { motion } from "motion/react";
 import {
   Archive,
   Grip,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { t, type KunciBahasa } from "@/lib/i18n";
 import { useBahasa } from "@/lib/useBahasa";
+import { SPRING_AURORA } from "@/components/motion";
 
 // Amicro (24 Nov 2026): SATU pil solid bergerak (bukan kapsul
 // per item, bukan lagi lensa kaca + rainbow). Komponen ini
@@ -27,10 +29,13 @@ import { useBahasa } from "@/lib/useBahasa";
 // - Indeks aktif = turunan usePathname() (selalu sinkron dengan
 //   URL: klik Link di halaman mana pun, back/forward browser,
 //   maupun klik menu — tanpa listener popstate manual).
-// - Indikator: satu <div> absolut, digeser dengan
-//   translate3d(indeks * 100%, 0, 0) + transisi 250ms
-//   (cubic-bezier Amicro [0.16,1,0.3,1], tanpa overshoot) —
-//   lihat .prata-glass-indicator.
+// - Plasma (25 Nov 2026): indikator SATU <motion.div>, digeser
+//   dengan animate x (persen lebar pil) + spring fisis aurora
+//   (stiffness 120 / damping 11) — meluncur kenyal dengan
+//   sedikit overshoot, bukan luncur cubic-bezier. Transisi CSS
+//   transform pada .prata-glass-indicator dihapus (Motion yang
+//   menggerakkan); reduced motion ditangani MotionConfig
+//   reducedMotion="user" (pil melompat instan ke posisi akhir).
 // - Navigasi TIDAK ditunda: Link Next bekerja normal (SPA,
 //   tanpa preventDefault / setTimeout 250ms). Pil meluncur
 //   BERSAMAAN dengan pergantian halaman, bukan sebelumnya.
@@ -87,32 +92,41 @@ export default function BottomNav() {
     <nav className="prata-glass-dock" aria-label="Navigasi utama">
       <div className="prata-glass-track">
         {/* SATU pil solid bergerak — satu-satunya indikator. */}
-        <div
+        <motion.div
           className="prata-glass-indicator"
           aria-hidden="true"
-          style={{
-            transform: `translate3d(${terakhir * 100}%, 0, 0)`,
+          animate={{
+            x: `${terakhir * 100}%`,
             opacity: aktif === null ? 0 : 1,
           }}
+          transition={SPRING_AURORA}
         />
         {ITEMS.map((item, index) => {
           const isActive = aktif === index;
           const Ikon = item.ikon;
           return (
-            <Link
+            <MotionTautan
               key={item.id}
               href={item.href}
               className={`prata-glass-item${isActive ? " is-active" : ""}`}
               aria-current={isActive ? "page" : undefined}
+              whileTap={{ scale: 0.94 }}
+              transition={SPRING_AURORA}
             >
               <span className="prata-glass-icon" aria-hidden="true">
                 <Ikon size={22} strokeWidth={2} aria-hidden="true" />
               </span>
               <span className="prata-glass-label">{t(bahasa, item.kunci)}</span>
-            </Link>
+            </MotionTautan>
           );
         })}
       </div>
     </nav>
   );
 }
+
+// Link Next sebagai motion component — tap kenyal (scale 0.94,
+// spring aurora) tanpa mengubah DOM/struktur (6 item tetap).
+// motion.create menjaga ref + props Link (href, aria-current).
+const MotionTautan = motion.create(Link);
+MotionTautan.displayName = "MotionTautan";

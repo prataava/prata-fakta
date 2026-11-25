@@ -8,7 +8,7 @@ import DaftarTerbaca from "@/components/artikel/DaftarTerbaca";
 import HeroUtama from "@/components/artikel/HeroUtama";
 import BilahTerkini from "@/components/BilahTerkini";
 import MarqueeSumber from "@/components/MarqueeSumber";
-import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { AreaPulse, Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { KATEGORI_UTAMA } from "@/lib/categories";
 import { tierDariPrioritas } from "@/lib/ai/source-analysis";
 import {
@@ -100,8 +100,11 @@ export default async function Beranda() {
   const sorotan = terbaruLain.slice(0, 2);
   const terbaruSisa = terbaruLain.slice(2);
 
+  // Plasma (25 Nov 2026): AreaPulse membungkus .wadah — klik di
+  // area kosong beranda memicu gelombang cincin (pulse); klik
+  // tautan/tombol/input tidak memicu apa-apa.
   return (
-    <div className="wadah">
+    <AreaPulse className="wadah">
       {adaArtikel && utama ? (
         <>
           {/* Layar pertama muka baru: strip TERKINI + hero
@@ -357,6 +360,6 @@ export default async function Beranda() {
           <NewsletterForm />
         </div>
       </section>
-    </div>
+    </AreaPulse>
   );
 }

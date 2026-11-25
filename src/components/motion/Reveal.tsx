@@ -1,12 +1,15 @@
 // PRATA FAKTA — Reveal + Stagger (Fase 3 redesign).
 // Reveal masuk viewport SEKALI (once) lalu menetap — Motion
 // memakai IntersectionObserver di balik whileInView.
-// Hanya opacity + translateY (transform), durasi token dasar.
+// Plasma (25 Nov 2026): entrance memakai spring fisis aurora
+// (stiffness 120 / damping 11) — formIn ~0.25 dtk, sedikit
+// overshoot kenyal, bukan fade datar. Hanya opacity +
+// translateY (transform).
 
 "use client";
 
 import { motion } from "motion/react";
-import { DURASI_DASAR, MOTION_EASE, STAGGER_KARTU } from "./token";
+import { SPRING_AURORA, STAGGER_KARTU } from "./token";
 
 type RevealProps = {
   children: React.ReactNode;
@@ -17,15 +20,15 @@ type RevealProps = {
   className?: string;
 };
 
-/** Reveal sekali saat masuk viewport. */
-export function Reveal({ children, delay = 0, y = 12, className }: RevealProps) {
+/** Reveal sekali saat masuk viewport (spring aurora 120/11). */
+export function Reveal({ children, delay = 0, y = 16, className }: RevealProps) {
   return (
     <motion.div
       className={className}
       initial={{ opacity: 0, y }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-40px" }}
-      transition={{ duration: DURASI_DASAR, ease: MOTION_EASE, delay }}
+      transition={{ ...SPRING_AURORA, delay }}
     >
       {children}
     </motion.div>
@@ -38,11 +41,11 @@ const varianGrup = {
 };
 
 const varianButir = {
-  tersembunyi: { opacity: 0, y: 12 },
+  tersembunyi: { opacity: 0, y: 16 },
   tampil: {
     opacity: 1,
     y: 0,
-    transition: { duration: DURASI_DASAR, ease: MOTION_EASE },
+    transition: SPRING_AURORA,
   },
 };
 
