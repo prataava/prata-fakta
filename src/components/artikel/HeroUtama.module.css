@@ -5,10 +5,12 @@
  * animasi hanya transform/opacity. */
 
 /* Panggung: foto absolut (GambarArtikel varian sinema) di
- * z-0, gradasi z-1, isi z-2 sebagai flex item (z-index berlaku
- * untuk flex item tanpa position — .isi SENGAJA tidak
- * di-position agar ::after tautan judul meregang ke seluruh
- * .sinema, bukan hanya kotak isi). */
+ * z-0, gradasi z-1, isi z-2 sebagai flex item.
+ * BUGFIX (25 Nov 2026): .isi DIBERI position agar ::after
+ * tautan judul meregang hanya ke kotak isi (kolom konten,
+ * max-width 1200px), bukan ke seluruh .sinema selebar halaman
+ * — sebelumnya gutter + area foto kosong di atas isi ikut
+ * menavigasi saat tak sengaja ketap. */
 .sinema {
   position: relative;
   width: 100vw;
@@ -69,6 +71,7 @@
 }
 
 .isi {
+  position: relative;
   z-index: 2;
   width: 100%;
   max-width: var(--maxw);
@@ -134,8 +137,10 @@
   text-decoration: none;
 }
 
-/* Stretched link: seluruh panggung hero dapat diklik dari
- * tautan judul (satu tab stop). */
+/* Stretched link: kolom isi hero dapat diklik dari tautan judul
+ * (satu tab stop). ::after meregang ke .isi (position: relative)
+ * — BUKAN ke seluruh .sinema: gutter + area foto kosong di luar
+ * isi tidak menavigasi. */
 .tautanJudul::after {
   content: "";
   position: absolute;

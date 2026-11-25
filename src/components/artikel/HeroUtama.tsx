@@ -4,8 +4,11 @@
 // halaman artikel), gradasi gelap dari bawah, judul serif
 // raksasa menimpa foto, kicker kategori + lencana verifikasi
 // di atas foto, ringkasan + tanggal + tombol baca di dalam
-// area foto. Seluruh hero dapat diklik lewat tautan judul
-// (stretched link) — satu tab stop saja.
+// area foto. Kolom isi hero dapat diklik lewat tautan judul
+// (stretched link) — satu tab stop saja. BUGFIX (25 Nov 2026):
+// ::after meregang ke .isi saja (position: relative di CSS),
+// bukan ke seluruh hero selebar halaman — gutter + area foto
+// kosong di atas isi tidak lagi menavigasi saat tak sengaja ketap.
 // Tanpa foto (atau foto GAGAL dimuat): fallback blok gelap
 // berani dengan tipografi raksasa — bukan kartu kosong.
 // Client component (state gagal-muat + GambarArtikel); data
