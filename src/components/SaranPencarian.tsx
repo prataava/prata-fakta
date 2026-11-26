@@ -308,7 +308,9 @@ export default function SaranPencarian({
           item.url.startsWith("http://") || item.url.startsWith("https://");
         const isi = (
           <>
-            <span className="saran-teks">{item.teks}</span>
+            {/* Teks saran dipotong ellipsis (P5): teks lengkap
+              tersedia lewat tooltip. */}
+            <span className="saran-teks" title={item.teks}>{item.teks}</span>
             {item.jenis ? (
               <span className="saran-jenis">{item.jenis}</span>
             ) : null}

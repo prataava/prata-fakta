@@ -263,7 +263,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 9px 10px;
+  padding: 12px 10px; /* target ketuk ≥44px (P2); dulu 9px ≈ 38px */
   border-radius: 8px;
   color: var(--ink);
   font-family: var(--font-sans);

@@ -59,7 +59,9 @@
   --plate: rgb(255 255 255 / 0.62);
   --faint: rgba(13, 26, 34, 0.12);
   --code: rgb(13 26 34 / 0.08); /* latar seg/preset & blok kode */
-  --danger: #ef4444;
+  --danger: #b91c1c; /* merah gelap — #ef4444 lama hanya 3.76:1
+    sebagai teks di atas putih (gagal AA); #b91c1c = 6.47:1
+    (teks) / 5.83:1 (#eef4f6 di atasnya) — lolos 4.5:1. */
   --warn: #92400e; /* amber — sinyal peringatan (teks aman) */
   --shadow: 0 1px 2px rgba(13, 26, 34, 0.06), 0 4px 16px rgba(13, 26, 34, 0.06);
   --shadow-glass: 0 1px 2px rgba(13, 26, 34, 0.08), 0 8px 24px rgba(13, 26, 34, 0.1);
@@ -142,6 +144,25 @@
 html {
   color-scheme: light;
   scroll-behavior: smooth;
+  /* Fokus/jangkar tidak tertutup masthead sticky (WCAG 2.4.11):
+   * tinggi masthead DIUKUR di browser (bukan asumsi): ≈110px di
+   * HP, ≈223px di 768px, ≈263px di 1024px (bertumpuk: wordmark +
+   * aksi + cari + strip meta + sub-bar), ≈217px di 1440px
+   * (masthead koran 2 baris + sub-bar). Hanya memengaruhi
+   * pengguliran ke jangkar/fokus, bukan tata letak. */
+  scroll-padding-top: 120px;
+}
+
+@media (min-width: 768px) {
+  html {
+    scroll-padding-top: 275px;
+  }
+}
+
+@media (min-width: 1200px) {
+  html {
+    scroll-padding-top: 230px;
+  }
 }
 
 [data-theme="dark"] html,
@@ -496,17 +517,19 @@ main.konten {
   padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   /* Footer juga harus bebas dari dock: baris terakhir (hak cipta)
    * sebelumnya tertutup lensa kaca saat gulir mentok (ditemukan
    * verifikasi CDP V2, 16 Nov 2026) — footer bukan anak main,
-   * jadi padding main.konten tidak melindunginya. */
+   * jadi padding main.konten tidak melindunginya. Dock tampil
+   * sampai 1023px (breakpoint nav/dock), jadi padding ini ikut
+   * sampai 1023px. */
   .footer {
     padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
   }
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   main.konten {
     padding-bottom: 48px;
   }
@@ -541,13 +564,16 @@ main.konten {
 
 /* Sub-bar navigasi: garis batas 1px di atas sebagai pemisah
  * dari baris masthead — lebar penuh, isi tetap dalam kolom
- * .wadah. Di HP nav disembunyikan (CSS .nav-utama), sub-bar
- * ikut disembunyikan agar tidak menyisakan garis kosong. */
+ * .wadah. Nav desktop 8 pintu butuh 980px (diukur) sehingga
+ * baru muat ≥1024px; di bawah itu sub-bar disembunyikan dan
+ * navigasi lewat dock bawah (breakpoint dock ikut 1024px,
+ * lihat .prata-glass-dock) — sebelumnya batas 768px membuat
+ * item Arsip/Jelajahi terpotong tak terjangkau di 768–1023px. */
 .header-subbar {
   border-top: 1px solid var(--border);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .header-subbar {
     display: none;
   }
@@ -668,6 +694,11 @@ main.konten {
 
   .header-aksi .tombol-ikon {
     padding: 6px 7px;
+    /* Masthead ≤480px sempit (logo + 5 aksi): lebar tombol ikon
+     * kembali ke konten agar baris muat — tinggi 44px dari
+     * .tombol-ikon tetap berlaku, dan 32px lebar ≥ minimum
+     * WCAG 24px. */
+    min-width: 0;
   }
 
   .header-aksi .tombol-ikon svg {
@@ -698,13 +729,14 @@ main.konten {
 }
 
 /* ---------- Navigasi utama (V3 Fase 3) ---------- */
-/* Baris 2 header desktop: tepat 8 pintu inti. Disembunyikan di HP
- * (<768px) — navigasi HP lewat dock bawah + /jelajahi (Lainnya). */
+/* Baris 2 header desktop: tepat 8 pintu inti. Butuh 980px
+ * (diukur) — tampil ≥1024px; di bawah itu navigasi lewat
+ * dock bawah (lihat .prata-glass-dock). */
 .nav-utama {
   display: none;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .nav-utama {
     display: flex;
     align-items: center;
@@ -931,6 +963,7 @@ main.konten {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 44px; /* target ketuk ≥44px di mobile (UI-UX Pro Max P2) */
   padding: 10px 18px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -962,12 +995,17 @@ main.konten {
 }
 
 .tombol-ikon {
+  min-width: 44px; /* target ketuk 44×44 (P2); di masthead ≤480px
+    lebar dikembalikan ke konten (lihat override di bawah) agar
+    baris aksi tetap muat — tinggi 44px tetap berlaku. */
+  min-height: 44px;
   padding: 8px 10px;
   border-radius: 10px;
 }
 
 .tombol:disabled {
-  opacity: 0.55;
+  opacity: 0.5; /* dalam rentang disabled 0.38–0.5 (P2); 0.55 lama
+    terlalu samar bedanya dengan keadaan aktif */
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -1079,6 +1117,8 @@ main.konten {
   font-weight: 600;
   color: var(--accent);
   flex-shrink: 0;
+  /* Target ketuk ≥24px (P2): tinggi baris teks saja ~22px. */
+  padding: 4px 2px;
 }
 
 .seksi-kepala a:hover {
@@ -1551,6 +1591,13 @@ a.kartu:hover::before,
   gap: 8px;
 }
 
+/* Tautan footer: target ketuk ≥24px (P2) — tinggi baris teks
+ * saja ~23px, jadi beri padding vertikal. */
+.footer ul a {
+  display: inline-block;
+  padding: 2px 0;
+}
+
 .footer a:hover {
   color: #34d399;
 }
@@ -1674,7 +1721,8 @@ a.kartu:hover::before,
 .prata-glass-label {
   display: block;
   max-width: 100%;
-  font-size: 10px;
+  font-size: 11px; /* 10px lama terlalu kecil untuk label nav
+    utama mobile (P6); "Kategori" tetap muat di kolom ~55px */
   font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
@@ -1723,7 +1771,7 @@ a.kartu:hover::before,
   }
 
   .prata-glass-label {
-    font-size: 9px;
+    font-size: 10px;
   }
 
   .prata-glass-icon svg {
@@ -1733,7 +1781,7 @@ a.kartu:hover::before,
 }
 
 /* Desktop */
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .prata-glass-dock {
     display: none;
   }
@@ -1813,6 +1861,7 @@ a.kartu:hover::before,
 }
 
 .chip {
+  min-height: 44px; /* target ketuk ≥44px (P2); dulu ~42px */
   padding: 9px 16px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -2091,6 +2140,7 @@ a.kartu:hover::before,
 }
 
 .mode-baca button {
+  min-height: 44px; /* target ketuk ≥44px (P2); dulu ~38px */
   padding: 8px 14px;
   border: none;
   background: transparent;
@@ -2468,7 +2518,7 @@ td details summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px; /* target ketuk ≥44px (P2); dulu 10px ≈ 43px */
   border-radius: 8px;
   color: var(--ink);
   text-decoration: none;
@@ -2641,7 +2691,7 @@ td details summary {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px;
+  padding: 8px; /* target ketuk ≥24px (P2); dulu 2px 4px ≈ 23px */
   border: none;
   background: transparent;
   color: var(--muted);
@@ -2662,7 +2712,7 @@ td details summary {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px; /* target ketuk ≥44px (P2); dulu 10px ≈ 43px */
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -2742,6 +2792,8 @@ td details summary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 44px; /* target ketuk 44×44 (P2); dulu ~32px */
+  min-height: 44px;
   padding: 8px;
   border: none;
   border-radius: 8px;

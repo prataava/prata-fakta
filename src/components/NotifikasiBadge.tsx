@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Bell } from "lucide-react";
 
 // Lencana notifikasi di Header (Gelombang B2-D, E1).
 // Membaca jumlah belum dibaca dari /api/notifikasi/jumlah saat
@@ -58,7 +59,10 @@ export default function NotifikasiBadge() {
           : "Notifikasi — buka daftar notifikasi"
       }
     >
-      🔔
+      {/* Ikon lonceng = SVG Lucide Bell (UI-UX Pro Max P4: tanpa
+        emoji sebagai ikon; emoji 🔔 lama diganti). aria-hidden —
+        label dibaca dari aria-label tautan. */}
+      <Bell size={20} aria-hidden="true" />
       {jumlah > 0 ? (
         <span
           aria-hidden="true"

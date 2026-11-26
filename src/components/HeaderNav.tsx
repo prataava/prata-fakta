@@ -10,8 +10,10 @@
 // (.header-subbar di Header.tsx, berbatas 1px) — rute, pintu,
 // dropdown, dan active state TIDAK berubah; hanya wadahnya yang
 // pindah dari dalam .wadah baris atas ke sub-bar lebar penuh.
-// Mobile (<768px): nav ini disembunyikan (CSS) — navigasi HP lewat
-// dock bawah + /jelajahi (Lainnya), sesuai brief Fase 4–5.
+// Mobile/tablet (<1024px): nav ini disembunyikan (CSS) —
+// navigasi lewat dock bawah + /jelajahi (Lainnya), sesuai
+// brief Fase 4–5. Nav desktop 8 pintu butuh 980px (diukur)
+// sehingga baru tampil ≥1024px.
 // Ikon: SATU library (lucide-react), ukuran konsisten 17–18px.
 // P3-3 (17 Nov 2026): label 8 pintu + "Semua kategori" dari kamus
 // (src/lib/i18n.ts, cookie pf-bahasa via useBahasa). Label item

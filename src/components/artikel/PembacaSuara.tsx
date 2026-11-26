@@ -9,6 +9,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pause, Play, Square } from "lucide-react";
 import gaya from "./PembacaSuara.module.css";
 
 type StatusSuara = "berhenti" | "memutar" | "jeda";
@@ -208,12 +209,14 @@ export default function PembacaSuara({
             onClick={putar}
             disabled={!adaTeks}
           >
-            ▶ Putar
+            {/* Ikon putar/jeda/berhenti = SVG Lucide (P4); glif teks
+              ▶/⏸/⏹ lama diganti agar satu keluarga ikon. */}
+            <Play size={18} aria-hidden="true" /> Putar
           </button>
         )}
         {sedangMemutar && (
           <button type="button" className="tombol" onClick={jeda}>
-            ⏸ Jeda
+            <Pause size={18} aria-hidden="true" /> Jeda
           </button>
         )}
         {sedangJeda && (
@@ -222,12 +225,12 @@ export default function PembacaSuara({
             className="tombol tombol-primer"
             onClick={lanjutkan}
           >
-            ▶ Lanjutkan
+            <Play size={18} aria-hidden="true" /> Lanjutkan
           </button>
         )}
         {(sedangMemutar || sedangJeda) && (
           <button type="button" className="tombol" onClick={berhenti}>
-            ⏹ Berhenti
+            <Square size={18} aria-hidden="true" /> Berhenti
           </button>
         )}
         <label className={gaya["pembaca-suara-kecepatan"]}>

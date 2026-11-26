@@ -281,7 +281,12 @@ export default async function Beranda() {
               <Link className="kartu" href={`/kategori/${k.slug}`}>
                 <span className="kartu-kategori">{k.nama}</span>
                 <span className="kartu-judul">{k.deskripsi}</span>
-                <span className="kartu-meta">
+                {/* Sub-kategori dipotong di 4 + "…" (P5): daftar lengkap
+                  tersedia lewat tooltip agar tidak ada info tersembunyi. */}
+                <span
+                  className="kartu-meta"
+                  title={k.sub.map((s) => s.nama).join(" · ")}
+                >
                   {k.sub.slice(0, 4).map((s) => s.nama).join(" · ")}
                   {k.sub.length > 4 ? " · …" : ""}
                 </span>

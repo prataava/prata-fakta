@@ -29,7 +29,8 @@
 }
 
 .pembaca-suara-kecepatan select {
-  padding: 0.35rem 0.5rem;
+  min-height: 44px; /* target ketuk ≥44px (P2); dulu ~30px */
+  padding: 10px 8px;
   border-radius: 0.5rem;
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);

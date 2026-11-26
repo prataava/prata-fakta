@@ -70,7 +70,7 @@
   font-weight: 600;
   white-space: nowrap;
   text-decoration: none;
-  padding: 10px 0;
+  padding: 12px 0; /* target ketuk ≥44px (P2); dulu 10px ≈ 43px */
 }
 
 .butir:hover {
