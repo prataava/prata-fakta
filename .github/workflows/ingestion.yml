@@ -51,10 +51,13 @@
 
 name: Ingestion PRATA FAKTA
 
+# Cutover 26 Nov 2026: jadwal cron Actions DIMATIKAN — pemicu ingestion
+# sekarang pg_cron pf-ingestion-30mnt (migrasi v28, Supabase).
+# Jadwal ganda menyebabkan tabrakan lock 15 menit (run #34 gagal
+# 4 detik, 19:00 WIB 26 Nov 2026). Workflow ini tetap bisa dipicu
+# manual (workflow_dispatch). Untuk mengembalikan: tambahkan lagi
+# blok schedule di bawah ini.
 on:
-  schedule:
-    # Setiap 30 menit.
-    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       sumber_id:
