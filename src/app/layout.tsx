@@ -101,6 +101,12 @@ export default async function RootLayout({
     <html lang="id" suppressHydrationWarning>
       <head>
         <TemaInit />
+        {/* Google AdSense — verifikasi situs + penayangan iklan (pub-1916865860801626) */}
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1916865860801626"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
         <Header />
