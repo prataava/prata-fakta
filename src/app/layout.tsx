@@ -46,9 +46,28 @@ export const metadata: Metadata = {
   description:
     "Platform berita dan pengetahuan digital: berita terkini Indonesia dan dunia dengan sumber jelas, pemeriksaan fakta, data, dan kronologi.",
   openGraph: {
+    title: "PRATA FAKTA — Pahami dunia. Berdasarkan fakta.",
+    description:
+      "Platform berita dan pengetahuan digital: berita terkini Indonesia dan dunia dengan sumber jelas, pemeriksaan fakta, data, dan kronologi.",
+    url: "https://prata-fakta.vercel.app",
     siteName: "PRATA FAKTA",
     locale: "id_ID",
     type: "website",
+    images: [
+      {
+        url: "https://prata-fakta.vercel.app/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "PRATA FAKTA — Pahami dunia. Berdasarkan fakta.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PRATA FAKTA — Pahami dunia. Berdasarkan fakta.",
+    description:
+      "Platform berita dan pengetahuan digital: berita terkini Indonesia dan dunia dengan sumber jelas, pemeriksaan fakta, data, dan kronologi.",
+    images: ["https://prata-fakta.vercel.app/opengraph-image"],
   },
   robots: { index: true, follow: true },
   manifest: "/manifest.webmanifest",
